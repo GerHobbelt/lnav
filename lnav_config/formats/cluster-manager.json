@@ -1,0 +1,71 @@
+{
+    "cluster_manager" : {
+        "title" : "cluster_manager Format",
+        "description" : "cluster manager log",
+        "url" : "",
+        "file-pattern": "cluster-manager.log",
+        "regex" : {
+            "activate" : {
+                "pattern" : "^(?<day>time=.20[0-9]{2}-[0-9]{2}-[0-9]{2}T)(?<timestamp>[0-9]{2}:[0-9]{2}:[0-9]{2})Z. (?<levelt>level=)(?<level>info|debug|error|warning).*calling activate.*func.*election_name.*elections.*.*ClusterManager server_id=(?<server_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+            },
+           "line" : {
+                "pattern" : "^(?<day>time=.20[0-9]{2}-[0-9]{2}-[0-9]{2}T)(?<timestamp>[0-9]{2}:[0-9]{2}:[0-9]{2})Z. level=(?<level>info|debug|error|warning) msg=.* func=.[a-z]{2,20}.* file=.[a-z]{2,30}.go:[0-9]{1,5}.$"
+            },
+           "election_line" : {
+		     "pattern" : "^(?<day>time=.20[0-9]{2}-[0-9]{2}-[0-9]{2}T)(?<timestamp>[0-9]{2}:[0-9]{2}:[0-9]{2})Z. level=(?<level>info|debug|error|warning) msg=.* (?<gocode>func=.[a-z]{2,20}.* file=.[a-z]{2,30}.go:[0-9]{1,5}.) election_name=.*"
+		   } 
+        },
+        "level-field" : "level",
+        "level" : {
+            "error" : "ERROR",
+            "warning" : "WARNING",
+            "debug" : "DEBUG",
+            "info" : "INFO"
+        },
+        "value" : {
+            "level" : {
+                "kind" : "string",
+                "identifier" : false,
+                "hidden" : true
+            }
+        },
+        "value" : {
+            "levelt" : {
+                "kind" : "string",
+                "identifier" : false,
+                "hidden" : true
+            }
+        },
+        "value" : {
+            "gocode" : {
+                "kind" : "string",
+                "identifier" : false,
+                "hidden" : true
+            }
+        },
+        "value" : {
+            "day" : {
+                "kind" : "string",
+                "identifier" : true,
+                "hidden" : true
+            }
+        },
+        "value" : {
+            "server_id" : {
+                "kind" : "string",
+                "identifier" : true
+            }
+        },
+       "value" : {
+            "time" : {
+                "kind" : "string",
+                "identifier" : true
+            }
+        },
+        "sample" : [
+            {
+                "line" : "time=\"2020-07-16T09:55:25Z\" level=info msg=\"calling activate\" func=\"session.(*candidate).activate\" file=\"candidate.go:81\" election_name=/elections/ClusterManager server_id=492ae764-0d04-4aa7-aeed-188c30c335fa server_name="
+            }
+        ]
+    }
+}
