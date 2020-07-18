@@ -14,7 +14,10 @@
            "volume_registry" : {
                 "pattern" : "^(?<day>time=.20[0-9]{2}-[0-9]{2}-[0-9]{2}T)(?<timestamp>[0-9]{2}:[0-9]{2}:[0-9]{2})Z. (?<levelt>level=)(?<level>info|debug|error|warning).(?<msg>msg=.*)(?<volume__registry_idt>.registry.cluster.volumes.)(?<volume_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?<volume_info>.*typeMeta.*)(?<protectiongroup_idt>ProtectionGroupUUID.*)(?<pg_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?<volume_addinfo>.*)(?<volume_state_idt>State.)....(?<volume_state>[a-zA-Z]{2,20})(?<volume_add2>.*)(?<gocode>func=.[a-z]{2,20}.* file=.[a-z_]{2,30}.go:[0-9]{1,5}.)"
             },
-
+           "check we are in state" : {
+		     "pattern" : "^(?<day>time=.20[0-9]{2}-[0-9]{2}-[0-9]{2}T)(?<timestamp>[0-9]{2}:[0-9]{2}:[0-9]{2})Z. level=(?<level>info|debug|error|warning)(?<msg_state_id>.msg=.Check if we are in state.)(?<check_state>.*)(?<gocode>func=.fsm.*file=.*.go:[0-9]{1,5}.*fsm:=[a-zA-Z]{2,30}.)(?<fsm_id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+	   
+           },         
            "election_line" : {
 		     "pattern" : "^(?<day>time=.20[0-9]{2}-[0-9]{2}-[0-9]{2}T)(?<timestamp>[0-9]{2}:[0-9]{2}:[0-9]{2})Z. level=(?<level>info|debug|error|warning) msg=.* (?<gocode>func=.[a-z_]{2,20}.* file=.[a-z]{2,30}.go:[0-9]{1,5}.) election_name=.*"
 		   } 
