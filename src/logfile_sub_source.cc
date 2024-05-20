@@ -1905,11 +1905,6 @@ logfile_sub_source::text_clear_marks(const bookmark_type_t* bm)
         for (iter = this->lss_user_marks[bm].begin();
              iter != this->lss_user_marks[bm].end();)
         {
-            auto line_meta_opt = this->find_bookmark_metadata(*iter);
-            if (line_meta_opt) {
-                ++iter;
-                continue;
-            }
             this->find_line(*iter)->set_mark(false);
             iter = this->lss_user_marks[bm].erase(iter);
         }
@@ -2871,7 +2866,9 @@ logfile_sub_source::text_size_for_line(textview_curses& tc,
         std::string value;
 
         this->text_value_for_line(tc, row, value, flags);
-        this->lss_line_size_cache[index].second = value.size();
+        scrub_ansi_string(value, nullptr);
+        this->lss_line_size_cache[index].second
+            = string_fragment::from_str(value).column_width();
         this->lss_line_size_cache[index].first = row;
     }
     return this->lss_line_size_cache[index].second;

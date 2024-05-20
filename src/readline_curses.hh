@@ -186,7 +186,9 @@ public:
 
     void start();
 
-    void do_update() override;
+    bool do_update() override;
+
+    bool handle_mouse(mouse_event& me) override;
 
     void window_change();
 

@@ -233,6 +233,7 @@ list(APPEND GEN_SRCS default-config.h default-config.cc)
 set(BUILTIN_LNAV_SCRIPTS
         scripts/dhclient-summary.lnav
         scripts/docker-url-handler.lnav
+        scripts/journald-url-handler.lnav
         scripts/lnav-pop-view.lnav
         scripts/partition-by-boot.lnav
         scripts/piper-url-handler.lnav
@@ -288,6 +289,7 @@ add_library(
         third-party/date/src/tz.cpp
 )
 target_include_directories(datepp PUBLIC third-party/date/include)
+target_link_libraries(datepp ${lnav_LIBS})
 
 add_library(
         cppscnlib STATIC

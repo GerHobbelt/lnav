@@ -194,23 +194,13 @@ const std::vector<std::string> lnav_zoom_strings = {
 };
 
 static const std::vector<std::string> DEFAULT_DB_KEY_NAMES = {
-    "capture_count",
-    "capture_index",
-    "device",
-    "id",
-    "inode",
-    "key",
-    "match_index",
-    "parent",
-    "range_start",
-    "range_stop",
-    "rowid",
-    "st_dev",
-    "st_gid",
-    "st_ino",
-    "st_mode",
-    "st_rdev",
-    "st_uid",
+    "$id",         "capture_count", "capture_index",
+    "device",      "enabled",       "filter_id",
+    "id",          "inode",         "key",
+    "match_index", "parent",        "range_start",
+    "range_stop",  "rowid",         "st_dev",
+    "st_gid",      "st_ino",        "st_mode",
+    "st_rdev",     "st_uid",
 };
 
 static auto bound_pollable_supervisor
@@ -237,6 +227,8 @@ static auto bound_term_extra = injector::bind<term_extra>::to_singleton();
 static auto bound_xterm_mouse = injector::bind<xterm_mouse>::to_singleton();
 
 static auto bound_scripts = injector::bind<available_scripts>::to_singleton();
+
+static auto bound_crumbs = injector::bind<breadcrumb_curses>::to_singleton();
 
 static auto bound_curl
     = injector::bind_multiple<isc::service_base>()
@@ -283,8 +275,6 @@ force_linking(services::main_t anno)
 {
 }
 }  // namespace injector
-
-static breadcrumb_curses breadcrumb_view;
 
 struct lnav_data_t lnav_data;
 
@@ -377,6 +367,12 @@ static void
 handle_rl_key(int ch)
 {
     switch (ch) {
+        case KEY_F(2):
+            if (xterm_mouse::is_available()) {
+                auto& mouse_i = injector::get<xterm_mouse&>();
+                mouse_i.set_enabled(!mouse_i.is_enabled());
+            }
+            break;
         case KEY_PPAGE:
         case KEY_NPAGE:
         case KEY_CTRL('p'):
@@ -675,51 +671,18 @@ update_view_position(listview_curses* lv)
     };
 }
 
-class lnav_behavior : public mouse_behavior {
-public:
-    void mouse_event(int button, bool release, int x, int y) override
-    {
-        textview_curses* tc = *(lnav_data.ld_view_stack.top());
-        struct mouse_event me;
-
-        switch (button & xterm_mouse::XT_BUTTON__MASK) {
-            case xterm_mouse::XT_BUTTON1:
-                me.me_button = mouse_button_t::BUTTON_LEFT;
-                break;
-            case xterm_mouse::XT_BUTTON2:
-                me.me_button = mouse_button_t::BUTTON_MIDDLE;
-                break;
-            case xterm_mouse::XT_BUTTON3:
-                me.me_button = mouse_button_t::BUTTON_RIGHT;
-                break;
-            case xterm_mouse::XT_SCROLL_UP:
-                me.me_button = mouse_button_t::BUTTON_SCROLL_UP;
-                break;
-            case xterm_mouse::XT_SCROLL_DOWN:
-                me.me_button = mouse_button_t::BUTTON_SCROLL_DOWN;
-                break;
-        }
-
-        if (button & xterm_mouse::XT_DRAG_FLAG) {
-            me.me_state = mouse_button_state_t::BUTTON_STATE_DRAGGED;
-        } else if (release) {
-            me.me_state = mouse_button_state_t::BUTTON_STATE_RELEASED;
-        } else {
-            me.me_state = mouse_button_state_t::BUTTON_STATE_PRESSED;
-        }
-
-        gettimeofday(&me.me_time, nullptr);
-        me.me_x = x - 1;
-        me.me_y = y - tc->get_y() - 1;
-
-        tc->handle_mouse(me);
-    }
-};
-
 static bool
 handle_config_ui_key(int ch)
 {
     bool retval = false;
+
+    if (ch == KEY_F(2)) {
+        if (xterm_mouse::is_available()) {
+            auto& mouse_i = injector::get<xterm_mouse&>();
+            mouse_i.set_enabled(!mouse_i.is_enabled());
+        }
+        return retval;
+    }
 
     switch (lnav_data.ld_mode) {
         case ln_mode_t::FILES:
@@ -773,6 +736,8 @@ handle_config_ui_key(int ch)
 static bool
 handle_key(int ch)
 {
+    static auto* breadcrumb_view = injector::get<breadcrumb_curses*>();
+
     lnav_data.ld_input_state.push_back(ch);
 
     switch (ch) {
@@ -782,7 +747,7 @@ handle_key(int ch)
             switch (lnav_data.ld_mode) {
                 case ln_mode_t::PAGING:
                     if (ch == '`') {
-                        breadcrumb_view.focus();
+                        breadcrumb_view->focus();
                         lnav_data.ld_mode = ln_mode_t::BREADCRUMBS;
                         return true;
                     }
@@ -790,7 +755,7 @@ handle_key(int ch)
                     return handle_paging_key(ch);
 
                 case ln_mode_t::BREADCRUMBS:
-                    if (ch == '`' || !breadcrumb_view.handle_key(ch)) {
+                    if (ch == '`' || !breadcrumb_view->handle_key(ch)) {
                         lnav_data.ld_mode = ln_mode_t::PAGING;
                         lnav_data.ld_view_stack.set_needs_update();
                         return true;
@@ -1037,6 +1002,7 @@ looper()
 {
     static auto* ps = injector::get<pollable_supervisor*>();
     static auto* filter_source = injector::get<filter_sub_source*>();
+    static auto* breadcrumb_view = injector::get<breadcrumb_curses*>();
 
     try {
         auto* sql_cmd_map = injector::get<readline_context::command_map_t*,
@@ -1198,10 +1164,12 @@ looper()
 
         ui_periodic_timer::singleton();
 
-        auto mouse_i = injector::get<xterm_mouse&>();
+        auto& mouse_i = injector::get<xterm_mouse&>();
 
         mouse_i.set_behavior(&lb);
-        mouse_i.set_enabled(check_experimental("mouse"));
+        mouse_i.set_enabled(check_experimental("mouse")
+                            || lnav_config.lc_mouse_mode
+                                == lnav_mouse_mode::enabled);
 
         lnav_data.ld_window = sc.get_window();
         keypad(stdscr, TRUE);
@@ -1270,7 +1238,6 @@ looper()
         execute_examples();
 
         rlc->set_window(lnav_data.ld_window);
-        rlc->set_y(-1);
         rlc->set_focus_action(rl_focus);
         rlc->set_change_action(rl_change);
         rlc->set_perform_action(rl_callback);
@@ -1303,9 +1270,15 @@ looper()
 
         vsb.push_back(sb);
 
-        breadcrumb_view.set_y(1);
-        breadcrumb_view.set_window(lnav_data.ld_window);
-        breadcrumb_view.set_line_source(lnav_crumb_source);
+        breadcrumb_view->on_focus
+            = [](breadcrumb_curses&) { set_view_mode(ln_mode_t::BREADCRUMBS); };
+        breadcrumb_view->on_blur = [](breadcrumb_curses&) {
+            set_view_mode(ln_mode_t::PAGING);
+            lnav_data.ld_view_stack.set_needs_update();
+        };
+        breadcrumb_view->set_y(1);
+        breadcrumb_view->set_window(lnav_data.ld_window);
+        breadcrumb_view->set_line_source(lnav_crumb_source);
         auto event_handler = [](auto&& tc) {
             auto top_view = lnav_data.ld_view_stack.top();
 
@@ -1325,6 +1298,13 @@ looper()
                 = role_t::VCR_DISABLED_CURSOR_LINE;
             lnav_data.ld_views[lpc].tc_state_event_handler = event_handler;
         }
+        lnav_data.ld_views[LNV_DB].set_supports_marks(true);
+        lnav_data.ld_views[LNV_HELP].set_supports_marks(true);
+        lnav_data.ld_views[LNV_HISTOGRAM].set_supports_marks(true);
+        lnav_data.ld_views[LNV_LOG].set_supports_marks(true);
+        lnav_data.ld_views[LNV_TEXT].set_supports_marks(true);
+        lnav_data.ld_views[LNV_SCHEMA].set_supports_marks(true);
+        lnav_data.ld_views[LNV_PRETTY].set_supports_marks(true);
 
         lnav_data.ld_doc_view.set_window(lnav_data.ld_window);
         lnav_data.ld_doc_view.set_show_scrollbar(false);
@@ -1339,10 +1319,12 @@ looper()
         lnav_data.ld_preview_view[1].set_window(lnav_data.ld_window);
         lnav_data.ld_preview_view[1].set_show_scrollbar(false);
 
+        lnav_data.ld_filter_view.set_title("Text Filters");
         lnav_data.ld_filter_view.set_selectable(true);
         lnav_data.ld_filter_view.set_window(lnav_data.ld_window);
         lnav_data.ld_filter_view.set_show_scrollbar(true);
 
+        lnav_data.ld_files_view.set_title("Files");
         lnav_data.ld_files_view.set_selectable(true);
         lnav_data.ld_files_view.set_window(lnav_data.ld_window);
         lnav_data.ld_files_view.set_show_scrollbar(true);
@@ -1383,11 +1365,37 @@ looper()
 
         auto top_source = injector::get<std::shared_ptr<top_status_source>>();
 
-        lnav_data.ld_status[LNS_TOP].set_top(0);
+        lnav_data.ld_bottom_source.get_field(bottom_status_source::BSF_HELP)
+            .on_click
+            = [](status_field&) { ensure_view(&lnav_data.ld_views[LNV_HELP]); };
+        lnav_data.ld_bottom_source
+            .get_field(bottom_status_source::BSF_LINE_NUMBER)
+            .on_click
+            = [](status_field&) {
+                  auto cmd = fmt::format(
+                      FMT_STRING("prompt command : 'goto {}'"),
+                      (int) lnav_data.ld_view_stack.top().value()->get_top());
+
+                  execute_command(lnav_data.ld_exec_context, cmd);
+              };
+        lnav_data.ld_bottom_source
+            .get_field(bottom_status_source::BSF_SEARCH_TERM)
+            .on_click
+            = [](status_field&) {
+                  auto term = lnav_data.ld_view_stack.top()
+                                  .value()
+                                  ->get_current_search();
+                  auto cmd
+                      = fmt::format(FMT_STRING("prompt search / '{}'"), term);
+
+                  execute_command(lnav_data.ld_exec_context, cmd);
+              };
+
+        lnav_data.ld_status[LNS_TOP].set_y(0);
         lnav_data.ld_status[LNS_TOP].set_default_role(
             role_t::VCR_INACTIVE_STATUS);
         lnav_data.ld_status[LNS_TOP].set_data_source(top_source.get());
-        lnav_data.ld_status[LNS_BOTTOM].set_top(-(rlc->get_height() + 1));
+        lnav_data.ld_status[LNS_BOTTOM].set_y(-(rlc->get_height() + 1));
         for (auto& stat_bar : lnav_data.ld_status) {
             stat_bar.set_window(lnav_data.ld_window);
         }
@@ -1602,11 +1610,13 @@ looper()
             }
 
             if (lnav_data.ld_mode == ln_mode_t::BREADCRUMBS
-                && breadcrumb_view.get_needs_update())
+                && breadcrumb_view->get_needs_update())
             {
                 lnav_data.ld_view_stack.set_needs_update();
             }
-            lnav_data.ld_view_stack.do_update();
+            if (lnav_data.ld_view_stack.do_update()) {
+                breadcrumb_view->set_needs_update();
+            }
             lnav_data.ld_doc_view.do_update();
             lnav_data.ld_example_view.do_update();
             lnav_data.ld_match_view.do_update();
@@ -1626,7 +1636,7 @@ looper()
             if (filter_source->fss_editing) {
                 filter_source->fss_match_view.set_needs_update();
             }
-            breadcrumb_view.do_update();
+            breadcrumb_view->do_update();
             // These updates need to be done last so their readline views can
             // put the cursor in the right place.
             switch (lnav_data.ld_mode) {
@@ -1694,6 +1704,11 @@ looper()
 
             gettimeofday(&current_time, nullptr);
             lnav_data.ld_input_dispatcher.poll(current_time);
+
+            if (lb.lb_last_view != nullptr) {
+                lb.lb_last_event.me_time = current_time;
+                lb.lb_last_view->handle_mouse(lb.lb_last_event);
+            }
 
             if (rc < 0) {
                 switch (errno) {
@@ -2835,9 +2850,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
     lnav_data.ld_preview_view[0].set_sub_source(
         &lnav_data.ld_preview_source[0]);
     lnav_data.ld_filter_view.set_sub_source(filter_source)
-        .add_input_delegate(*filter_source)
-        .add_child_view(&filter_source->fss_match_view)
-        .add_child_view(filter_source->fss_editor.get());
+        .add_input_delegate(*filter_source);
     lnav_data.ld_files_view.set_sub_source(&lnav_data.ld_files_source)
         .add_input_delegate(lnav_data.ld_files_source);
     lnav_data.ld_user_message_view.set_sub_source(

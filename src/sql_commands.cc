@@ -485,7 +485,7 @@ static readline_context::command_t sql_commands[] = {
             .with_parameter({"table", "The table to use as a source"})
             .with_example({
                 "To pull data from the 'http_status_codes' database table",
-                "from db.http_status_codes | take 3",
+                "from http_status_codes | take 3",
                 help_example::language::prql,
             })
             .with_example({
@@ -661,6 +661,25 @@ static readline_context::command_t sql_commands[] = {
             .with_example({
                 "To count rows for a particular value of column 'a'",
                 "from [{a=1}, {a=1}, {a=2}] | stats.count_by a",
+                help_example::language::prql,
+            }),
+        nullptr,
+        "prql-source",
+        {"prql-source"},
+    },
+    {
+        "stats.hist",
+        prql_cmd_sort,
+        help_text("stats.hist", "Count values per bucket of time")
+            .prql_function()
+            .with_tags({"prql"})
+            .with_parameter(help_text{"col", "The column to count"})
+            .with_parameter(help_text{"slice", "The time slice"}
+                                .optional()
+                                .with_default_value("'5m'"))
+            .with_example({
+                "To chart the values of ex_procname over time",
+                "from lnav_example_log | stats.hist ex_procname",
                 help_example::language::prql,
             }),
         nullptr,

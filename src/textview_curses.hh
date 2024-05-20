@@ -385,7 +385,7 @@ public:
     {
     }
 
-    void register_view(textview_curses* tc) { this->tss_view = tc; }
+    virtual void register_view(textview_curses* tc) { this->tss_view = tc; }
 
     /**
      * @return The total number of lines available from the source.
@@ -551,8 +551,6 @@ class text_delegate {
 public:
     virtual ~text_delegate() = default;
 
-    virtual void text_overlay(textview_curses& tc) {}
-
     virtual bool text_handle_mouse(textview_curses& tc, mouse_event& me)
     {
         return false;
@@ -607,6 +605,12 @@ public:
     textview_curses& set_sub_source(text_sub_source* src);
 
     text_sub_source* get_sub_source() const { return this->tc_sub_source; }
+
+    textview_curses& set_supports_marks(bool m)
+    {
+        this->tc_supports_marks = m;
+        return *this;
+    }
 
     textview_curses& set_delegate(std::shared_ptr<text_delegate> del)
     {
@@ -725,14 +729,6 @@ public:
     bool handle_mouse(mouse_event& me);
 
     void reload_data();
-
-    void do_update()
-    {
-        this->listview_curses::do_update();
-        if (this->tc_delegate != nullptr) {
-            this->tc_delegate->text_overlay(*this);
-        }
-    }
 
     bool toggle_hide_fields()
     {
@@ -857,11 +853,11 @@ protected:
     highlight_map_t tc_highlights;
     std::set<highlight_source_t> tc_disabled_highlights;
 
-    vis_line_t tc_selection_start{-1_vl};
-    vis_line_t tc_selection_last{-1_vl};
-    bool tc_selection_cleared{false};
+    nonstd::optional<vis_line_t> tc_selection_start;
+    mouse_event tc_press_event;
     bool tc_hide_fields{true};
     bool tc_paused{false};
+    bool tc_supports_marks{false};
 
     std::string tc_current_search;
     std::string tc_previous_search;
