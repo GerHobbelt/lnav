@@ -11,45 +11,89 @@ _This is the source repository for **lnav**, visit [https://lnav.org](https://ln
 
 # LNAV -- The Logfile Navigator
 
-The Log File Navigator, **lnav** for short, is an advanced log file viewer
-for the small-scale.  It is a terminal application that can understand
-your log files and make it easy for you to find problems with little to
-no setup.
+The Logfile Navigator is a log file viewer for the terminal.  Given a
+set of files/directories, **lnav** will:
+
+- decompress as needed;
+- detect their format;
+- merge the files together by time into a single view;
+- tail the files, follow renames, find new files in directories;
+- build an index of errors and warnings;
+- [pretty-print JSON-lines](https://docs.lnav.org/en/latest/formats.html#json-lines).
+
+Then, in the **lnav** TUI, you can:
+
+- jump quickly to the previous/next error ([press `e`/`E`](https://docs.lnav.org/en/latest/hotkeys.html#spatial-navigation));
+- search using regular expressions ([press `/`](https://docs.lnav.org/en/latest/hotkeys.html#spatial-navigation));
+- highlight text with a regular expression ([`:highlight`](https://docs.lnav.org/en/latest/commands.html#highlight-pattern) command);
+- filter messages using [regular expressions](https://docs.lnav.org/en/latest/usage.html#regular-expression-match) or [SQLite expressions](https://docs.lnav.org/en/latest/usage.html#sqlite-expression);
+- pretty-print structured text ([press `P`](https://docs.lnav.org/en/latest/ui.html#pretty));
+- view a histogram of messages over time ([press `i`](https://docs.lnav.org/en/latest/ui.html#hist));
+- query messages using SQLite ([press `;`](https://docs.lnav.org/en/latest/sqlext.html))
 
 ## Screenshot
 
-The following screenshot shows a syslog file. Log lines are displayed with
-highlights. Errors are red and warnings are yellow.
+The following screenshot shows a mix of syslog and web access log
+files.  Failed requests are shown in red.  Identifiers, like IP
+address and PIDs are semantically highlighted.
 
-[![Screenshot](docs/assets/images/lnav-syslog-thumb.png)](docs/assets/images/lnav-syslog.png)
+[![Screenshot](docs/assets/images/lnav-front-page.png)](docs/assets/images/lnav-front-page.png)
 
-## Features
+## Why not **just** use `tail`/`grep`/`less`?
 
-- Log messages from different files are collated together into a single view
-- Automatic detection of log format
-- Automatic decompression of GZip and BZip2 files
-- Filter log messages based on regular expressions
-- Use SQL to analyze your logs
-- And more...
+The standard Unix utilities are great for processing raw text lines,
+however, they do not understand log messages.  Tail can watch
+multiple files at a time, but it won't display messages in order by
+time and you can't scroll backwards.  Grep will only find matching
+lines, but won't return a full multi-line log message.  Less can only
+display a single file at a time.  Also, none of these basic tools 
+handle compressed files.
+
+## Try online before installing
+
+You can SSH into a demo node to play with lnav before installing.
+
+The "playground" account starts lnav with a couple of log files as
+an example:
+
+[`$ ssh playground@demo.lnav.org`](ssh://playground@demo.lnav.org)
+
+The "tutorial 1" account is an interactive tutorial that can teach 
+you the basics of operation:
+
+[`$ ssh tutorial1@demo.lnav.org`](ssh://tutorial1@demo.lnav.org)
 
 ## Installation
 
 [Download a statically-linked binary for Linux/MacOS from the release page](https://github.com/tstack/lnav/releases/latest#release-artifacts)
 
+### Brew on MacOS
+
+```console
+$ brew install lnav
+```
+
 ## Usage
 
-The only file installed is the executable, `lnav`.  You can execute it
-with no arguments to view the default set of files:
+Simply point **lnav** at the files or directories you want to
+monitor, it will figure out the rest:
 
-```
-$ lnav
+```console
+$ lnav /path/to/file1 /path/to/dir ...
 ```
 
-You can view all the syslog messages by running:
+The **lnav** TUI will pop up right away and begin indexing the 
+files. Progress is displayed in the "Files" panel at the 
+bottom. Once the indexing has finished, the LOG view will display 
+the log messages that were recognized[^1]. You can then use the 
+usual hotkeys to move around the view (arrow keys or
+`j`/`k`/`h`/`l` to move down/up/left/right).
 
-```
-$ lnav /var/log/messages*
-```
+See the [Usage section](https://docs.lnav.org/en/latest/usage.html)
+of the online documentation for more information.
+
+[^1]: Files that do not contain log messages can be seen in the 
+      TEXT view (reachable by pressing `t`).
 
 ### Usage with `systemd-journald`
 

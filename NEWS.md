@@ -122,6 +122,11 @@ Features:
 * Added a `log_msg_values` column to the `all_logs` SQL
   table that contains a JSON object with the top 5 values
   for the fields extracted from the log message.
+* Added `:next-section` and `:prev-section` commands for
+  moving to the next and previous section of a document.
+  For example, the next section in a man page or JSON
+  array.  The default keymap has been changed to bind
+  the curly brace keys to these commands.
 * Added Nextcloud log format from Adam Monsen.
 * Added GitHub Event Log format for files from gharchive.org.
   It makes a good example of a JSON-Lines format.
@@ -158,6 +163,9 @@ Interface changes:
   used to draw the overlay contents now as well. (The
   overlay is used to display the parser details, comments,
   and annotations.)
+* The `{` and `}` keys have been changed from moving
+  through the "location history" to moving to the previous
+  and next section in a document.
 * Added indent guidelines when structured data is detected.
 
 Breaking changes:
@@ -166,9 +174,11 @@ Breaking changes:
   the data is now stored (and cleaned up) as well as being
   spread across multiple files, this option doesn't make
   sense anymore.
-* Removed the `-t` command-line flag.  Text data fed in
-  on stdin and captured from a `:sh` execution is
-  automatically timestamped.
+* The `-t` command-line flag behaves a little differently
+  behind the scenes now.  Timestamps will always be
+  recorded for each line piped into lnav.  This flag means
+  that the data should be treated as a log file instead of
+  plain text.
 * Data piped into **lnav** is now stored in the work
   directory instead of the `stdin-captures` dot-lnav
   directory.

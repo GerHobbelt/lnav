@@ -904,7 +904,7 @@ rl_focus(readline_curses* rc)
     auto fos = (field_overlay_source*) lnav_data.ld_views[LNV_LOG]
                    .get_overlay_source();
 
-    fos->fos_contexts.emplace("", false, true);
+    fos->fos_contexts.emplace("", false, true, true);
 
     get_textview_for_mode(lnav_data.ld_mode)->save_current_search();
 }
@@ -912,11 +912,12 @@ rl_focus(readline_curses* rc)
 void
 rl_blur(readline_curses* rc)
 {
-    auto* tc = *lnav_data.ld_view_stack.top();
     auto fos = (field_overlay_source*) lnav_data.ld_views[LNV_LOG]
                    .get_overlay_source();
 
     fos->fos_contexts.pop();
-    tc->set_sync_selection_and_top(false);
+    for (auto& tc : lnav_data.ld_views) {
+        tc.set_sync_selection_and_top(false);
+    }
     lnav_data.ld_preview_generation += 1;
 }

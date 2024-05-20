@@ -647,6 +647,10 @@ make it easier to navigate through files quickly.
         .append("     ")
         .append("Execute a shell command-line.\n")
         .append("  ")
+        .append("-t"_symbol)
+        .append("         ")
+        .append("Treat data piped into standard in as a log file.\n")
+        .append("  ")
         .append("-n"_symbol)
         .append("         ")
         .append("Run without the curses UI. (headless mode)\n")
@@ -2469,6 +2473,8 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
             "-R", lnav_data.ld_active_files.fc_rotated, "rotated");
         auto* recurse_flag = app.add_flag(
             "-r", lnav_data.ld_active_files.fc_recursive, "recurse");
+        auto* as_log_flag
+            = app.add_flag("-t", lnav_data.ld_treat_stdin_as_log, "as-log");
         app.add_flag("-W", mode_flags.mf_print_warnings);
         auto* headless_flag = app.add_flag(
             "-n",
@@ -2549,6 +2555,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
 
         install_flag->needs(file_opt);
         install_flag->excludes(no_default_flag,
+                               as_log_flag,
                                rotated_flag,
                                recurse_flag,
                                headless_flag,
@@ -2826,7 +2833,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
         .set_word_wrap(false);
     auto log_fos = new field_overlay_source(lnav_data.ld_log_source,
                                             lnav_data.ld_text_source);
-    log_fos->fos_contexts.emplace("", false, true);
+    log_fos->fos_contexts.emplace("", false, true, true);
     lnav_data.ld_views[LNV_LOG]
         .set_sub_source(&lnav_data.ld_log_source)
 #if 0
@@ -2947,6 +2954,9 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
     lnav_data.ld_vtab_manager->register_vtab(
         std::make_shared<log_format_vtab_impl>(
             *log_format::find_root_format("generic_log")));
+    lnav_data.ld_vtab_manager->register_vtab(
+        std::make_shared<log_format_vtab_impl>(
+            *log_format::find_root_format("lnav_piper_log")));
 
     for (auto& iter : log_format::get_root_formats()) {
         auto lvi = iter->get_vtab_impl();
@@ -3253,10 +3263,12 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                     auto stdin_piper = stdin_piper_res.unwrap();
                     stdin_url = stdin_piper.get_url();
                     stdin_dir = stdin_piper.get_out_dir();
-                    lnav_data.ld_active_files
-                        .fc_file_names[stdin_piper.get_name()]
-                        .with_piper(stdin_piper)
-                        .with_include_in_session(false);
+                    auto& loo = lnav_data.ld_active_files
+                                    .fc_file_names[stdin_piper.get_name()];
+                    loo.with_piper(stdin_piper).with_include_in_session(false);
+                    if (lnav_data.ld_treat_stdin_as_log) {
+                        loo.with_text_format(text_format_t::TF_LOG);
+                    }
                 }
             }
         } else if (S_ISREG(stdin_st.st_mode)) {
@@ -3356,6 +3368,9 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                     cmd_results;
                 textview_curses *log_tc, *text_tc, *tc;
                 bool output_view = true;
+
+                log_fos->fos_contexts.top().c_show_applicable_annotations
+                    = false;
 
                 view_colors::init(true);
                 rescan_files(true);

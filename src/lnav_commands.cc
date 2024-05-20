@@ -466,7 +466,45 @@ com_set_file_timezone_prompt(exec_context& ec, const std::string& cmdline)
                 retval = fmt::format(FMT_STRING("{} {} {}"),
                                      trim(cmdline),
                                      date::get_tzdb().current_zone()->name(),
-                                     line_pair->first->get_filename());
+                                     pattern_arg);
+            } catch (const std::runtime_error& e) {
+                log_error("cannot get timezones: %s", e.what());
+            }
+        }
+    }
+
+    return retval;
+}
+
+static std::string
+com_clear_file_timezone_prompt(exec_context& ec, const std::string& cmdline)
+{
+    std::string retval;
+
+    auto* tc = *lnav_data.ld_view_stack.top();
+    auto* lss = dynamic_cast<logfile_sub_source*>(tc->get_sub_source());
+
+    if (lss != nullptr && lss->text_line_count() > 0) {
+        auto line_pair = lss->find_line_with_file(lss->at(tc->get_selection()));
+        if (line_pair) {
+            try {
+                static auto& safe_options_hier
+                    = injector::get<lnav::safe_file_options_hier&>();
+
+                safe::ReadAccess<lnav::safe_file_options_hier> options_hier(
+                    safe_options_hier);
+                auto file_zone = date::get_tzdb().current_zone()->name();
+                auto pattern_arg = line_pair->first->get_filename();
+                auto match_res
+                    = options_hier->match(line_pair->first->get_filename());
+                if (match_res) {
+                    file_zone
+                        = match_res->second.fo_default_zone.pp_value->name();
+                    pattern_arg = match_res->first;
+                }
+
+                retval = fmt::format(
+                    FMT_STRING("{} {}"), trim(cmdline), pattern_arg);
             } catch (const std::runtime_error& e) {
                 log_error("cannot get timezones: %s", e.what());
             }
@@ -546,7 +584,7 @@ com_convert_time_to(exec_context& ec,
         return ec.make_error("expecting a timezone name");
     }
 
-    auto* tc = *lnav_data.ld_view_stack.top();
+    const auto* tc = *lnav_data.ld_view_stack.top();
     auto* lss = dynamic_cast<logfile_sub_source*>(tc->get_sub_source());
 
     if (lss != nullptr) {
@@ -554,17 +592,28 @@ com_convert_time_to(exec_context& ec,
             return ec.make_error("no log messages to examine");
         }
 
-        auto ll = lss->find_line(lss->at(tc->get_selection()));
+        const auto* ll = lss->find_line(lss->at(tc->get_selection()));
         try {
-            auto* tz = date::locate_zone(args[1]);
-            auto utime = std::chrono::system_clock::from_time_t(ll->get_time());
-            auto ztime = date::make_zoned(tz, utime);
+            auto* dst_tz = date::locate_zone(args[1]);
+            auto utime = date::local_time<std::chrono::seconds>{
+                std::chrono::seconds{ll->get_time()}};
+            auto cz_time = lnav::to_sys_time(utime);
+            auto dz_time = date::make_zoned(dst_tz, cz_time);
             auto etime = std::chrono::duration_cast<std::chrono::seconds>(
-                ztime.get_local_time().time_since_epoch());
+                dz_time.get_local_time().time_since_epoch());
             char ftime[128];
             sql_strftime(
                 ftime, sizeof(ftime), etime.count(), ll->get_millis(), 'T');
             retval = ftime;
+
+            off_t off = 0;
+            exttm tm;
+            tm.et_flags |= ETF_ZONE_SET;
+            tm.et_gmtoff = dz_time.get_info().offset.count();
+            ftime_Z(ftime, off, sizeof(ftime), tm);
+            ftime[off] = '\0';
+            retval.append(" ");
+            retval.append(ftime);
         } catch (const std::runtime_error& e) {
             return ec.make_error(FMT_STRING("Unable to get timezone: {} -- {}"),
                                  args[1],
@@ -1139,6 +1188,62 @@ com_goto_location(exec_context& ec,
                 }
                 | [tc](auto new_top) { tc->set_selection(new_top); };
         };
+    }
+
+    return Ok(retval);
+}
+
+static Result<std::string, lnav::console::user_message>
+com_next_section(exec_context& ec,
+                 std::string cmdline,
+                 std::vector<std::string>& args)
+{
+    std::string retval;
+
+    if (args.empty()) {
+    } else if (!ec.ec_dry_run) {
+        auto* tc = *lnav_data.ld_view_stack.top();
+        auto* ta = dynamic_cast<text_anchors*>(tc->get_sub_source());
+
+        if (ta == nullptr) {
+            return ec.make_error("view does not support sections");
+        }
+
+        auto adj_opt = ta->adjacent_anchor(tc->get_selection(),
+                                           text_anchors::direction::next);
+        if (!adj_opt) {
+            return ec.make_error("no next section found");
+        }
+
+        tc->set_selection(adj_opt.value());
+    }
+
+    return Ok(retval);
+}
+
+static Result<std::string, lnav::console::user_message>
+com_prev_section(exec_context& ec,
+                 std::string cmdline,
+                 std::vector<std::string>& args)
+{
+    std::string retval;
+
+    if (args.empty()) {
+    } else if (!ec.ec_dry_run) {
+        auto* tc = *lnav_data.ld_view_stack.top();
+        auto* ta = dynamic_cast<text_anchors*>(tc->get_sub_source());
+
+        if (ta == nullptr) {
+            return ec.make_error("view does not support sections");
+        }
+
+        auto adj_opt = ta->adjacent_anchor(tc->get_selection(),
+                                           text_anchors::direction::prev);
+        if (!adj_opt) {
+            return ec.make_error("no previous section found");
+        }
+
+        tc->set_selection(adj_opt.value());
     }
 
     return Ok(retval);
@@ -1738,11 +1843,8 @@ com_save_to(exec_context& ec,
         size_t count = 0;
 
         if (fos != nullptr) {
-            fos->fos_contexts.push(field_overlay_source::context{
-                "",
-                false,
-                false,
-            });
+            fos->fos_contexts.push(
+                field_overlay_source::context{"", false, false, false});
         }
 
         auto y = 0_vl;
@@ -5676,7 +5778,7 @@ readline_context::command_t STD_COMMANDS[] = {
                              .with_format(help_parameter_format_t::HPF_INTEGER))
          .with_example({"To convert the epoch time 1490191111", "1490191111"})},
     {
-        "convert-time",
+        "convert-time-to",
         com_convert_time_to,
         help_text(":convert-time-to")
             .with_summary("Convert the focused timestamp to the given timezone")
@@ -5693,7 +5795,8 @@ readline_context::command_t STD_COMMANDS[] = {
             .with_parameter(help_text{"pattern",
                                       "The glob pattern to match against "
                                       "files that should use this timezone"}
-                                .optional()),
+                                .optional())
+            .with_tags({"file-options"}),
         com_set_file_timezone_prompt,
     },
     {
@@ -5705,7 +5808,9 @@ readline_context::command_t STD_COMMANDS[] = {
             .with_parameter(
                 help_text{"pattern",
                           "The glob pattern to match against files that should "
-                          "no longer use this timezone"}),
+                          "no longer use this timezone"})
+            .with_tags({"file-options"}),
+        com_clear_file_timezone_prompt,
     },
     {"current-time",
      com_current_time,
@@ -5820,6 +5925,24 @@ readline_context::command_t STD_COMMANDS[] = {
      help_text(":prev-location")
          .with_summary("Move to the previous position in the location history")
          .with_tags({"navigation"})},
+
+    {
+        "next-section",
+        com_next_section,
+
+        help_text(":next-section")
+            .with_summary("Move to the next section in the document")
+            .with_tags({"navigation"}),
+    },
+    {
+        "prev-section",
+        com_prev_section,
+
+        help_text(":prev-section")
+            .with_summary("Move to the previous section in the document")
+            .with_tags({"navigation"}),
+    },
+
     {"help",
      com_help,
 

@@ -133,6 +133,8 @@ logfile::open(std::string filename, const logfile_open_options& loo, auto_fd fd)
     lf->lf_index.reserve(INDEX_RESERVE_INCREMENT);
 
     lf->lf_indexing = lf->lf_options.loo_is_visible;
+    lf->lf_text_format
+        = lf->lf_options.loo_text_format.value_or(text_format_t::TF_UNKNOWN);
 
     const auto& hdr = lf->lf_line_buffer.get_header_data();
     if (hdr.valid()) {
@@ -310,6 +312,7 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                   this->lf_index.size(),
                   li.li_file_range.fr_offset,
                   li.li_file_range.fr_size);
+        auto starting_index_size = this->lf_index.size();
         size_t prev_index_size = this->lf_index.size();
         for (const auto& curr : root_formats) {
             if (this->lf_index.size()
@@ -437,13 +440,13 @@ logfile::process_prefix(shared_buffer_ref& sbr,
              */
             const auto& last_line = this->lf_index.back();
 
-            for (size_t lpc = 0; lpc < this->lf_index.size() - 1; lpc++) {
+            require_lt(starting_index_size, this->lf_index.size());
+            for (size_t lpc = 0; lpc < starting_index_size; lpc++) {
                 if (this->lf_format->lf_multiline) {
+                    this->lf_index[lpc].set_time(last_line.get_time());
+                    this->lf_index[lpc].set_millis(last_line.get_millis());
                     if (this->lf_format->lf_structured) {
                         this->lf_index[lpc].set_ignore(true);
-                    } else {
-                        this->lf_index[lpc].set_time(last_line.get_time());
-                        this->lf_index[lpc].set_millis(last_line.get_millis());
                     }
                 } else {
                     this->lf_index[lpc].set_time(last_line.get_time());

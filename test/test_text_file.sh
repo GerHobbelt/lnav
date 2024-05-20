@@ -1,5 +1,6 @@
 #! /bin/bash
 
+export TZ=UTC
 export YES_COLOR=1
 unset XDG_CONFIG_HOME
 
@@ -79,3 +80,35 @@ run_cap_test ${lnav_test} -n \
     -c ';SELECT top_meta FROM lnav_top_view' \
     -c ':write-json-to -' \
     ${test_dir}/formats/jsontest/format.json
+
+run_cap_test ${lnav_test} -n \
+    -c ':goto 3' \
+    -c ':next-section' \
+    ${test_dir}/books.json
+
+run_cap_test ${lnav_test} -n \
+    -c ':goto 3' \
+    -c ':next-section' \
+    < ${test_dir}/books.json
+
+run_cap_test ${lnav_test} -n \
+    -c ':goto #/catalog/1/title' \
+    ${test_dir}/books.json
+
+run_cap_test ${lnav_test} -n \
+    -c ':goto #/catalog/1/title' \
+    < ${test_dir}/books.json
+
+echo "Hello, World!" | run_cap_test env TEST_COMMENT="piper crumbs" ${lnav_test} -n \
+    -c ';SELECT top_meta FROM lnav_top_view' \
+    -c ':write-json-to -'
+
+echo "Hello, World!" | run_cap_test \
+    env TEST_COMMENT="piper crumbs" TZ=America/Los_Angeles \
+    ${lnav_test} -n \
+    -c ';SELECT top_meta FROM lnav_top_view' \
+    -c ':write-json-to -'
+
+echo "Hello, World!" | run_cap_test \
+    env TEST_COMMENT="piper crumbs" TZ=America/Los_Angeles \
+    ${lnav_test} -nt
