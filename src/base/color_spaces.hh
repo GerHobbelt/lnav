@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020, Timothy Stack
+ * Copyright (c) 2024, Timothy Stack
  *
  * All rights reserved.
  *
@@ -27,26 +27,68 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "string_attr_type.hh"
+#ifndef color_spaces_hh
+#define color_spaces_hh
 
-#include "config.h"
+struct rgb_color {
+    explicit rgb_color(short r = -1, short g = -1, short b = -1)
+        : rc_r(r), rc_g(g), rc_b(b)
+    {
+    }
 
-string_attr_type<void> SA_ORIGINAL_LINE("original_line");
-string_attr_type<void> SA_BODY("body");
-string_attr_type<void> SA_HIDDEN("hidden");
-string_attr_type<const intern_string_t> SA_FORMAT("format");
-string_attr_type<void> SA_REMOVED("removed");
-string_attr_type<void> SA_PREFORMATTED("preformatted");
-string_attr_type<std::string> SA_INVALID("invalid");
-string_attr_type<std::string> SA_ERROR("error");
-string_attr_type<int64_t> SA_LEVEL("level");
-string_attr_type<int64_t> SA_ORIGIN_OFFSET("origin-offset");
+    bool empty() const
+    {
+        return this->rc_r == -1 && this->rc_g == -1 && this->rc_b == -1;
+    }
 
-string_attr_type<role_t> VC_ROLE("role");
-string_attr_type<role_t> VC_ROLE_FG("role-fg");
-string_attr_type<text_attrs> VC_STYLE("style");
-string_attr_type<int64_t> VC_GRAPHIC("graphic");
-string_attr_type<block_elem_t> VC_BLOCK_ELEM("block-elem");
-string_attr_type<int64_t> VC_FOREGROUND("foreground");
-string_attr_type<int64_t> VC_BACKGROUND("background");
-string_attr_type<std::string> VC_HYPERLINK("hyperlink");
+    bool operator==(const rgb_color& rhs) const;
+
+    bool operator!=(const rgb_color& rhs) const;
+
+    bool operator<(const rgb_color& rhs) const;
+
+    bool operator>(const rgb_color& rhs) const;
+
+    bool operator<=(const rgb_color& rhs) const;
+
+    bool operator>=(const rgb_color& rhs) const;
+
+    short rc_r;
+    short rc_g;
+    short rc_b;
+};
+
+struct lab_color {
+    lab_color() : lc_l(0), lc_a(0), lc_b(0) {}
+
+    explicit lab_color(const rgb_color& rgb);
+
+    double deltaE(const lab_color& other) const;
+
+    lab_color& operator=(const lab_color& other)
+    {
+        this->lc_l = other.lc_l;
+        this->lc_a = other.lc_a;
+        this->lc_b = other.lc_b;
+
+        return *this;
+    }
+
+    bool operator==(const lab_color& rhs) const;
+
+    bool operator!=(const lab_color& rhs) const;
+
+    bool operator<(const lab_color& rhs) const;
+
+    bool operator>(const lab_color& rhs) const;
+
+    bool operator<=(const lab_color& rhs) const;
+
+    bool operator>=(const lab_color& rhs) const;
+
+    double lc_l;
+    double lc_a;
+    double lc_b;
+};
+
+#endif

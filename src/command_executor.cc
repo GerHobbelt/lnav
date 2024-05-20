@@ -57,13 +57,6 @@ using namespace lnav::roles::literals;
 
 exec_context INIT_EXEC_CONTEXT;
 
-static const std::string MSG_FORMAT_STMT = R"(
-SELECT count(*) AS total, min(log_line) AS log_line, log_msg_format
-    FROM all_logs
-    GROUP BY log_msg_format
-    ORDER BY total DESC
-)";
-
 int
 sql_progress(const struct log_cursor& lc)
 {
@@ -286,10 +279,6 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
 
             return retval;
         }
-    }
-
-    if (stmt_str == ".msgformats") {
-        stmt_str = MSG_FORMAT_STMT;
     }
 
     ec.ec_accumulator->clear();
@@ -824,6 +813,8 @@ execute_init_commands(
 
             wait_for_children();
 
+            lnav_data.ld_view_stack.top() |
+                [&ec](auto* tc) { ec.ec_top_line = tc->get_selection(); };
             log_debug("init cmd: %s", cmd.c_str());
             {
                 auto _sg

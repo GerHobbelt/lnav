@@ -213,7 +213,7 @@ ts
 2013-09-06T22:00:59.124817Z
 2013-09-06T22:00:59.124817Z
 2013-09-06T22:00:59.124817Z
-2013-09-06T22:00:59.124817Z
+2013-09-06 22:01:00Z
 2013-09-06T22:01:49.124817Z
 2013-09-06T22:01:49.124817Z
 2013-09-06T22:01:49.124817Z
@@ -281,13 +281,18 @@ EOF
 
 run_cap_test ${lnav_test} -n \
     -c ":goto 2" \
-    -c ";SELECT log_top_line()" \
+    -c ";SELECT log_top_line(), log_msg_line()" \
     ${test_dir}/logfile_uwsgi.0
 
 run_cap_test ${lnav_test} -n \
     -c ":goto 2" \
-    -c ";SELECT log_top_line()" \
+    -c ";SELECT log_top_line(), log_msg_line()" \
     ${test_dir}/logfile_empty.0
+
+run_cap_test ${lnav_test} -n \
+    -c ":goto 1" \
+    -c ";SELECT log_top_line(), log_msg_line()" \
+    ${test_dir}/logfile_multiline.0
 
 run_cap_test ${lnav_test} -n \
     -c ":goto 2" \
@@ -872,6 +877,8 @@ check_output "write-json-to isn't working?" <<EOF
 ]
 EOF
 
+touch -t 200711030000 ${srcdir}/logfile_for_join.0
+
 run_cap_test ${lnav_test} -d "/tmp/lnav.err" -n \
     -c ";select log_line, col_0 from logline" \
     ${test_dir}/logfile_for_join.0
@@ -1098,3 +1105,7 @@ run_cap_test ${lnav_test} -n \
 
 run_cap_test ${lnav_test} -Nn \
      -c ";select *,case match_index when 2 then replicate('abc', 1000) else '' end from regexp_capture_into_json('10;50;50;50;', '(\d+);')"
+
+run_cap_test ${lnav_test} -n \
+     -c ";.msgformats" \
+     ${test_dir}/logfile_for_join.0

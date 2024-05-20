@@ -1134,6 +1134,8 @@ external_log_format::scan(logfile& lf,
             }
 
             if (jlu.jlu_opid_frag) {
+                this->jlf_line_values.lvv_opid_value
+                    = jlu.jlu_opid_frag->to_string();
                 auto opid_iter = sbc.sbc_opids.los_opid_ranges.find(
                     jlu.jlu_opid_frag.value());
                 if (opid_iter == sbc.sbc_opids.los_opid_ranges.end()) {
@@ -1177,6 +1179,8 @@ external_log_format::scan(logfile& lf,
                 auto& otr = opid_iter->second;
                 this->update_op_description(*this->lf_opid_description_def,
                                             otr.otr_description);
+            } else {
+                this->jlf_line_values.lvv_opid_value = nonstd::nullopt;
             }
 
             jlu.jlu_sub_line_count += this->jlf_line_format_init_count;
@@ -1645,6 +1649,7 @@ external_log_format::annotate(uint64_t line_number,
         if (opid_cap && !opid_cap->empty()) {
             sa.emplace_back(to_line_range(opid_cap.value()),
                             logline::L_OPID.value());
+            values.lvv_opid_value = opid_cap->to_string();
         }
     }
 
@@ -1761,11 +1766,35 @@ external_log_format::rewrite(exec_context& ec,
             vd_iter->second->vd_rewrite_src_name, 1, vd.vd_rewriter);
         std::string field_value;
 
-        auto exec_res = execute_any(ec, vd.vd_rewriter);
-        if (exec_res.isOk()) {
-            field_value = exec_res.unwrap();
-        } else {
-            field_value = exec_res.unwrapErr().to_attr_line().get_string();
+        auto_mem<FILE> tmpout(fclose);
+
+        tmpout = std::tmpfile();
+        if (!tmpout) {
+            log_error("unable to create temporary file");
+            return;
+        }
+        fcntl(fileno(tmpout), F_SETFD, FD_CLOEXEC);
+        auto fd_copy = auto_fd::dup_of(fileno(tmpout));
+        fd_copy.close_on_exec();
+        auto ec_out = std::make_pair(tmpout.release(), fclose);
+        {
+            exec_context::output_guard og(ec, "tmp", ec_out);
+
+            auto exec_res = execute_any(ec, vd.vd_rewriter);
+            if (exec_res.isOk()) {
+                field_value = exec_res.unwrap();
+            } else {
+                field_value = exec_res.unwrapErr().to_attr_line().get_string();
+            }
+        }
+        struct stat st;
+        fstat(fd_copy.get(), &st);
+        if (st.st_size > 0) {
+            auto buf = auto_buffer::alloc(st.st_size);
+
+            buf.resize(st.st_size);
+            pread(fd_copy.get(), buf.in(), st.st_size, 0);
+            field_value = buf.to_string();
         }
         value_out.erase(iter->lv_origin.lr_start, iter->lv_origin.length());
 
@@ -1793,17 +1822,40 @@ read_json_field(yajlpp_parse_context* ypc, const unsigned char* str, size_t len)
     auto frag = string_fragment::from_bytes(str, len);
 
     if (jlu->jlu_format->lf_timestamp_field == field_name) {
-        jlu->jlu_format->lf_date_time.scan(
+        const auto* last = jlu->jlu_format->lf_date_time.scan(
             (const char*) str,
             len,
             jlu->jlu_format->get_timestamp_formats(),
             &tm_out,
             tv_out);
-        // Leave off the machine oriented flag since we convert it anyhow
-        // in rewrite_json_field()
-        jlu->jlu_format->lf_timestamp_flags
-            = tm_out.et_flags & ~(ETF_MACHINE_ORIENTED | ETF_ZONE_SET);
-        jlu->jlu_base_line->set_time(tv_out);
+        if (last == nullptr) {
+            auto ls = jlu->jlu_format->lf_date_time.unlock();
+            if ((last = jlu->jlu_format->lf_date_time.scan(
+                     (const char*) str,
+                     len,
+                     jlu->jlu_format->get_timestamp_formats(),
+                     &tm_out,
+                     tv_out))
+                == nullptr)
+            {
+                jlu->jlu_format->lf_date_time.relock(ls);
+            }
+            if (last != nullptr) {
+                auto old_flags
+                    = jlu->jlu_format->lf_timestamp_flags & DATE_TIME_SET_FLAGS;
+                auto new_flags = tm_out.et_flags & DATE_TIME_SET_FLAGS;
+
+                // It is unlikely a valid timestamp would lose much
+                // precision.
+                if (new_flags != old_flags) {
+                    last = nullptr;
+                }
+            }
+        }
+        if (last != nullptr) {
+            jlu->jlu_format->lf_timestamp_flags = tm_out.et_flags;
+            jlu->jlu_base_line->set_time(tv_out);
+        }
     } else if (jlu->jlu_format->elf_level_pointer.pp_value != nullptr) {
         if (jlu->jlu_format->elf_level_pointer.pp_value
                 ->find_in(field_name.to_string_fragment(), PCRE2_NO_UTF_CHECK)
@@ -1855,6 +1907,10 @@ rewrite_json_field(yajlpp_parse_context* ypc,
     json_log_userdata* jlu = (json_log_userdata*) ypc->ypc_userdata;
     const intern_string_t field_name = ypc->get_path();
 
+    if (jlu->jlu_format->elf_opid_field == field_name) {
+        auto frag = string_fragment::from_bytes(str, len);
+        jlu->jlu_format->jlf_line_values.lvv_opid_value = frag.to_string();
+    }
     if (jlu->jlu_format->lf_timestamp_field == field_name) {
         char time_buf[64];
 
@@ -1863,12 +1919,25 @@ rewrite_json_field(yajlpp_parse_context* ypc,
             struct timeval tv;
             struct exttm tm;
 
-            jlu->jlu_format->lf_date_time.scan(
+            const auto* last = jlu->jlu_format->lf_date_time.scan(
                 (const char*) str,
                 len,
                 jlu->jlu_format->get_timestamp_formats(),
                 &tm,
                 tv);
+            if (last == nullptr) {
+                auto ls = jlu->jlu_format->lf_date_time.unlock();
+                if ((last = jlu->jlu_format->lf_date_time.scan(
+                         (const char*) str,
+                         len,
+                         jlu->jlu_format->get_timestamp_formats(),
+                         &tm,
+                         tv))
+                    == nullptr)
+                {
+                    jlu->jlu_format->lf_date_time.relock(ls);
+                }
+            }
             sql_strftime(time_buf, sizeof(time_buf), tv, 'T');
         } else {
             sql_strftime(
@@ -2010,12 +2079,15 @@ external_log_format::get_subline(const logline& ll,
             struct line_range lr;
 
             memset(used_values, 0, sizeof(used_values));
-
             for (lv_iter = this->jlf_line_values.lvv_values.begin();
                  lv_iter != this->jlf_line_values.lvv_values.end();
                  ++lv_iter)
             {
                 lv_iter->lv_meta.lvm_format = this;
+            }
+            if (jlu.jlu_opid_frag) {
+                this->jlf_line_values.lvv_opid_value
+                    = jlu.jlu_opid_frag->to_string();
             }
 
             int sub_offset = 1 + this->jlf_line_format_init_count;
@@ -3022,6 +3094,16 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
 
                     errors.emplace_back(um);
                 }
+            } else if (!ts_cap) {
+                errors.emplace_back(
+                    lnav::console::user_message::error(
+                        attr_line_t("invalid sample log message: ")
+                            .append(lnav::to_json(elf_sample.s_line.pp_value)))
+                        .with_reason(attr_line_t("timestamp was not captured"))
+                        .with_snippet(elf_sample.s_line.to_snippet())
+                        .with_help(attr_line_t(
+                            "A timestamp needs to be captured in order for a "
+                            "line to be recognized as a log message")));
             } else {
                 attr_line_t notes;
 

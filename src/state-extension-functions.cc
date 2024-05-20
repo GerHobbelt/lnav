@@ -48,7 +48,31 @@ sql_log_top_line()
     if (tc.get_inner_height() == 0_vl) {
         return nonstd::nullopt;
     }
-    return (int64_t) tc.get_top();
+    return (int64_t) tc.get_selection();
+}
+
+static nonstd::optional<int64_t>
+sql_log_msg_line()
+{
+    const auto& tc = lnav_data.ld_views[LNV_LOG];
+
+    if (tc.get_inner_height() == 0_vl) {
+        return nonstd::nullopt;
+    }
+
+    auto top_line = tc.get_selection();
+    auto line_pair_opt = lnav_data.ld_log_source.find_line_with_file(top_line);
+    if (!line_pair_opt) {
+        return nonstd::nullopt;
+    }
+
+    auto ll = line_pair_opt.value().second;
+    while (ll->is_continued()) {
+        --ll;
+        top_line -= 1_vl;
+    }
+
+    return (int64_t) top_line;
 }
 
 static nonstd::optional<std::string>
@@ -61,7 +85,7 @@ sql_log_top_datetime()
     }
 
     auto top_time = lnav_data.ld_log_source.time_for_row(
-        lnav_data.ld_views[LNV_LOG].get_top());
+        lnav_data.ld_views[LNV_LOG].get_selection());
     if (!top_time) {
         return nonstd::nullopt;
     }
@@ -134,9 +158,16 @@ state_extension_functions(struct FuncDef** basic_funcs,
     static struct FuncDef state_funcs[] = {
         sqlite_func_adapter<decltype(&sql_log_top_line), sql_log_top_line>::
             builder(
-                help_text("log_top_line",
-                          "Return the line number at the top of the log view.")
+                help_text(
+                    "log_top_line",
+                    "Return the number of the focused line of the log view.")
                     .sql_function()),
+
+        sqlite_func_adapter<decltype(&sql_log_msg_line), sql_log_msg_line>::
+            builder(help_text("log_msg_line",
+                              "Return the starting line number of the focused "
+                              "log message.")
+                        .sql_function()),
 
         sqlite_func_adapter<decltype(&sql_log_top_datetime),
                             sql_log_top_datetime>::

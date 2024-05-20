@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020, Timothy Stack
+ * Copyright (c) 2024, Timothy Stack
  *
  * All rights reserved.
  *
@@ -27,26 +27,14 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "string_attr_type.hh"
+#ifndef from_trait_hh
+#define from_trait_hh
 
-#include "config.h"
+#include <string>
 
-string_attr_type<void> SA_ORIGINAL_LINE("original_line");
-string_attr_type<void> SA_BODY("body");
-string_attr_type<void> SA_HIDDEN("hidden");
-string_attr_type<const intern_string_t> SA_FORMAT("format");
-string_attr_type<void> SA_REMOVED("removed");
-string_attr_type<void> SA_PREFORMATTED("preformatted");
-string_attr_type<std::string> SA_INVALID("invalid");
-string_attr_type<std::string> SA_ERROR("error");
-string_attr_type<int64_t> SA_LEVEL("level");
-string_attr_type<int64_t> SA_ORIGIN_OFFSET("origin-offset");
+#include "result.h"
 
-string_attr_type<role_t> VC_ROLE("role");
-string_attr_type<role_t> VC_ROLE_FG("role-fg");
-string_attr_type<text_attrs> VC_STYLE("style");
-string_attr_type<int64_t> VC_GRAPHIC("graphic");
-string_attr_type<block_elem_t> VC_BLOCK_ELEM("block-elem");
-string_attr_type<int64_t> VC_FOREGROUND("foreground");
-string_attr_type<int64_t> VC_BACKGROUND("background");
-string_attr_type<std::string> VC_HYPERLINK("hyperlink");
+template<typename R, typename S>
+Result<R, std::string> from(S v);
+
+#endif
