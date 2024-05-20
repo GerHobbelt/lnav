@@ -332,6 +332,7 @@ dist_noinst_DATA = \
 	logfile_cloudflare.json \
 	logfile_cxx.0 \
 	logfile_docker_compose.0 \
+	logfile_docker_compose_with_noise.0 \
 	logfile_docker_compose_with_ts.0 \
 	logfile_empty.0 \
 	logfile_epoch.0 \
@@ -348,6 +349,7 @@ dist_noinst_DATA = \
 	logfile_invalid_json.json \
 	logfile_invalid_json2.json \
 	logfile_mixed_json2.json \
+	logfile_mux_zookeeper.0 \
 	logfile_journald.json \
 	logfile_json.json \
 	logfile_json2.json \
@@ -583,6 +585,7 @@ test_remote.sh.log: remote/ssh_host_dsa_key remote/ssh_host_rsa_key remote/id_rs
 distclean-local:
 	$(RM_V)rm -rf remote remote-tmp not:a:remote:dir
 	$(RM_V)rm -rf sessions
+	$(RM_V)rm -rf cfg
 	$(RM_V)rm -rf tmp
 	$(RM_V)rm -rf piper-tmp
 	$(RM_V)rm -rf rotmp

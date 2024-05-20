@@ -134,7 +134,6 @@ logfile::open(ghc::filesystem::path filename,
         lf->lf_valid_filename = false;
     }
 
-    lf->lf_content_id = hasher().update(lf->lf_filename).to_string();
     lf->lf_line_buffer.set_fd(lf_fd);
     lf->lf_index.reserve(INDEX_RESERVE_INCREMENT);
 
@@ -166,6 +165,10 @@ logfile::open(ghc::filesystem::path filename,
                          phdr.h_name.c_str());
                 lf->set_filename(phdr.h_name);
                 lf->lf_valid_filename = false;
+                if (phdr.h_demux_output == lnav::piper::demux_output_t::signal)
+                {
+                    lf->lf_text_format = text_format_t::TF_LOG;
+                }
 
                 lnav::file_options fo;
                 if (!phdr.h_timezone.empty()) {
@@ -186,6 +189,7 @@ logfile::open(ghc::filesystem::path filename,
     }
 
     lf->file_options_have_changed();
+    lf->lf_content_id = hasher().update(lf->lf_filename).to_string();
 
     ensure(lf->invariant());
 
@@ -319,17 +323,19 @@ logfile::process_prefix(shared_buffer_ref& sbr,
     time_t prescan_time = 0;
     bool retval = false;
 
-    if (this->lf_format.get() != nullptr) {
-        if (!this->lf_index.empty()) {
-            prescan_time = this->lf_index[prescan_size - 1].get_time();
-        }
-        /* We've locked onto a format, just use that scanner. */
-        found = this->lf_format->scan(*this, this->lf_index, li, sbr, sbc);
-    } else if (this->lf_options.loo_detect_format) {
+    if (this->lf_options.loo_detect_format
+        && (this->lf_format == nullptr || this->lf_index.size() < 250))
+    {
         const auto& root_formats = log_format::get_root_formats();
         std::optional<std::pair<log_format*, log_format::scan_match>>
             best_match;
         size_t scan_count = 0;
+
+        if (this->lf_format != nullptr) {
+            best_match = std::make_pair(
+                this->lf_format.get(),
+                log_format::scan_match{this->lf_format_quality});
+        }
 
         /*
          * Try each scanner until we get a match.  Fortunately, the formats
@@ -379,22 +385,41 @@ logfile::process_prefix(shared_buffer_ref& sbr,
             scan_count += 1;
             curr->clear();
             this->set_format_base_time(curr.get());
-            auto scan_res = curr->scan(*this, this->lf_index, li, sbr, sbc);
+            log_format::scan_result_t scan_res{mapbox::util::no_init{}};
+            if (this->lf_format != nullptr
+                && this->lf_format->lf_root_format == curr.get())
+            {
+                scan_res = this->lf_format->scan(
+                    *this, this->lf_index, li, sbr, sbc);
+            } else {
+                scan_res = curr->scan(*this, this->lf_index, li, sbr, sbc);
+            }
 
             scan_res.match(
-                [this, &curr, &best_match, &prev_index_size](
-                    const log_format::scan_match& sm) {
-                    if (!best_match
-                        || sm.sm_quality > best_match->second.sm_quality)
+                [this,
+                 &found,
+                 &curr,
+                 &best_match,
+                 &prev_index_size,
+                 starting_index_size](const log_format::scan_match& sm) {
+                    if (best_match && this->lf_format != nullptr
+                        && this->lf_format->lf_root_format == curr.get())
+                    {
+                        prev_index_size = this->lf_index.size();
+                        found = best_match->second;
+                    } else if (!best_match
+                               || sm.sm_quality > best_match->second.sm_quality)
                     {
                         log_info(
                             "  scan with format (%s) matched with quality (%d)",
                             curr->get_name().c_str(),
                             sm.sm_quality);
                         if (best_match) {
-                            auto last = this->lf_index.begin();
-                            std::advance(last, prev_index_size);
-                            this->lf_index.erase(this->lf_index.begin(), last);
+                            auto starting_iter = std::next(
+                                this->lf_index.begin(), starting_index_size);
+                            auto last_iter = std::next(this->lf_index.begin(),
+                                                       prev_index_size);
+                            this->lf_index.erase(starting_iter, last_iter);
                         }
                         best_match = std::make_pair(curr.get(), sm);
                         prev_index_size = this->lf_index.size();
@@ -415,10 +440,13 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                         "more data required",
                         curr->get_name().c_str());
                 },
-                [curr](const log_format::scan_no_match& snm) {
-                    log_trace("  scan with format (%s) does not match -- %s",
-                              curr->get_name().c_str(),
-                              snm.snm_reason);
+                [this, curr](const log_format::scan_no_match& snm) {
+                    if (this->lf_format == nullptr) {
+                        log_trace(
+                            "  scan with format (%s) does not match -- %s",
+                            curr->get_name().c_str(),
+                            snm.snm_reason);
+                    }
                 });
         }
 
@@ -428,7 +456,12 @@ logfile::process_prefix(shared_buffer_ref& sbr,
             this->lf_options.loo_detect_format = false;
         }
 
-        if (best_match) {
+        if (best_match
+            && (this->lf_format == nullptr
+                || ((this->lf_format->lf_root_format != best_match->first)
+                    && best_match->second.sm_quality
+                        > this->lf_format_quality)))
+        {
             auto winner = best_match.value();
             auto* curr = winner.first;
             log_info("%s:%d:log format found -- %s",
@@ -438,10 +471,14 @@ logfile::process_prefix(shared_buffer_ref& sbr,
 
             this->lf_text_format = text_format_t::TF_LOG;
             this->lf_format = curr->specialized();
+            this->lf_format_quality = winner.second.sm_quality;
             this->set_format_base_time(this->lf_format.get());
-            this->lf_content_id
-                = hasher().update(sbr.get_data(), sbr.length()).to_string();
+            if (this->lf_format->lf_date_time.dts_fmt_lock != -1) {
+                this->lf_content_id
+                    = hasher().update(sbr.get_data(), sbr.length()).to_string();
+            }
 
+            this->lf_applicable_taggers.clear();
             for (auto& td_pair : this->lf_format->lf_tag_defs) {
                 bool matches = td_pair.second->ftd_paths.empty();
                 for (const auto& pr : td_pair.second->ftd_paths) {
@@ -461,6 +498,7 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                 this->lf_applicable_taggers.emplace_back(td_pair.second);
             }
 
+            this->lf_applicable_partitioners.clear();
             for (auto& pd_pair : this->lf_format->lf_partition_defs) {
                 bool matches = pd_pair.second->fpd_paths.empty();
                 for (const auto& pr : pd_pair.second->fpd_paths) {
@@ -502,10 +540,17 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                     this->lf_index[lpc].set_millis(last_line.get_millis());
                     this->lf_index[lpc].set_level(LEVEL_INVALID);
                 }
+                retval = true;
             }
 
             found = best_match->second;
         }
+    } else if (this->lf_format.get() != nullptr) {
+        if (!this->lf_index.empty()) {
+            prescan_time = this->lf_index[prescan_size - 1].get_time();
+        }
+        /* We've locked onto a format, just use that scanner. */
+        found = this->lf_format->scan(*this, this->lf_index, li, sbr, sbc);
     }
 
     if (found.is<log_format::scan_match>()) {
@@ -590,6 +635,39 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
 {
     static const auto& dts_cfg
         = injector::get<const date_time_scanner_ns::config&>();
+
+    if (!this->lf_invalidated_opids.empty()) {
+        auto writeOpids = this->lf_opids.writeAccess();
+
+        for (auto bm_pair : this->lf_bookmark_metadata) {
+            if (bm_pair.second.bm_opid.empty()) {
+                continue;
+            }
+
+            if (!this->lf_invalidated_opids.contains(bm_pair.second.bm_opid)) {
+                continue;
+            }
+
+            auto opid_iter
+                = writeOpids->los_opid_ranges.find(bm_pair.second.bm_opid);
+            if (opid_iter == writeOpids->los_opid_ranges.end()) {
+                log_warning("opid not in ranges: %s",
+                            bm_pair.second.bm_opid.c_str());
+                continue;
+            }
+
+            if (bm_pair.first >= this->lf_index.size()) {
+                log_warning("stale bookmark: %d", bm_pair.first);
+                continue;
+            }
+
+            auto& ll = this->lf_index[bm_pair.first];
+            opid_iter->second.otr_range.extend_to(ll.get_timeval());
+            opid_iter->second.otr_level_stats.update_msg_count(
+                ll.get_msg_level());
+        }
+        this->lf_invalidated_opids.clear();
+    }
 
     if (!this->lf_indexing) {
         if (this->lf_sort_needed) {
@@ -1424,4 +1502,84 @@ logfile::dump_stats()
     log_info("  preads=%lu", buf_stats.s_preads);
     log_info("  requested_preloads=%lu", buf_stats.s_requested_preloads);
     log_info("  used_preloads=%lu", buf_stats.s_used_preloads);
+}
+
+void
+logfile::set_logline_opid(uint32_t line_number, string_fragment opid)
+{
+    if (line_number >= this->lf_index.size()) {
+        log_error("invalid line number: %s", line_number);
+        return;
+    }
+
+    auto bm_iter = this->lf_bookmark_metadata.find(line_number);
+    if (bm_iter != this->lf_bookmark_metadata.end()) {
+        if (bm_iter->second.bm_opid == opid) {
+            return;
+        }
+    }
+
+    auto write_opids = this->lf_opids.writeAccess();
+
+    if (bm_iter != this->lf_bookmark_metadata.end()
+        && !bm_iter->second.bm_opid.empty())
+    {
+        auto old_opid_iter = write_opids->los_opid_ranges.find(opid);
+        if (old_opid_iter != write_opids->los_opid_ranges.end()) {
+            this->lf_invalidated_opids.insert(old_opid_iter->first);
+        }
+    }
+
+    auto& ll = this->lf_index[line_number];
+    auto log_tv = ll.get_timeval();
+    auto opid_iter = write_opids->insert_op(this->lf_allocator, opid, log_tv);
+    auto& otr = opid_iter->second;
+
+    otr.otr_level_stats.update_msg_count(ll.get_msg_level());
+    ll.set_opid(opid.hash());
+    this->lf_bookmark_metadata[line_number].bm_opid = opid.to_string();
+}
+
+void
+logfile::clear_logline_opid(uint32_t line_number)
+{
+    if (line_number >= this->lf_index.size()) {
+        return;
+    }
+
+    auto iter = this->lf_bookmark_metadata.find(line_number);
+    if (iter == this->lf_bookmark_metadata.end()) {
+        return;
+    }
+
+    if (iter->second.bm_opid.empty()) {
+        return;
+    }
+
+    auto& ll = this->lf_index[line_number];
+    ll.set_opid(0);
+    auto opid = std::move(iter->second.bm_opid);
+    auto opid_sf = string_fragment::from_str(opid);
+
+    if (iter->second.empty(bookmark_metadata::categories::any)) {
+        this->lf_bookmark_metadata.erase(iter);
+
+        auto writeOpids = this->lf_opids.writeAccess();
+
+        auto otr_iter = writeOpids->los_opid_ranges.find(opid_sf);
+        if (otr_iter == writeOpids->los_opid_ranges.end()) {
+            return;
+        }
+
+        if (otr_iter->second.otr_range.tr_begin != ll.get_timeval()
+            && otr_iter->second.otr_range.tr_end != ll.get_timeval())
+        {
+            otr_iter->second.otr_level_stats.update_msg_count(
+                ll.get_msg_level(), -1);
+            return;
+        }
+
+        otr_iter->second.clear();
+        this->lf_invalidated_opids.insert(opid_sf);
+    }
 }

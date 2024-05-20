@@ -475,6 +475,10 @@ run_cap_test ${lnav_test} -n \
     logfile_rollover.1.live
 
 touch -t 200711030923 ${srcdir}/logfile_syslog.0
+run_cap_test ls -lha /etc/localtime
+run_cap_test ${lnav_test} -n \
+    ${test_dir}/logfile_syslog.0
+
 run_cap_test ${lnav_test} -n \
     -c ":switch-to-view histogram" \
     -c ":zoom-to 4-hour" \

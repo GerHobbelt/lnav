@@ -316,15 +316,12 @@ com_unix_time(exec_context& ec,
         }
         if (parsed) {
             char ftime[128];
-            int len;
 
             strftime(ftime,
                      sizeof(ftime),
                      "%a %b %d %H:%M:%S %Y  %z %Z",
                      localtime_r(&u_time, &log_time));
-            len = strlen(ftime);
-            snprintf(ftime + len, sizeof(ftime) - len, " -- %ld", u_time);
-            retval = std::string(ftime);
+            retval = fmt::format(FMT_STRING("{} -- {}"), ftime, u_time);
         } else {
             return ec.make_error("invalid unix time -- {}", args[1]);
         }
@@ -662,7 +659,6 @@ com_current_time(exec_context& ec,
     struct tm localtm;
     std::string retval;
     time_t u_time;
-    size_t len;
 
     memset(&localtm, 0, sizeof(localtm));
     u_time = time(nullptr);
@@ -670,9 +666,7 @@ com_current_time(exec_context& ec,
              sizeof(ftime),
              "%a %b %d %H:%M:%S %Y  %z %Z",
              localtime_r(&u_time, &localtm));
-    len = strlen(ftime);
-    snprintf(ftime + len, sizeof(ftime) - len, " -- %ld", u_time);
-    retval = std::string(ftime);
+    retval = fmt::format(FMT_STRING("{} -- {}"), ftime, u_time);
 
     return Ok(retval);
 }
@@ -3365,6 +3359,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                         }
                         break;
                     }
+                    case file_format_t::MULTIPLEXED:
                     case file_format_t::UNKNOWN: {
                         auto open_res
                             = lnav::filesystem::open_file(fn, O_RDONLY);

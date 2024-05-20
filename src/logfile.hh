@@ -327,8 +327,8 @@ public:
      * indexing.
      * @return True if any new lines were indexed.
      */
-    rebuild_result_t rebuild_index(
-        std::optional<ui_clock::time_point> deadline = std::nullopt);
+    rebuild_result_t rebuild_index(std::optional<ui_clock::time_point> deadline
+                                   = std::nullopt);
 
     void reobserve_from(iterator iter);
 
@@ -388,6 +388,10 @@ public:
 
     safe_opid_state& get_opids() { return this->lf_opids; }
 
+    void set_logline_opid(uint32_t line_number, string_fragment opid);
+
+    void clear_logline_opid(uint32_t line_number);
+
     void quiesce() { this->lf_line_buffer.quiesce(); }
 
     void enable_cache() { this->lf_line_buffer.enable_cache(); }
@@ -410,8 +414,8 @@ public:
         return this->lf_embedded_metadata;
     }
 
-    std::optional<std::pair<std::string, lnav::file_options>>
-    get_file_options() const
+    std::optional<std::pair<std::string, lnav::file_options>> get_file_options()
+        const
     {
         return this->lf_file_options;
     }
@@ -445,6 +449,7 @@ private:
     std::string lf_content_id;
     struct stat lf_stat {};
     std::shared_ptr<log_format> lf_format;
+    uint32_t lf_format_quality{0};
     std::vector<logline> lf_index;
     time_t lf_index_time{0};
     file_off_t lf_index_size{0};
@@ -458,6 +463,10 @@ private:
     bool lf_indexing{true};
     bool lf_partial_line{false};
     bool lf_zoned_to_local_state{true};
+    robin_hood::unordered_set<string_fragment,
+                              frag_hasher,
+                              std::equal_to<string_fragment>>
+        lf_invalidated_opids;
     logline_observer* lf_logline_observer{nullptr};
     logfile_observer* lf_logfile_observer{nullptr};
     size_t lf_longest_line{0};
@@ -479,8 +488,7 @@ private:
         lf_applicable_partitioners;
     std::map<std::string, metadata> lf_embedded_metadata;
     size_t lf_file_options_generation{0};
-    std::optional<std::pair<std::string, lnav::file_options>>
-        lf_file_options;
+    std::optional<std::pair<std::string, lnav::file_options>> lf_file_options;
 };
 
 class logline_observer {
