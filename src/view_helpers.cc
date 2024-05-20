@@ -931,6 +931,12 @@ static std::unordered_map<std::string, attr_line_t> EXAMPLE_RESULTS;
 static void
 execute_example(const help_text& ht)
 {
+    static const std::set<std::string> IGNORED_NAMES = {"ATTACH"};
+
+    if (IGNORED_NAMES.count(ht.ht_name)) {
+        return;
+    }
+
     auto& dls = lnav_data.ld_db_row_source;
     auto& dos = lnav_data.ld_db_overlay;
     auto& db_tc = lnav_data.ld_views[LNV_DB];
@@ -952,7 +958,8 @@ execute_example(const help_text& ht)
             case help_context_t::HC_SQL_INFIX:
             case help_context_t::HC_SQL_FUNCTION:
             case help_context_t::HC_SQL_TABLE_VALUED_FUNCTION:
-            case help_context_t::HC_PRQL_TRANSFORM: {
+            case help_context_t::HC_PRQL_TRANSFORM:
+            case help_context_t::HC_PRQL_FUNCTION: {
                 exec_context ec;
 
                 ec.ec_label_source_stack.push_back(&dls);
@@ -1010,9 +1017,17 @@ execute_examples()
     for (auto help_pair : sqlite_function_help) {
         execute_example(*help_pair.second);
     }
+    for (auto help_pair : lnav::sql::prql_functions) {
+        if (help_pair.second->ht_context != help_context_t::HC_PRQL_FUNCTION) {
+            continue;
+        }
+        execute_example(*help_pair.second);
+    }
     for (auto cmd_pair : *sql_cmd_map) {
         if (cmd_pair.second->c_help.ht_context
-            != help_context_t::HC_PRQL_TRANSFORM)
+                != help_context_t::HC_PRQL_TRANSFORM
+            && cmd_pair.second->c_help.ht_context
+                != help_context_t::HC_PRQL_FUNCTION)
         {
             continue;
         }

@@ -140,8 +140,8 @@ const char *PRQL_HELP =
 
 const char *PRQL_EXAMPLE =
     ANSI_UNDERLINE("Examples") "\n"
-        "  from db.%s | count_by { log_level }\n"
-        "  from db.%s | filter log_line == lnav.view.top_line\n"
+        "  from %s | stats.count_by { log_level }\n"
+        "  from %s | filter log_line == lnav.view.top_line\n"
     ;
 
 static const char* LNAV_CMD_PROMPT = "Enter an lnav command: " ABORT_MSG;
@@ -577,11 +577,13 @@ rl_search_internal(readline_curses* rc, ln_mode_t mode, bool complete = false)
                      riter != curr_stage_prql.get_attrs().rend();
                      ++riter)
                 {
-                    if (riter->sa_type != &lnav::sql::PRQL_PIPE_ATTR) {
+                    if (riter->sa_type != &lnav::sql::PRQL_STAGE_ATTR
+                        || riter->sa_range.lr_start == 0)
+                    {
                         continue;
                     }
                     curr_stage_prql.insert(riter->sa_range.lr_start,
-                                           "| take 1000 ");
+                                           "| take 10000 ");
                 }
                 curr_stage_prql.rtrim();
                 curr_stage_prql.append(" | take 5");
@@ -600,11 +602,13 @@ rl_search_internal(readline_curses* rc, ln_mode_t mode, bool complete = false)
                          riter != prev_stage_prql.get_attrs().rend();
                          ++riter)
                     {
-                        if (riter->sa_type != &lnav::sql::PRQL_PIPE_ATTR) {
+                        if (riter->sa_type != &lnav::sql::PRQL_STAGE_ATTR
+                            || riter->sa_range.lr_start == 0)
+                        {
                             continue;
                         }
                         prev_stage_prql.insert(riter->sa_range.lr_start,
-                                               "| take 1000 ");
+                                               "| take 10000 ");
                     }
                     prev_stage_prql.append(" | take 5");
 

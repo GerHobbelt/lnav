@@ -2740,7 +2740,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
     }
 
     /* If we statically linked against an ncurses library that had a
-     * non- standard path to the terminfo database, we need to set this
+     * non-standard path to the terminfo database, we need to set this
      * variable so that it will try the default path.
      */
     setenv("TERMINFO_DIRS",
@@ -3288,6 +3288,23 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                  ++file_iter)
             {
                 log_info("    %s", file_iter->first.c_str());
+            }
+
+            if (!(lnav_data.ld_flags & LNF_HEADLESS)
+                && verbosity == verbosity_t::quiet && load_stdin
+                && lnav_data.ld_active_files.fc_file_names.size() == 1)
+            {
+                rescan_files(true);
+                gather_pipers();
+                rebuild_indexes(ui_clock::now() + 10ms);
+                if (lnav_data.ld_child_pollers.empty()) {
+                    if (lnav_data.ld_active_files.fc_files.empty()
+                        || lnav_data.ld_active_files.fc_files[0]->size() < 24)
+                    {
+                        lnav_data.ld_flags |= LNF_HEADLESS;
+                        verbosity = verbosity_t::standard;
+                    }
+                }
             }
 
             if (lnav_data.ld_flags & LNF_HEADLESS) {

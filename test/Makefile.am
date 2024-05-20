@@ -13,14 +13,12 @@ AM_CFLAGS = $(CODE_COVERAGE_CFLAGS)
 AM_CXXFLAGS = $(CODE_COVERAGE_CXXFLAGS)
 
 if HAVE_CARGO
-RUST_DEPS_CPPFLAGS = -I$(srcdir)/third-party/prqlc-c -DHAVE_RUST_DEPS=1
+RUST_DEPS_CPPFLAGS = -I$(top_srcdir)/src/third-party/prqlc-c -DHAVE_RUST_DEPS=1
 PRQLC_DIR = ../src/third-party/prqlc-c/target
-RUST_DEPS_LD_FLAGS = -L$(PRQLC_DIR)/release
-RUST_DEPS_LIBS = -lprqlc_c
+RUST_DEPS_LIBS = $(PRQLC_DIR)/release/libprqlc_c.a
 else
 RUST_DEPS =
 RUST_DEPS_CPPFLAGS =
-RUST_DEPS_LD_FLAGS =
 RUST_DEPS_LIBS =
 endif
 
@@ -99,8 +97,7 @@ AM_LDFLAGS = \
 	$(STATIC_LDFLAGS) \
 	$(SQLITE3_LDFLAGS) \
 	$(READLINE_LDFLAGS) \
-	$(CURSES_LIB) \
-    $(RUST_DEPS_LD_FLAGS)
+	$(CURSES_LIB)
 
 CONFIG_OBJS = \
 	../src/ansi-palette-json.$(OBJEXT) \
