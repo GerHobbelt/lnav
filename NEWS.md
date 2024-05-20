@@ -1,3 +1,17 @@
+## lnav v0.12.2
+
+Bug Fixes:
+* With the recent xz backdoor shenanigans, it seems like a good
+  time to add some checks for data being hidden by escape codes:
+  - File names with escape sequences are now displayed in quotes
+    with backslash escapes.
+  - Text that has the same foreground and background colors will
+    have the background set to a contrasting color.
+* Sub-millisecond time values should now be preserved when
+  displaying JSON-lines logs.
+* A crash during initialization on Apple Silicon and MacOS 12
+  has been fixed.
+
 ## lnav v0.12.1
 
 Features:
