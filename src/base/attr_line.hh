@@ -472,7 +472,7 @@ public:
 
     attr_line_t& erase(size_t pos, size_t len = std::string::npos);
 
-    attr_line_t& rtrim();
+    attr_line_t& rtrim(nonstd::optional<const char*> chars = nonstd::nullopt);
 
     attr_line_t& erase_utf8_chars(size_t start)
     {
@@ -508,6 +508,11 @@ public:
     ssize_t utf8_length_or_length() const
     {
         return utf8_string_length(this->al_string).unwrapOr(this->length());
+    }
+
+    size_t column_width() const
+    {
+        return string_fragment::from_str(this->al_string).column_width();
     }
 
     std::string get_substring(const line_range& lr) const

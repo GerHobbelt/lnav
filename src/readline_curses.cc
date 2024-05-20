@@ -92,6 +92,8 @@ static const char* RL_INIT[] = {
     "set menu-complete-display-prefix on",
     "TAB: menu-complete",
     "\"\\e[Z\": menu-complete-backward",
+    "\"\\eC\": lnav-forward-complete",
+    "\"\\C-f\": lnav-forward-complete",
 };
 
 readline_context* readline_context::loaded_context;
@@ -100,6 +102,7 @@ static std::string last_match_str;
 static bool last_match_str_valid;
 static bool arg_needs_shlex;
 static nonstd::optional<std::string> rewrite_line_start;
+static std::string rc_local_suggestion;
 
 static void
 sigalrm(int sig)
@@ -367,12 +370,55 @@ readline_context::attempted_completion(const char* text, int start, int end)
 {
     char** retval = nullptr;
 
+    log_info("completion start %d:%d -- %s", start, end, text);
+
+    auto at_start = start == 0;
+    auto cmd_start = 0;
+    auto cmd_key = std::string("__command");
+    if (loaded_context->rc_splitter != nullptr) {
+        auto split_res
+            = loaded_context->rc_splitter(*loaded_context, rl_line_buffer);
+
+        readline_context::command_t* last_cmd = nullptr;
+        for (const auto& stage : split_res.sr_stages) {
+            if (stage.s_args.empty()) {
+                continue;
+            }
+
+            if (stage.s_args.front().lr_start == start) {
+                at_start = true;
+                break;
+            }
+            if (start <= stage.s_args.back().lr_end) {
+                cmd_start = stage.s_args.front().lr_start;
+            }
+            auto cmd_lr = stage.s_args.front();
+            auto cmd_name = std::string(&rl_line_buffer[cmd_lr.lr_start],
+                                        cmd_lr.length());
+            auto cmd_iter = loaded_context->rc_commands.find(cmd_name);
+            if (cmd_iter == loaded_context->rc_commands.end()) {
+                continue;
+            }
+            last_cmd = cmd_iter->second;
+        }
+        if (last_cmd != nullptr && !last_cmd->c_provides.empty()) {
+            cmd_key
+                = fmt::format(FMT_STRING("__command_{}"), last_cmd->c_provides);
+        }
+    }
+
     completion_start = start;
-    if (start == 0
-        && loaded_context->rc_possibilities.find("__command")
-            != loaded_context->rc_possibilities.end())
+    if (text[0] == '\0' && !rc_local_suggestion.empty()) {
+        static std::set<std::string> suggestion_possibilities;
+
+        suggestion_possibilities.clear();
+        suggestion_possibilities.emplace(rc_local_suggestion);
+        arg_possibilities = &suggestion_possibilities;
+    } else if (at_start
+               && loaded_context->rc_possibilities.find(cmd_key)
+                   != loaded_context->rc_possibilities.end())
     {
-        arg_possibilities = &loaded_context->rc_possibilities["__command"];
+        arg_possibilities = &loaded_context->rc_possibilities[cmd_key];
         arg_needs_shlex = false;
         rl_completion_append_character = loaded_context->rc_append_character;
     } else {
@@ -404,12 +450,12 @@ readline_context::attempted_completion(const char* text, int start, int end)
         }
 
         if (arg_possibilities == nullptr) {
-            space = strchr(rl_line_buffer, ' ');
+            space = strchr(&rl_line_buffer[cmd_start], ' ');
             if (space == nullptr) {
                 space = rl_line_buffer + strlen(rl_line_buffer);
             }
-            cmd = std::string(rl_line_buffer, space - rl_line_buffer);
-
+            cmd = std::string(&rl_line_buffer[cmd_start],
+                              space - &rl_line_buffer[cmd_start]);
             auto iter = loaded_context->rc_prototypes.find(cmd);
 
             if (iter == loaded_context->rc_prototypes.end()) {
@@ -422,8 +468,7 @@ readline_context::attempted_completion(const char* text, int start, int end)
                         = loaded_context->rc_append_character;
                 }
             } else {
-                std::vector<std::string>& proto
-                    = loaded_context->rc_prototypes[cmd];
+                auto& proto = loaded_context->rc_prototypes[cmd];
 
                 if (proto.empty()) {
                     arg_possibilities = nullptr;
@@ -543,6 +588,22 @@ readline_context::attempted_completion(const char* text, int start, int end)
 }
 
 static int
+lnav_forward_complete(int count, int key)
+{
+    if (!rc_local_suggestion.empty() && rl_point == rl_end) {
+        rl_extend_line_buffer(strlen(rl_line_buffer)
+                              + rc_local_suggestion.size() + 1);
+        strcat(rl_line_buffer, rc_local_suggestion.c_str());
+        rl_point = strlen(rl_line_buffer);
+        rl_end = rl_point;
+        rc_local_suggestion.clear();
+        return 0;
+    }
+
+    return rl_forward_char(count, key);
+}
+
+static int
 rubout_char_or_abort(int count, int key)
 {
     if (rl_line_buffer[0] == '\0') {
@@ -589,8 +650,24 @@ readline_context::readline_context(std::string name,
 
         for (iter = commands->begin(); iter != commands->end(); ++iter) {
             std::string cmd = iter->first;
+            auto cmd_complete = cmd;
+            const auto& ht = iter->second->c_help;
 
-            this->rc_possibilities["__command"].insert(cmd);
+            if (!ht.ht_parameters.empty()
+                && ht.ht_parameters.front().ht_group_start != nullptr)
+            {
+                cmd_complete.append(" ");
+                cmd_complete.append(ht.ht_parameters.front().ht_group_start);
+            }
+            if (iter->second->c_dependencies.empty()) {
+                this->rc_possibilities["__command"].insert(cmd_complete);
+            } else {
+                for (const auto& dep : iter->second->c_dependencies) {
+                    auto cmd_key = fmt::format(FMT_STRING("__command_{}"), dep);
+                    this->rc_possibilities[cmd_key].insert(cmd_complete);
+                }
+            }
+            this->rc_commands[cmd] = iter->second;
             iter->second->c_func(
                 INIT_EXEC_CONTEXT, cmd, this->rc_prototypes[cmd]);
         }
@@ -828,6 +905,7 @@ readline_curses::start()
         using_history();
         stifle_history(HISTORY_SIZE);
 
+        rl_add_defun("lnav-forward-complete", lnav_forward_complete, -1);
         rl_add_defun("rubout-char-or-abort", rubout_char_or_abort, '\b');
         rl_add_defun("alt-done", alt_done_func, '\x0a');
         // rl_add_defun("command-complete", readline_context::command_complete,
@@ -835,7 +913,10 @@ readline_curses::start()
 
         for (const auto* init_cmd : RL_INIT) {
             snprintf(buffer, sizeof(buffer), "%s", init_cmd);
-            rl_parse_and_bind(buffer); /* NOTE: buffer is modified */
+            /* NOTE: buffer is modified */
+            if (rl_parse_and_bind(buffer)) {
+                log_error("rl_parse_and_bind(%s) failed", init_cmd);
+            }
         }
 
         child_this = this;
@@ -964,6 +1045,8 @@ readline_curses::start()
                         const char* cwd = &msg[3];
 
                         log_perror(chdir(cwd));
+                    } else if (startswith(msg, "sugg:")) {
+                        rc_local_suggestion = &msg[5];
                     } else if (sscanf(msg, "i:%d:%n", &rl_point, &prompt_start)
                                == 1)
                     {
@@ -1213,6 +1296,7 @@ readline_curses::check_poll_set(const std::vector<struct pollfd>& pollfds)
         if (rc > 0) {
             int old_x = this->vc_x;
 
+            this->rc_suggestion.clear();
             this->map_output(buffer, rc);
             if (this->vc_x != old_x) {
                 this->rc_change(this);
@@ -1300,6 +1384,7 @@ readline_curses::check_poll_set(const std::vector<struct pollfd>& pollfds)
                     case 'l':
                         this->rc_line_buffer = &msg[2];
                         if (this->rc_active_context != -1) {
+                            this->rc_suggestion.clear();
                             this->rc_change(this);
                         }
                         this->rc_matches.clear();
@@ -1310,6 +1395,7 @@ readline_curses::check_poll_set(const std::vector<struct pollfd>& pollfds)
 
                     case 'c':
                         this->rc_line_buffer = &msg[2];
+                        this->rc_suggestion.clear();
                         this->rc_change(this);
                         this->rc_display_match(this);
                         break;
@@ -1361,8 +1447,13 @@ readline_curses::focus(int context,
     {
         perror("focus: write failed");
     }
-    wmove(this->vc_window, this->get_actual_y(), this->vc_left);
-    wclrtoeol(this->vc_window);
+    auto al = attr_line_t();
+    al.append(lnav::roles::suggestion(this->rc_suggestion));
+    view_curses::mvwattrline(this->vc_window,
+                             this->get_actual_y(),
+                             this->vc_left,
+                             al,
+                             line_range{0, (int) this->get_actual_width()});
     if (!initial.empty()) {
         this->rewrite_line(initial.size(), initial);
     }
@@ -1382,6 +1473,21 @@ readline_curses::rewrite_line(int pos, const std::string& value)
     {
         perror("rewrite_line: write failed");
     }
+}
+
+void
+readline_curses::set_suggestion(const std::string& value)
+{
+    char buffer[1024];
+
+    snprintf(buffer, sizeof(buffer), "sugg:%s", value.c_str());
+    if (sendstring(
+            this->rc_command_pipe[RCF_MASTER], buffer, strlen(buffer) + 1)
+        == -1)
+    {
+        perror("set_suggestion: write failed");
+    }
+    this->rc_suggestion = value;
 }
 
 void
@@ -1543,13 +1649,14 @@ readline_curses::do_update()
     }
 
     if (this->rc_active_context != -1) {
-        readline_context* rc = this->rc_contexts[this->rc_active_context];
-        readline_highlighter_t hl = rc->get_highlighter();
-        attr_line_t al = this->vc_line;
+        auto* rc = this->rc_contexts[this->rc_active_context];
+        auto hl = rc->get_highlighter();
+        auto al = this->vc_line;
 
         if (hl != nullptr) {
             hl(al, this->vc_left + this->vc_x);
         }
+        al.append(lnav::roles::suggestion(this->rc_suggestion));
         view_curses::mvwattrline(this->vc_window,
                                  this->get_actual_y(),
                                  this->vc_left,

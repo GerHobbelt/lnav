@@ -1,3 +1,58 @@
+## lnav v0.12.1
+
+Features:
+* Database queries can now be written in
+  [PRQL](https://prql-lang.org).  When executing a query with `;`,
+  if the query starts with `from`, it will be treated as PRQL.
+  The pipeline structure of PRQL queries is more desirable for
+  interactive use since lnav can make better suggestions and
+  show previews of the stages of the pipeline.
+* Log partitions can automatically be created by defining a log
+  message pattern in a log format.  Under a format definition,
+  add an entry into the "partitions" object in a format definition.
+  The "pattern" property specifies the regular expression to match
+  against a line in a file that matches the format.  If a match is
+  found, the partition name will be set to the value(s) captured
+  by the regex.  To restrict matches to certain files, you can add
+  a "paths" array whose object elements contain a "glob" property
+  that will be matched against file names.
+
+Interface changes:
+* When using PRQL in the database query prompt (`;`),
+  the preview pane will show the results for the pipeline
+  stage the cursor is within along with the results of
+  the previous stage (if there is one).  The preview
+  works on a limited data set, so the preview results
+  may differ from the final results.
+* Changed the breadcrumb bar styling to space things out
+  more and make the divisions between items clearer.
+* The `ESC` key can now be used to exit the files/filters
+  configuration panel instead of `q`.  This should make
+  it easier to avoid accidentally exiting lnav.
+* Added some default help text for the command prompt.
+* Suggestions are now shown for some commands and can
+  be accepted by pressing the right arrow key.  For
+  example, after typing in `:filter-in` the current
+  search term for the view will be suggested (if
+  one is active).
+* The focused line should be preserved more reliably in
+  the LOG/TEXT views.
+* In the LOG view, the current partition name (as set
+  with the `:partition-name` command) is shown as the
+  first breadcrumb in the breadcrumb bar.  And, when
+  that breadcrumb is selected, you can select another
+  partition to jump to.
+* The `{` / `}` hotkeys, `:next-section`, and `:prev-section`
+  commands now work in the LOG view and take you to the
+  next/previous partition.
+* The DB view now defaults to not showing bar charts.
+
+Breaking changes:
+* Many of the lesser used column in the log format tables
+  (e.g. `log_tags`) have been moved to after the columns
+  defined by the format.  These columns are usually `NULL`
+  and are a distraction when previewing queries.
+
 ## lnav v0.12.0
 
 Features:

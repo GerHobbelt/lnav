@@ -92,6 +92,12 @@ public:
         return *this;
     }
 
+    stacked_bar_chart& with_show_state(show_state ss)
+    {
+        this->sbc_show_state = ss;
+        return *this;
+    }
+
     bool attrs_in_use(const text_attrs& attrs) const
     {
         for (const auto& ident : this->sbc_idents) {
@@ -249,7 +255,7 @@ public:
     {
         this->sbc_idents.clear();
         this->sbc_ident_lookup.clear();
-        this->sbc_show_state = show_all();
+        this->sbc_show_state = show_none();
     }
 
     void add_value(const T& ident, double amount = 1.0)
@@ -321,7 +327,7 @@ protected:
     unsigned long sbc_left{0}, sbc_right{0};
     std::vector<struct chart_ident> sbc_idents;
     std::unordered_map<T, unsigned int> sbc_ident_lookup;
-    show_state sbc_show_state{show_all()};
+    show_state sbc_show_state{show_none()};
 };
 
 class hist_source2
@@ -376,7 +382,7 @@ public:
         return 0;
     }
 
-    nonstd::optional<struct timeval> time_for_row(vis_line_t row) override;
+    nonstd::optional<row_info> time_for_row(vis_line_t row) override;
 
     nonstd::optional<vis_line_t> row_for_time(
         struct timeval tv_bucket) override;

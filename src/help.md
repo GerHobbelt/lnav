@@ -219,7 +219,7 @@ that you can always use `q` to pop the top view off of the stack.
 | o/O                  | Move forward/backward to the log message with a matching 'operation ID' (opid) field.                                                                                                                                                                                                                                                                           |
 | u/U                  | Move forward/backward through any user bookmarks you have added using the 'm' key. This hotkey will also jump to the start of any log partitions that have been created with the 'partition-name' command.                                                                                                                                                      |
 | s/S                  | Move to the next/previous "slow down" in the log message rate. A slow down is detected by measuring how quickly the message rate has changed over the previous several messages. For example, if one message is logged every second for five seconds and then the last message arrives five seconds later, the last message will be highlighted as a slow down. |
-| {/}                  | Move to the previous/next location in history. Whenever you jump to a new location in the view, the location will be added to the history. The history is not updated when using only the arrow keys.                                                                                                                                                           |
+| {/}                  | Move to the previous/next section in the view.  In the LOG view, this moves through partitions.  In other views, it moves through sections of documents.                                                                                                                                                                                                        |
 
 ### Chronological Navigation
 
@@ -315,12 +315,12 @@ mark lines of text and move the view by grabbing the scrollbar.
 NOTE: You need to manually enable this feature by setting the LNAV_EXP
 environment variable to "mouse". F2 toggles mouse support.
 
-## SQL Queries (experimental)
+## SQL Queries
 
 Lnav has support for performing SQL queries on log files using the
-Sqlite3 "virtual" table feature. For all supported log file types,
+SQLite3 "virtual" table feature. For all supported log file types,
 lnav will create tables that can be queried using the subset of SQL
-that is supported by Sqlite3. For example, to get the top ten URLs
+that is supported by SQLite3. For example, to get the top ten URLs
 being accessed in any loaded Apache log files, you can execute:
 
 ```lnav

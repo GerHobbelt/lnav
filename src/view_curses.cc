@@ -143,7 +143,7 @@ view_curses::awaiting_user_input()
 size_t
 view_curses::mvwattrline(WINDOW* window,
                          int y,
-                         int x,
+                         const int x,
                          attr_line_t& al,
                          const struct line_range& lr_chars,
                          role_t base_role)
@@ -157,15 +157,10 @@ view_curses::mvwattrline(WINDOW* window,
 
     auto line_width_chars = lr_chars.length();
     std::string expanded_line;
-
-    short* fg_color = (short*) alloca(line_width_chars * sizeof(short));
-    bool has_fg = false;
-    short* bg_color = (short*) alloca(line_width_chars * sizeof(short));
-    bool has_bg = false;
     line_range lr_bytes;
     int char_index = 0;
 
-    for (size_t lpc = 0; lpc < line.size(); lpc++) {
+    for (size_t lpc = 0; lpc < line.size();) {
         int exp_start_index = expanded_line.size();
         auto ch = static_cast<unsigned char>(line[lpc]);
 
@@ -183,6 +178,7 @@ view_curses::mvwattrline(WINDOW* window,
                 } while (expanded_line.size() % 8);
                 utf_adjustments.emplace_back(
                     lpc, expanded_line.size() - exp_start_index - 1);
+                lpc += 1;
                 break;
             }
 
@@ -190,49 +186,48 @@ view_curses::mvwattrline(WINDOW* window,
                 expanded_line.append("\u238b");
                 utf_adjustments.emplace_back(lpc, -1);
                 char_index += 1;
+                lpc += 1;
                 break;
 
             case '\b':
                 expanded_line.append("\u232b");
                 utf_adjustments.emplace_back(lpc, -1);
                 char_index += 1;
+                lpc += 1;
                 break;
 
             case '\r':
             case '\n':
                 expanded_line.push_back(' ');
                 char_index += 1;
+                lpc += 1;
                 break;
 
             default: {
-                auto size_result = ww898::utf::utf8::char_size([&line, lpc]() {
-                    return std::make_pair(line[lpc], line.length() - lpc - 1);
-                });
+                auto exp_read_start = expanded_line.size();
+                auto lpc_start = lpc;
+                auto read_res
+                    = ww898::utf::utf8::read([&line, &expanded_line, &lpc]() {
+                          auto ch = line[lpc++];
+                          expanded_line.push_back(ch);
+                          return ch;
+                      });
 
-                if (size_result.isErr()) {
+                if (read_res.isErr()) {
+                    log_trace(
+                        "error:%d:%d:%s", y, x + lpc, read_res.unwrapErr());
+                    expanded_line.resize(exp_read_start);
                     expanded_line.push_back('?');
+                    char_index += 1;
+                    lpc = lpc_start + 1;
                 } else {
-                    auto offset = 1 - (int) size_result.unwrap();
-
-                    expanded_line.push_back(ch);
-                    if (offset) {
-#if 0
-                        if (char_index < lr_chars.lr_start) {
-                            lr_bytes.lr_start += abs(offset);
-                        }
-                        if (char_index < lr_chars.lr_end) {
-                            lr_bytes.lr_end += abs(offset);
-                        }
-#endif
-                        utf_adjustments.emplace_back(lpc, offset);
-                        for (; offset && (lpc + 1) < line.size();
-                             lpc++, offset++)
-                        {
-                            expanded_line.push_back(line[lpc + 1]);
-                        }
+                    if (lpc > (lpc_start + 1)) {
+                        utf_adjustments.emplace_back(lpc_start,
+                                                     1 - (lpc - lpc_start));
                     }
+                    auto wch = read_res.unwrap();
+                    char_index += wcwidth(wch);
                 }
-                char_index += 1;
                 break;
             }
         }
@@ -263,6 +258,13 @@ view_curses::mvwattrline(WINDOW* window,
         whline(window, ' ', lr_chars.lr_end - char_index);
     }
 
+    cchar_t row_ch[line_width_chars + 1];
+    short fg_color[line_width_chars + 1];
+    short bg_color[line_width_chars + 1];
+    memset(fg_color, -1, sizeof(fg_color));
+    memset(bg_color, -1, sizeof(bg_color));
+
+    mvwin_wchnstr(window, y, x, row_ch, line_width_chars);
     std::stable_sort(sa.begin(), sa.end());
     for (auto iter = sa.cbegin(); iter != sa.cend(); ++iter) {
         auto attr_range = iter->sa_range;
@@ -313,9 +315,6 @@ view_curses::mvwattrline(WINDOW* window,
             = std::min(line_width_chars, attr_range.lr_end - lr_chars.lr_start);
 
         if (iter->sa_type == &VC_FOREGROUND) {
-            if (!has_fg) {
-                memset(fg_color, -1, line_width_chars * sizeof(short));
-            }
             short attr_fg = iter->sa_value.get<int64_t>();
             if (attr_fg == view_colors::MATCH_COLOR_SEMANTIC) {
                 attr_fg = vc.color_for_ident(al.to_string_fragment(iter))
@@ -326,14 +325,10 @@ view_curses::mvwattrline(WINDOW* window,
             std::fill(&fg_color[attr_range.lr_start],
                       &fg_color[attr_range.lr_end],
                       attr_fg);
-            has_fg = true;
             continue;
         }
 
         if (iter->sa_type == &VC_BACKGROUND) {
-            if (!has_bg) {
-                memset(bg_color, -1, line_width_chars * sizeof(short));
-            }
             short attr_bg = iter->sa_value.get<int64_t>();
             if (attr_bg == view_colors::MATCH_COLOR_SEMANTIC) {
                 attr_bg = vc.color_for_ident(al.to_string_fragment(iter))
@@ -342,12 +337,10 @@ view_curses::mvwattrline(WINDOW* window,
             std::fill(bg_color + attr_range.lr_start,
                       bg_color + attr_range.lr_end,
                       attr_bg);
-            has_bg = true;
             continue;
         }
 
         if (attr_range.lr_start < attr_range.lr_end) {
-            int awidth = attr_range.length();
             nonstd::optional<char> graphic;
             nonstd::optional<wchar_t> block_elem;
 
@@ -373,11 +366,6 @@ view_curses::mvwattrline(WINDOW* window,
             }
 
             if (graphic || block_elem || !attrs.empty()) {
-                int x_pos = x + attr_range.lr_start;
-                int ch_width = std::min(
-                    awidth, (line_width_chars - attr_range.lr_start));
-                cchar_t row_ch[ch_width + 1];
-
                 if (attrs.ta_attrs & (A_LEFT | A_RIGHT)) {
                     if (attrs.ta_attrs & A_LEFT) {
                         attrs.ta_fg_color
@@ -391,26 +379,20 @@ view_curses::mvwattrline(WINDOW* window,
                 }
 
                 if (attrs.ta_fg_color) {
-                    if (!has_fg) {
-                        memset(fg_color, -1, line_width_chars * sizeof(short));
-                    }
                     std::fill(&fg_color[attr_range.lr_start],
                               &fg_color[attr_range.lr_end],
                               attrs.ta_fg_color.value());
-                    has_fg = true;
                 }
                 if (attrs.ta_bg_color) {
-                    if (!has_bg) {
-                        memset(bg_color, -1, line_width_chars * sizeof(short));
-                    }
                     std::fill(&bg_color[attr_range.lr_start],
                               &bg_color[attr_range.lr_end],
                               attrs.ta_bg_color.value());
-                    has_bg = true;
                 }
 
-                mvwin_wchnstr(window, y, x_pos, row_ch, ch_width);
-                for (int lpc = 0; lpc < ch_width; lpc++) {
+                for (int lpc = attr_range.lr_start;
+                     lpc < attr_range.lr_end && lpc < line_width_chars;
+                     lpc++)
+                {
                     bool clear_rev = false;
 
                     if (graphic) {
@@ -430,52 +412,38 @@ view_curses::mvwattrline(WINDOW* window,
                         row_ch[lpc].attr &= ~A_REVERSE;
                     }
                 }
-                mvwadd_wchnstr(window, y, x_pos, row_ch, ch_width);
             }
         }
     }
 
-    if (has_fg || has_bg) {
-        if (!has_fg) {
-            memset(fg_color, -1, line_width_chars * sizeof(short));
+    for (int lpc = 0; lpc < line_width_chars; lpc++) {
+        if (fg_color[lpc] == -1 && bg_color[lpc] == -1) {
+            continue;
         }
-        if (!has_bg) {
-            memset(bg_color, -1, line_width_chars * sizeof(short));
-        }
-
-        int ch_width = lr_chars.length();
-        cchar_t row_ch[ch_width + 1];
-
-        mvwin_wchnstr(window, y, x, row_ch, ch_width);
-        for (int lpc = 0; lpc < ch_width; lpc++) {
-            if (fg_color[lpc] == -1 && bg_color[lpc] == -1) {
-                continue;
-            }
 #ifdef NCURSES_EXT_COLORS
-            auto cur_pair = row_ch[lpc].ext_color;
+        auto cur_pair = row_ch[lpc].ext_color;
 #else
-            auto cur_pair = PAIR_NUMBER(row_ch[lpc].attr);
+        auto cur_pair = PAIR_NUMBER(row_ch[lpc].attr);
 #endif
-            short cur_fg, cur_bg;
-            pair_content(cur_pair, &cur_fg, &cur_bg);
-            if (fg_color[lpc] == -1) {
-                fg_color[lpc] = cur_fg;
-            }
-            if (bg_color[lpc] == -1) {
-                bg_color[lpc] = cur_bg;
-            }
-
-            int color_pair = vc.ensure_color_pair(fg_color[lpc], bg_color[lpc]);
-
-            row_ch[lpc].attr = row_ch[lpc].attr & ~A_COLOR;
-#ifdef NCURSES_EXT_COLORS
-            row_ch[lpc].ext_color = color_pair;
-#else
-            row_ch[lpc].attr |= COLOR_PAIR(color_pair);
-#endif
+        short cur_fg, cur_bg;
+        pair_content(cur_pair, &cur_fg, &cur_bg);
+        if (fg_color[lpc] == -1) {
+            fg_color[lpc] = cur_fg;
         }
-        mvwadd_wchnstr(window, y, x, row_ch, ch_width);
+        if (bg_color[lpc] == -1) {
+            bg_color[lpc] = cur_bg;
+        }
+
+        int color_pair = vc.ensure_color_pair(fg_color[lpc], bg_color[lpc]);
+
+        row_ch[lpc].attr = row_ch[lpc].attr & ~A_COLOR;
+#ifdef NCURSES_EXT_COLORS
+        row_ch[lpc].ext_color = color_pair;
+#else
+        row_ch[lpc].attr |= COLOR_PAIR(color_pair);
+#endif
     }
+    mvwadd_wchnstr(window, y, x, row_ch, line_width_chars);
 
     return retval;
 }
@@ -1009,6 +977,8 @@ view_colors::init_roles(const lnav_theme& lt,
         = this->to_attrs(lt, lt.lt_style_type, reporter);
     this->vc_role_attrs[lnav::enums::to_underlying(role_t::VCR_SEP_REF_ACC)]
         = this->to_attrs(lt, lt.lt_style_sep_ref_acc, reporter);
+    this->vc_role_attrs[lnav::enums::to_underlying(role_t::VCR_SUGGESTION)]
+        = this->to_attrs(lt, lt.lt_style_suggestion, reporter);
 
     this->vc_role_attrs[lnav::enums::to_underlying(role_t::VCR_RE_SPECIAL)]
         = this->to_attrs(lt, lt.lt_style_re_special, reporter);

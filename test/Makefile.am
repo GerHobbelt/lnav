@@ -12,6 +12,18 @@ AM_LIBS = $(CODE_COVERAGE_LIBS)
 AM_CFLAGS = $(CODE_COVERAGE_CFLAGS)
 AM_CXXFLAGS = $(CODE_COVERAGE_CXXFLAGS)
 
+if HAVE_CARGO
+RUST_DEPS_CPPFLAGS = -I$(srcdir)/third-party/prqlc-c -DHAVE_RUST_DEPS=1
+PRQLC_DIR = ../src/third-party/prqlc-c/target
+RUST_DEPS_LD_FLAGS = -L$(PRQLC_DIR)/release
+RUST_DEPS_LIBS = -lprqlc_c
+else
+RUST_DEPS =
+RUST_DEPS_CPPFLAGS =
+RUST_DEPS_LD_FLAGS =
+RUST_DEPS_LIBS =
+endif
+
 AM_CPPFLAGS = \
 	-Wall \
 	-I$(top_srcdir)/src \
@@ -23,7 +35,8 @@ AM_CPPFLAGS = \
 	$(LIBARCHIVE_CFLAGS) \
 	$(READLINE_CFLAGS) \
 	$(PCRE_CFLAGS) \
-	$(SQLITE3_CFLAGS)
+	$(SQLITE3_CFLAGS) \
+    $(RUST_DEPS_CPPFLAGS)
 
 # AM_CFLAGS = -fprofile-arcs -ftest-coverage
 # AM_CXXFLAGS = -fprofile-arcs -ftest-coverage
@@ -86,7 +99,8 @@ AM_LDFLAGS = \
 	$(STATIC_LDFLAGS) \
 	$(SQLITE3_LDFLAGS) \
 	$(READLINE_LDFLAGS) \
-	$(CURSES_LIB)
+	$(CURSES_LIB) \
+    $(RUST_DEPS_LD_FLAGS)
 
 CONFIG_OBJS = \
 	../src/ansi-palette-json.$(OBJEXT) \
@@ -122,7 +136,8 @@ LDADD = \
     $(LIBARCHIVE_LIBS) \
     $(SQLITE3_LIBS) \
     $(PCRE_LIBS) \
-    $(LIBCURL)
+    $(LIBCURL) \
+    $(RUST_DEPS_LIBS)
 
 test_ansi_scrubber_SOURCES = test_ansi_scrubber.cc
 
@@ -202,6 +217,7 @@ dist_noinst_SCRIPTS = \
 	test_logfile.sh \
 	test_meta.sh \
 	test_mvwattrline.sh \
+	test_prql.sh \
 	test_regex101.sh \
 	test_remote.sh \
 	test_scripts.sh \
@@ -343,6 +359,7 @@ dist_noinst_DATA = \
 	logfile_nested_json.json \
 	logfile_nextcloud.0 \
 	logfile_openam.0 \
+	logfile_partitions.0 \
 	logfile_plain.0 \
 	logfile_pretty.0 \
 	logfile_procstate.0 \
@@ -389,6 +406,7 @@ dist_noinst_DATA = \
 	textfile_json_indented.0 \
 	textfile_json_one_line.0 \
 	textfile_nonl.txt \
+	textfile_plain.0 \
 	textfile_quoted_json.0 \
 	toplevel.lnav \
 	UTF-8-test.txt \
@@ -411,6 +429,7 @@ dist_noinst_DATA = \
 	formats/jsontest3/format.json \
 	formats/jsontest-subsec/format.json \
 	formats/nestedjson/format.json \
+	formats/partitions/format.json \
 	formats/scripts/multiline-echo.lnav \
 	formats/scripts/redirecting.lnav \
 	formats/scripts/nested-redirecting.lnav \
@@ -496,6 +515,10 @@ TESTS = \
 	test_pretty_print.sh \
     test_view_colors.sh \
 	test_vt52_curses.sh
+
+if HAVE_CARGO
+TESTS += test_prql.sh
+endif
 
 DISABLED_TESTS = \
     test_regex101.sh \

@@ -180,6 +180,7 @@ const bookmark_type_t textview_curses::BM_USER("user");
 const bookmark_type_t textview_curses::BM_USER_EXPR("user-expr");
 const bookmark_type_t textview_curses::BM_SEARCH("search");
 const bookmark_type_t textview_curses::BM_META("meta");
+const bookmark_type_t textview_curses::BM_PARTITION("partition");
 
 textview_curses::textview_curses()
     : lnav_config_listener(__FILE__), tc_search_action(noop_func{})
@@ -555,8 +556,9 @@ textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
 
     const auto& user_marks = this->tc_bookmarks[&BM_USER];
     const auto& user_expr_marks = this->tc_bookmarks[&BM_USER_EXPR];
-    if (binary_search(user_marks.begin(), user_marks.end(), row)
-        || binary_search(user_expr_marks.begin(), user_expr_marks.end(), row))
+    if (std::binary_search(user_marks.begin(), user_marks.end(), row)
+        || std::binary_search(
+            user_expr_marks.begin(), user_expr_marks.end(), row))
     {
         sa.emplace_back(line_range{orig_line.lr_start, -1},
                         VC_STYLE.value(text_attrs{A_REVERSE}));
@@ -822,11 +824,21 @@ textview_curses::grep_value_for_line(vis_line_t line, std::string& value_out)
 }
 
 void
-text_time_translator::scroll_invoked(textview_curses* tc)
+text_sub_source::scroll_invoked(textview_curses* tc)
 {
-    if (tc->get_inner_height() > 0) {
+    auto* ttt = dynamic_cast<text_time_translator*>(this);
+
+    if (ttt != nullptr) {
+        ttt->ttt_scroll_invoked(tc);
+    }
+}
+
+void
+text_time_translator::ttt_scroll_invoked(textview_curses* tc)
+{
+    if (tc->get_inner_height() > 0 && tc->get_selection() >= 0_vl) {
         this->time_for_row(tc->get_selection()) |
-            [this](auto new_top_time) { this->ttt_top_time = new_top_time; };
+            [this](auto new_top_ri) { this->ttt_top_row_info = new_top_ri; };
     }
 }
 
@@ -834,29 +846,13 @@ void
 text_time_translator::data_reloaded(textview_curses* tc)
 {
     if (tc->get_inner_height() == 0) {
+        this->ttt_top_row_info = nonstd::nullopt;
         return;
     }
-    if (tc->get_selection() < 0_vl
-        || tc->get_selection() > tc->get_inner_height())
-    {
-        if (this->ttt_top_time.tv_sec != 0) {
-            this->row_for_time(this->ttt_top_time) |
-                [tc](auto new_top) { tc->set_selection(new_top); };
-        }
-        return;
+    if (this->ttt_top_row_info) {
+        this->row_for(this->ttt_top_row_info.value()) |
+            [tc](auto new_top) { tc->set_selection(new_top); };
     }
-    this->time_for_row(tc->get_selection()) | [this, tc](auto top_time) {
-        if (top_time != this->ttt_top_time) {
-            if (this->ttt_top_time.tv_sec != 0) {
-                this->row_for_time(this->ttt_top_time) |
-                    [tc](auto new_top) { tc->set_selection(new_top); };
-            }
-            this->time_for_row(tc->get_selection()) |
-                [this](auto new_top_time) {
-                    this->ttt_top_time = new_top_time;
-                };
-        }
-    };
 }
 
 template class bookmark_vector<vis_line_t>;
