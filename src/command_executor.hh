@@ -42,7 +42,6 @@
 #include "fmt/format.h"
 #include "ghc/filesystem.hpp"
 #include "help_text.hh"
-#include "optional.hpp"
 #include "shlex.resolver.hh"
 #include "vis_line.hh"
 
@@ -103,7 +102,7 @@ struct exec_context {
         return Err(this->make_error_msg(format_str, args...));
     }
 
-    nonstd::optional<FILE*> get_output()
+    std::optional<FILE*> get_output()
     {
         for (auto iter = this->ec_output_stack.rbegin();
              iter != this->ec_output_stack.rend();
@@ -114,19 +113,20 @@ struct exec_context {
             }
         }
 
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     void set_output(const std::string& name, FILE* file, int (*closer)(FILE*));
 
     void clear_output();
 
+    struct mouse_input {};
     struct user {};
     struct file_open {
         std::string fo_name;
     };
 
-    using provenance_t = mapbox::util::variant<user, file_open>;
+    using provenance_t = mapbox::util::variant<user, mouse_input, file_open>;
 
     struct provenance_guard {
         explicit provenance_guard(exec_context* context, provenance_t prov)
@@ -149,8 +149,15 @@ struct exec_context {
             }
         }
 
+        exec_context* operator->() { return this->pg_context; }
+
         exec_context* pg_context;
     };
+
+    provenance_guard with_provenance(provenance_t prov)
+    {
+        return provenance_guard{this, prov};
+    }
 
     struct source_guard {
         source_guard(exec_context* context) : sg_context(context) {}
@@ -175,8 +182,8 @@ struct exec_context {
     struct output_guard {
         explicit output_guard(exec_context& context,
                               std::string name = "default",
-                              const nonstd::optional<output_t>& file
-                              = nonstd::nullopt);
+                              const std::optional<output_t>& file
+                              = std::nullopt);
 
         ~output_guard();
 
@@ -274,7 +281,7 @@ struct exec_context {
     }
 
     template<typename T>
-    nonstd::optional<T> get_provenance() const
+    std::optional<T> get_provenance() const
     {
         for (const auto& elem : this->ec_provenance) {
             if (elem.is<T>()) {
@@ -282,7 +289,7 @@ struct exec_context {
             }
         }
 
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     vis_line_t ec_top_line{0_vl};
@@ -297,7 +304,7 @@ struct exec_context {
     std::vector<lnav::console::snippet> ec_source;
     help_text* ec_current_help{nullptr};
 
-    std::vector<std::pair<std::string, nonstd::optional<output_t>>>
+    std::vector<std::pair<std::string, std::optional<output_t>>>
         ec_output_stack;
 
     std::unique_ptr<attr_line_t> ec_accumulator;
@@ -318,7 +325,7 @@ class multiline_executor {
 public:
     exec_context& me_exec_context;
     std::string me_source;
-    nonstd::optional<std::string> me_cmdline;
+    std::optional<std::string> me_cmdline;
     int me_line_number{0};
     int me_starting_line_number{0};
     std::string me_last_result;

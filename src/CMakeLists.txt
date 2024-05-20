@@ -482,6 +482,7 @@ add_library(
         styling.cc
         text_anonymizer.cc
         text_format.cc
+        text_overlay_menu.cc
         textfile_highlighters.cc
         textfile_sub_source.cc
         textview_curses.cc
@@ -569,7 +570,6 @@ add_library(
         logfile_stats.hh
         md2attr_line.hh
         md4cpp.hh
-        optional.hpp
         file_converter_manager.hh
         plain_text_source.hh
         pretty_printer.hh
@@ -608,6 +608,7 @@ add_library(
         termios_guard.hh
         text_anonymizer.hh
         text_format.hh
+        text_overlay_menu.hh
         textfile_highlighters.hh
         textfile_sub_source.hh
         textview_curses.hh

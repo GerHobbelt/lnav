@@ -219,6 +219,9 @@ static auto bound_lnav_flags
     = injector::bind<unsigned long, lnav_flags_tag>::to_instance(
         &lnav_data.ld_flags);
 
+static auto bound_lnav_exec_context
+    = injector::bind<exec_context>::to_instance(&lnav_data.ld_exec_context);
+
 static auto bound_last_rel_time
     = injector::bind<relative_time, last_relative_time_tag>::to_singleton();
 
@@ -364,7 +367,7 @@ sigchld(int sig)
 }
 
 static void
-handle_rl_key(int ch)
+handle_rl_key(int ch, const char* keyseq)
 {
     switch (ch) {
         case KEY_F(2):
@@ -376,7 +379,7 @@ handle_rl_key(int ch)
         case KEY_PPAGE:
         case KEY_NPAGE:
         case KEY_CTRL('p'):
-            handle_paging_key(ch);
+            handle_paging_key(ch, keyseq);
             break;
 
         case KEY_CTRL(']'):
@@ -672,7 +675,7 @@ update_view_position(listview_curses* lv)
 }
 
 static bool
-handle_config_ui_key(int ch)
+handle_config_ui_key(int ch, const char* keyseq)
 {
     bool retval = false;
 
@@ -699,7 +702,7 @@ handle_config_ui_key(int ch)
         return retval;
     }
 
-    nonstd::optional<ln_mode_t> new_mode;
+    std::optional<ln_mode_t> new_mode;
 
     lnav_data.ld_filter_help_status_source.fss_error.clear();
     if (ch == 'F') {
@@ -727,14 +730,14 @@ handle_config_ui_key(int ch)
         lnav_data.ld_filter_view.reload_data();
         lnav_data.ld_status[LNS_FILTER].set_needs_update();
     } else {
-        return handle_paging_key(ch);
+        return handle_paging_key(ch, keyseq);
     }
 
     return true;
 }
 
 static bool
-handle_key(int ch)
+handle_key(int ch, const char* keyseq)
 {
     static auto* breadcrumb_view = injector::get<breadcrumb_curses*>();
 
@@ -746,13 +749,7 @@ handle_key(int ch)
         default: {
             switch (lnav_data.ld_mode) {
                 case ln_mode_t::PAGING:
-                    if (ch == '`') {
-                        breadcrumb_view->focus();
-                        lnav_data.ld_mode = ln_mode_t::BREADCRUMBS;
-                        return true;
-                    }
-
-                    return handle_paging_key(ch);
+                    return handle_paging_key(ch, keyseq);
 
                 case ln_mode_t::BREADCRUMBS:
                     if (ch == '`' || !breadcrumb_view->handle_key(ch)) {
@@ -764,7 +761,7 @@ handle_key(int ch)
 
                 case ln_mode_t::FILTER:
                 case ln_mode_t::FILES:
-                    return handle_config_ui_key(ch);
+                    return handle_config_ui_key(ch, keyseq);
 
                 case ln_mode_t::SPECTRO_DETAILS: {
                     if (ch == '\t' || ch == 'q') {
@@ -803,7 +800,7 @@ handle_key(int ch)
                 case ln_mode_t::SQL:
                 case ln_mode_t::EXEC:
                 case ln_mode_t::USER:
-                    handle_rl_key(ch);
+                    handle_rl_key(ch, keyseq);
                     break;
 
                 case ln_mode_t::BUSY:
@@ -871,7 +868,7 @@ gather_pipers()
 }
 
 void
-wait_for_pipers(nonstd::optional<timeval> deadline)
+wait_for_pipers(std::optional<timeval> deadline)
 {
     static const auto MAX_SLEEP_TIME = std::chrono::milliseconds(300);
     auto sleep_time = std::chrono::milliseconds(10);
@@ -1133,6 +1130,27 @@ looper()
             return;
         }
         auto echo_views_stmt = echo_views_stmt_res.unwrap();
+
+        if (xterm_mouse::is_available()
+            && lnav_config.lc_mouse_mode == lnav_mouse_mode::disabled)
+        {
+            auto mouse_note = prepare_stmt(lnav_data.ld_db, R"(
+INSERT INTO lnav_user_notifications (id, priority, expiration, message)
+VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
+        'Press <span class="-lnav_status-styles_hotkey">F2</span> to enable mouse support');
+)");
+            if (mouse_note.isErr()) {
+                lnav::console::print(
+                    stderr,
+                    lnav::console::user_message::error(
+                        "unable to prepare INSERT statement for "
+                        "lnav_user_notifications table")
+                        .with_reason(mouse_note.unwrapErr()));
+                return;
+            }
+
+            mouse_note.unwrap().execute();
+        }
 
         (void) signal(SIGINT, sigint);
         (void) signal(SIGTERM, sigint);
@@ -3090,7 +3108,8 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
         } else {
             lnav_data.ld_active_files.fc_file_names.emplace(
                 abspath.in(),
-                logfile_open_options().with_init_location(file_loc));
+                logfile_open_options().with_init_location(file_loc).with_tail(
+                    !(lnav_data.ld_flags & LNF_HEADLESS)));
             if (file_loc.valid()) {
                 lnav_data.ld_files_to_front.emplace_back(abspath.in(),
                                                          file_loc);
@@ -3178,7 +3197,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
         retval = EXIT_FAILURE;
     }
 
-    nonstd::optional<std::string> stdin_url;
+    std::optional<std::string> stdin_url;
     ghc::filesystem::path stdin_dir;
     if (load_stdin && !isatty(STDIN_FILENO) && !is_dev_null(STDIN_FILENO)
         && !exec_stdin)

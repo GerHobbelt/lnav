@@ -52,6 +52,7 @@
 #include "base/paths.hh"
 #include "base/string_util.hh"
 #include "bound_tags.hh"
+#include "breadcrumb_curses.hh"
 #include "command_executor.hh"
 #include "config.h"
 #include "curl_looper.hh"
@@ -155,7 +156,7 @@ remaining_args_frag(const std::string& cmdline,
         cmdline, index_in_cmdline, cmdline.size());
 }
 
-static nonstd::optional<std::string>
+static std::optional<std::string>
 find_arg(std::vector<std::string>& args, const std::string& flag)
 {
     auto iter = find_if(args.begin(), args.end(), [&flag](const auto elem) {
@@ -163,7 +164,7 @@ find_arg(std::vector<std::string>& args, const std::string& flag)
     });
 
     if (iter == args.end()) {
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     auto index = iter->find('=');
@@ -471,7 +472,7 @@ com_set_file_timezone_prompt(exec_context& ec, const std::string& cmdline)
             auto match_res = options_hier->match(pattern_arg);
             if (match_res) {
                 file_zone = match_res->second.fo_default_zone.pp_value->name();
-                pattern_arg = match_res->first;
+                pattern_arg = lnav::filesystem::escape_path(match_res->first);
 
                 auto new_prompt = fmt::format(FMT_STRING("{} {} {}"),
                                               trim(cmdline),
@@ -481,13 +482,16 @@ com_set_file_timezone_prompt(exec_context& ec, const std::string& cmdline)
                 return {new_prompt};
             }
 
-            return {"", file_zone};
+            return {"", file_zone + " "};
         } catch (const std::runtime_error& e) {
             log_error("cannot get timezones: %s", e.what());
         }
     }
     auto arg_path = ghc::filesystem::path(pattern_arg);
-    auto arg_parent = arg_path.parent_path().string() + "/";
+    auto arg_parent = lnav::filesystem::escape_path(arg_path.parent_path());
+    if (!endswith(arg_parent, "/")) {
+        arg_parent += "/";
+    }
     if (elems.size() == 2 && endswith(cmdline, " ")) {
         return {"", arg_parent};
     }
@@ -697,7 +701,7 @@ com_goto(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
     } else if (args.size() > 1) {
         std::string all_args = remaining_args(cmdline, args);
         auto* tc = *lnav_data.ld_view_stack.top();
-        nonstd::optional<vis_line_t> dst_vl;
+        std::optional<vis_line_t> dst_vl;
         auto is_location = false;
 
         if (startswith(all_args, "#")) {
@@ -1135,7 +1139,7 @@ com_goto_mark(exec_context& ec,
         }
 
         if (!ec.ec_dry_run) {
-            nonstd::optional<vis_line_t> new_top;
+            std::optional<vis_line_t> new_top;
 
             if (args[0] == "next-mark") {
                 auto search_from_top = search_forward_from(tc);
@@ -1805,7 +1809,7 @@ com_save_to(exec_context& ec,
                 line_count += 1;
             }
         } else if (tc == &lnav_data.ld_views[LNV_LOG]) {
-            nonstd::optional<std::pair<logfile*, content_line_t>> last_line;
+            std::optional<std::pair<logfile*, content_line_t>> last_line;
             bookmark_vector<vis_line_t> visited;
             auto& lss = lnav_data.ld_log_source;
             std::vector<attr_line_t> rows(1);
@@ -1991,6 +1995,47 @@ com_pipe_to(exec_context& ec,
     auto* tc = *lnav_data.ld_view_stack.top();
     auto bv = combined_user_marks(tc->get_bookmarks());
     bool pipe_line_to = (args[0] == "pipe-line-to");
+    auto path_v = ec.ec_path_stack;
+    std::map<std::string, std::string> extra_env;
+
+    if (pipe_line_to && tc == &lnav_data.ld_views[LNV_LOG]) {
+        log_data_helper ldh(lnav_data.ld_log_source);
+        char tmp_str[64];
+
+        ldh.parse_line(ec.ec_top_line, true);
+        auto format = ldh.ldh_file->get_format();
+        auto source_path = format->get_source_path();
+        path_v.insert(path_v.end(), source_path.begin(), source_path.end());
+
+        extra_env["log_line"] = fmt::to_string((int) ec.ec_top_line);
+        sql_strftime(tmp_str, sizeof(tmp_str), ldh.ldh_line->get_timeval());
+        extra_env["log_time"] = tmp_str;
+        extra_env["log_path"] = ldh.ldh_file->get_filename();
+        extra_env["log_level"] = ldh.ldh_line->get_level_name();
+        if (ldh.ldh_line_values.lvv_opid_value) {
+            extra_env["log_opid"] = ldh.ldh_line_values.lvv_opid_value.value();
+        }
+        auto read_res = ldh.ldh_file->read_raw_message(ldh.ldh_line);
+        if (read_res.isOk()) {
+            auto raw_text = to_string(read_res.unwrap());
+            extra_env["log_raw_text"] = raw_text;
+        }
+        for (auto& ldh_line_value : ldh.ldh_line_values.lvv_values) {
+            extra_env[ldh_line_value.lv_meta.lvm_name.to_string()]
+                = ldh_line_value.to_string();
+        }
+        auto iter = ldh.ldh_parser->dp_pairs.begin();
+        for (size_t lpc = 0; lpc < ldh.ldh_parser->dp_pairs.size();
+             lpc++, ++iter)
+        {
+            std::string colname = ldh.ldh_parser->get_element_string(
+                iter->e_sub_elements->front());
+            colname = ldh.ldh_namer->add_column(colname).to_string();
+            std::string val = ldh.ldh_parser->get_element_string(
+                iter->e_sub_elements->back());
+            extra_env[colname] = val;
+        }
+    }
 
     std::string cmd = trim(remaining_args(cmdline, args));
     auto for_child_res = auto_pipe::for_child_fds(STDIN_FILENO, STDOUT_FILENO);
@@ -2014,66 +2059,22 @@ com_pipe_to(exec_context& ec,
                                  strerror(errno));
 
         case 0: {
-            const char* args[] = {
+            const char* exec_args[] = {
                 "sh",
                 "-c",
                 cmd.c_str(),
                 nullptr,
             };
-            auto path_v = ec.ec_path_stack;
             std::string path;
 
             dup2(STDOUT_FILENO, STDERR_FILENO);
             path_v.emplace_back(lnav::paths::dotlnav() / "formats/default");
 
-            if (pipe_line_to && tc == &lnav_data.ld_views[LNV_LOG]) {
-                auto& lss = lnav_data.ld_log_source;
-                log_data_helper ldh(lss);
-                char tmp_str[64];
-
-                ldh.parse_line(ec.ec_top_line, true);
-                auto format = ldh.ldh_file->get_format();
-                auto source_path = format->get_source_path();
-                path_v.insert(
-                    path_v.end(), source_path.begin(), source_path.end());
-
-                snprintf(tmp_str, sizeof(tmp_str), "%d", (int) ec.ec_top_line);
-                setenv("log_line", tmp_str, 1);
-                sql_strftime(
-                    tmp_str, sizeof(tmp_str), ldh.ldh_line->get_timeval());
-                setenv("log_time", tmp_str, 1);
-                setenv("log_path", ldh.ldh_file->get_filename().c_str(), 1);
-                setenv("log_level", ldh.ldh_line->get_level_name(), 1);
-                if (ldh.ldh_line_values.lvv_opid_value) {
-                    setenv("log_opid",
-                           ldh.ldh_line_values.lvv_opid_value->c_str(),
-                           1);
-                }
-                auto read_res = ldh.ldh_file->read_raw_message(ldh.ldh_line);
-                if (read_res.isOk()) {
-                    auto raw_text = to_string(read_res.unwrap());
-                    setenv("log_raw_text", raw_text.c_str(), 1);
-                }
-                for (auto& ldh_line_value : ldh.ldh_line_values.lvv_values) {
-                    setenv(ldh_line_value.lv_meta.lvm_name.get(),
-                           ldh_line_value.to_string().c_str(),
-                           1);
-                }
-                auto iter = ldh.ldh_parser->dp_pairs.begin();
-                for (size_t lpc = 0; lpc < ldh.ldh_parser->dp_pairs.size();
-                     lpc++, ++iter)
-                {
-                    std::string colname = ldh.ldh_parser->get_element_string(
-                        iter->e_sub_elements->front());
-                    colname = ldh.ldh_namer->add_column(colname).to_string();
-                    std::string val = ldh.ldh_parser->get_element_string(
-                        iter->e_sub_elements->back());
-                    setenv(colname.c_str(), val.c_str(), 1);
-                }
-            }
-
             setenv("PATH", lnav::filesystem::build_path(path_v).c_str(), 1);
-            execvp(args[0], (char* const*) args);
+            for (const auto& pair : extra_env) {
+                setenv(pair.first.c_str(), pair.second.c_str(), 1);
+            }
+            execvp(exec_args[0], (char* const*) exec_args);
             _exit(1);
             break;
         }
@@ -2192,8 +2193,6 @@ com_redirect_to(exec_context& ec,
     if (ec.ec_dry_run) {
         return Ok("info: output will be redirected to -- " + split_args[0]);
     }
-
-    nonstd::optional<FILE*> file;
 
     if (split_args[0] == "-") {
         ec.clear_output();
@@ -2445,6 +2444,10 @@ com_filter_prompt(exec_context& ec, const std::string& cmdline)
     split_ws(cmdline, args);
     if (args.size() > 1) {
         return {};
+    }
+
+    if (tc->tc_selected_text) {
+        return {"", tc->tc_selected_text->sti_value};
     }
 
     return {"", tc->get_current_search()};
@@ -3453,7 +3456,7 @@ com_close(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
     }
 
     auto* tc = *lnav_data.ld_view_stack.top();
-    std::vector<nonstd::optional<ghc::filesystem::path>> actual_path_v;
+    std::vector<std::optional<ghc::filesystem::path>> actual_path_v;
     std::vector<std::string> fn_v;
 
     if (args.size() > 1) {
@@ -4073,7 +4076,7 @@ com_clear_partition(exec_context& ec,
         textview_curses& tc = lnav_data.ld_views[LNV_LOG];
         logfile_sub_source& lss = lnav_data.ld_log_source;
         auto& bv = tc.get_bookmarks()[&textview_curses::BM_PARTITION];
-        nonstd::optional<vis_line_t> part_start;
+        std::optional<vis_line_t> part_start;
 
         if (binary_search(bv.begin(), bv.end(), tc.get_selection())) {
             part_start = tc.get_selection();
@@ -4755,7 +4758,7 @@ com_hide_line(exec_context& ec,
         auto& lss = lnav_data.ld_log_source;
         date_time_scanner dts;
         struct timeval tv_abs;
-        nonstd::optional<timeval> tv_opt;
+        std::optional<timeval> tv_opt;
         auto parse_res = relative_time::from_str(all_args);
 
         if (parse_res.isOk()) {
@@ -4954,7 +4957,7 @@ com_sh(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
     static size_t EXEC_COUNT = 0;
 
     if (!ec.ec_dry_run) {
-        nonstd::optional<std::string> name_flag;
+        std::optional<std::string> name_flag;
 
         shlex lexer(cmdline);
         auto cmd_start = args[0].size();
@@ -5045,7 +5048,7 @@ com_sh(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
             display_name = name_flag.value();
         } else {
             display_name
-                = fmt::format(FMT_STRING("[{}] {}"), EXEC_COUNT++, carg);
+                = fmt::format(FMT_STRING("sh-{} {}"), EXEC_COUNT++, carg);
         }
 
         auto name_base = display_name;
@@ -5587,6 +5590,12 @@ com_quit(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
 }
 
 static void
+breadcrumb_prompt(std::vector<std::string>& args)
+{
+    set_view_mode(ln_mode_t::BREADCRUMBS);
+}
+
+static void
 command_prompt(std::vector<std::string>& args)
 {
     auto* tc = *lnav_data.ld_view_stack.top();
@@ -5795,7 +5804,7 @@ search_files_prompt(std::vector<std::string>& args)
 
     lnav_data.ld_mode = ln_mode_t::SEARCH_FILES;
     for (const auto& lf : lnav_data.ld_active_files.fc_files) {
-        auto path = lnav::pcre2pp::quote(lf->get_unique_path());
+        auto path = lnav::pcre2pp::quote(lf->get_unique_path().string());
         lnav_data.ld_rl_view->add_possibility(
             ln_mode_t::SEARCH_FILES, "*", path);
     }
@@ -5881,6 +5890,7 @@ com_prompt(exec_context& ec,
 {
     static std::map<std::string, std::function<void(std::vector<std::string>&)>>
         PROMPT_TYPES = {
+            {"breadcrumb", breadcrumb_prompt},
             {"command", command_prompt},
             {"script", script_prompt},
             {"search", search_prompt},
@@ -5899,11 +5909,11 @@ com_prompt(exec_context& ec,
         auto split_args_res = lexer.split(ec.create_resolver());
         if (split_args_res.isErr()) {
             auto split_err = split_args_res.unwrapErr();
-            auto um = lnav::console::user_message::error(
-                          "unable to parse file name")
-                          .with_reason(split_err.te_msg)
-                          .with_snippet(lnav::console::snippet::from(
-                              SRC, lexer.to_attr_line(split_err)));
+            auto um
+                = lnav::console::user_message::error("unable to parse prompt")
+                      .with_reason(split_err.te_msg)
+                      .with_snippet(lnav::console::snippet::from(
+                          SRC, lexer.to_attr_line(split_err)));
 
             return Err(um);
         }
@@ -5945,16 +5955,21 @@ readline_context::command_t STD_COMMANDS[] = {
                                    "Perform the alternate action "
                                    "for this prompt by default")
                              .optional())
-         .with_parameter(
-             help_text("prompt", "The prompt to display").optional())
+         .with_parameter(help_text("prompt", "The prompt to display")
+                             .with_enum_values({
+                                 "breadcrumb",
+                                 "command",
+                                 "script",
+                                 "search",
+                                 "sql",
+                             })
+                             .optional())
          .with_parameter(
              help_text("initial-value",
                        "The initial value to fill in for the prompt")
                  .optional())
          .with_example({
-             "To open the command prompt with 'filter-in' already "
-             "filled "
-             "in",
+             "To open the command prompt with 'filter-in' already filled in",
              "command : 'filter-in '",
          })
          .with_example({

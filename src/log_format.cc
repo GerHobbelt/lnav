@@ -198,7 +198,7 @@ log_opid_state::sub_op_in_use(ArenaAlloc::Alloc<char>& alloc,
     }
 }
 
-nonstd::optional<std::string>
+std::optional<std::string>
 log_format::opid_descriptor::matches(const string_fragment& sf) const
 {
     if (this->od_extractor.pp_value) {
@@ -213,7 +213,7 @@ log_format::opid_descriptor::matches(const string_fragment& sf) const
             return desc_md.to_string();
         }
 
-        return nonstd::nullopt;
+        return std::nullopt;
     }
     return sf.to_string();
 }
@@ -231,6 +231,35 @@ log_format::opid_descriptors::to_string(
             retval.append(iter->second);
         }
         retval.append(this->od_descriptors->at(lpc).od_suffix);
+    }
+
+    return retval;
+}
+
+chart_type_t
+logline_value_meta::to_chart_type() const
+{
+    auto retval = chart_type_t::hist;
+    switch (this->lvm_kind) {
+        case value_kind_t::VALUE_NULL:
+            retval = chart_type_t::none;
+            break;
+        case value_kind_t::VALUE_INTEGER:
+            if (!this->lvm_identifier && !this->lvm_foreign_key) {
+                retval = chart_type_t::spectro;
+            }
+            break;
+        case value_kind_t::VALUE_FLOAT:
+            retval = chart_type_t::spectro;
+            break;
+        case value_kind_t::VALUE_XML:
+        case value_kind_t::VALUE_JSON:
+        case value_kind_t::VALUE_BOOLEAN:
+        case value_kind_t::VALUE_TIMESTAMP:
+            retval = chart_type_t::none;
+            break;
+        default:
+            break;
     }
 
     return retval;
@@ -432,7 +461,7 @@ external_log_format::update_op_description(
     const pattern* fpat,
     const lnav::pcre2pp::match_data& md)
 {
-    nonstd::optional<std::string> desc_elem_str;
+    std::optional<std::string> desc_elem_str;
     if (!lod.lod_id) {
         for (const auto& desc_def_pair : desc_defs) {
             if (lod.lod_id) {
@@ -500,7 +529,7 @@ external_log_format::update_op_description(
                     found_desc->second.append(desc_elem_str.value());
                 }
             }
-            desc_elem_str = nonstd::nullopt;
+            desc_elem_str = std::nullopt;
         }
     }
 }
@@ -510,7 +539,7 @@ external_log_format::update_op_description(
     const std::map<intern_string_t, opid_descriptors>& desc_defs,
     log_op_description& lod)
 {
-    nonstd::optional<std::string> desc_elem_str;
+    std::optional<std::string> desc_elem_str;
     if (!lod.lod_id) {
         for (const auto& desc_def_pair : desc_defs) {
             if (lod.lod_id) {
@@ -565,7 +594,7 @@ external_log_format::update_op_description(
                         found_desc->second.append(desc_elem_str.value());
                     }
                 }
-                desc_elem_str = nonstd::nullopt;
+                desc_elem_str = std::nullopt;
             }
         }
     }
@@ -621,7 +650,7 @@ log_format::log_scanf(uint32_t line_number,
                       struct timeval* tv_out,
 
                       string_fragment* ts_out,
-                      nonstd::optional<string_fragment>* level_out)
+                      std::optional<string_fragment>* level_out)
 {
     int curr_fmt = -1;
     const char* retval = nullptr;
@@ -765,7 +794,7 @@ struct json_log_userdata {
 
     void add_sub_lines_for(const intern_string_t ist,
                            bool top_level,
-                           nonstd::optional<double> val = nonstd::nullopt,
+                           std::optional<double> val = std::nullopt,
                            const unsigned char* str = nullptr,
                            ssize_t len = -1)
     {
@@ -792,8 +821,8 @@ struct json_log_userdata {
     uint32_t jlu_quality{0};
     shared_buffer_ref& jlu_shared_buffer;
     scan_batch_context* jlu_batch_context;
-    nonstd::optional<string_fragment> jlu_opid_frag;
-    nonstd::optional<std::string> jlu_subid;
+    std::optional<string_fragment> jlu_opid_frag;
+    std::optional<std::string> jlu_subid;
     struct exttm jlu_exttm;
 };
 
@@ -1264,7 +1293,7 @@ external_log_format::scan(logfile& lf,
                 this->update_op_description(*this->lf_opid_description_def,
                                             otr.otr_description);
             } else {
-                this->jlf_line_values.lvv_opid_value = nonstd::nullopt;
+                this->jlf_line_values.lvv_opid_value = std::nullopt;
             }
 
             jlu.jlu_sub_line_count += this->jlf_line_format_init_count;
@@ -1550,7 +1579,7 @@ external_log_format::scan(logfile& lf,
                     }
                 }
 
-                nonstd::optional<double> dvalue_opt;
+                std::optional<double> dvalue_opt;
                 switch (vd.vd_meta.lvm_kind) {
                     case value_kind_t::VALUE_INTEGER: {
                         auto scan_res = scn::scan_value<int64_t>(
@@ -1601,7 +1630,7 @@ external_log_format::scan(logfile& lf,
             }
             this->lf_pattern_locks.emplace_back(lock_line, curr_fmt);
         }
-        return log_format::scan_match{0};
+        return log_format::scan_match{1000};
     }
 
     if (this->lf_specialized && !this->lf_multiline) {
@@ -1735,7 +1764,7 @@ external_log_format::annotate(uint64_t line_number,
         return;
     }
 
-    nonstd::optional<string_fragment> module_cap;
+    std::optional<string_fragment> module_cap;
     if (!pat.p_module_format) {
         auto ts_cap = md[pat.p_timestamp_field_index];
         if (ts_cap) {
@@ -1998,7 +2027,7 @@ read_json_field(yajlpp_parse_context* ypc, const unsigned char* str, size_t len)
     }
 
     jlu->add_sub_lines_for(
-        field_name, ypc->is_level(1), nonstd::nullopt, str, len);
+        field_name, ypc->is_level(1), std::nullopt, str, len);
 
     return 1;
 }
@@ -2563,7 +2592,7 @@ using safe_format_header_expressions = safe::Safe<format_header_expressions>;
 
 static safe_format_header_expressions format_header_exprs;
 
-nonstd::optional<external_file_format>
+std::optional<external_file_format>
 detect_mime_type(const ghc::filesystem::path& filename)
 {
     uint8_t buffer[1024];
@@ -2573,13 +2602,13 @@ detect_mime_type(const ghc::filesystem::path& filename)
         auto_fd fd;
 
         if ((fd = lnav::filesystem::openp(filename, O_RDONLY)) == -1) {
-            return nonstd::nullopt;
+            return std::nullopt;
         }
 
         ssize_t rc;
 
         if ((rc = read(fd, buffer, sizeof(buffer))) == -1) {
-            return nonstd::nullopt;
+            return std::nullopt;
         }
         buffer_size = rc;
     }
@@ -2684,7 +2713,7 @@ detect_mime_type(const ghc::filesystem::path& filename)
         }
     }
 
-    return nonstd::nullopt;
+    return std::nullopt;
 }
 
 void
@@ -2814,7 +2843,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
             auto& ivd = pat.p_value_by_index[lpc];
             auto vd = ivd.ivd_value_def;
 
-            if (!vd->vd_foreign_key && !vd->vd_meta.lvm_identifier) {
+            if (!vd->vd_meta.lvm_foreign_key && !vd->vd_meta.lvm_identifier) {
                 switch (vd->vd_meta.lvm_kind) {
                     case value_kind_t::VALUE_INTEGER:
                     case value_kind_t::VALUE_FLOAT:
@@ -3575,9 +3604,9 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
     size_t value_def_index = 0;
     for (auto& elf_value_def : this->elf_value_def_order) {
         elf_value_def->vd_meta.lvm_values_index
-            = nonstd::make_optional(value_def_index++);
+            = std::make_optional(value_def_index++);
 
-        if (elf_value_def->vd_foreign_key
+        if (elf_value_def->vd_meta.lvm_foreign_key
             || elf_value_def->vd_meta.lvm_identifier)
         {
             continue;
@@ -3827,7 +3856,7 @@ public:
         log_vtab_impl::get_foreign_keys(keys_inout);
 
         for (const auto& elf_value_def : this->elt_format.elf_value_defs) {
-            if (elf_value_def.second->vd_foreign_key) {
+            if (elf_value_def.second->vd_meta.lvm_foreign_key) {
                 keys_inout.emplace_back(elf_value_def.first.to_string());
             }
         }
@@ -3975,7 +4004,7 @@ external_log_format::match_name(const std::string& filename)
 auto
 external_log_format::value_line_count(const intern_string_t ist,
                                       bool top_level,
-                                      nonstd::optional<double> val,
+                                      std::optional<double> val,
                                       const unsigned char* str,
                                       ssize_t len) -> value_line_count_result
 {

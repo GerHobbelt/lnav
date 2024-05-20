@@ -179,11 +179,11 @@ string_fragment::trim() const
     return this->trim(" \t\r\n");
 }
 
-nonstd::optional<string_fragment>
+std::optional<string_fragment>
 string_fragment::consume_n(int amount) const
 {
     if (amount > this->length()) {
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     return string_fragment{
@@ -197,7 +197,7 @@ string_fragment::split_result
 string_fragment::split_n(int amount) const
 {
     if (amount > this->length()) {
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     return std::make_pair(
@@ -387,6 +387,55 @@ string_fragment::codepoint_to_byte_index(ssize_t cp_index) const
     return Ok(retval);
 }
 
+string_fragment
+string_fragment::sub_cell_range(int cell_start, int cell_end) const
+{
+    int byte_index = this->sf_begin;
+    std::optional<int> byte_start;
+    std::optional<int> byte_end;
+    int cell_index = 0;
+
+    while (byte_index < this->sf_end) {
+        if (cell_start == cell_index) {
+            byte_start = byte_index;
+        }
+        if (!byte_end && cell_index >= cell_end) {
+            byte_end = byte_index;
+            break;
+        }
+        auto read_res = ww898::utf::utf8::read(
+            [this, &byte_index]() { return this->sf_string[byte_index++]; });
+        if (read_res.isErr()) {
+            byte_index += 1;
+        } else {
+            auto ch = read_res.unwrap();
+
+            switch (ch) {
+                case '\t':
+                    do {
+                        cell_index += 1;
+                    } while (cell_index % 8);
+                    break;
+                default:
+                    cell_index += wcwidth(read_res.unwrap());
+                    break;
+            }
+        }
+    }
+    if (cell_start == cell_index) {
+        byte_start = byte_index;
+    }
+    if (!byte_end) {
+        byte_end = byte_index;
+    }
+
+    if (byte_start && byte_end) {
+        return this->sub_range(byte_start.value(), byte_end.value());
+    }
+
+    return string_fragment{};
+}
+
 size_t
 string_fragment::column_width() const
 {
@@ -399,7 +448,18 @@ string_fragment::column_width() const
         if (read_res.isErr()) {
             retval += 1;
         } else {
-            retval += wcwidth(read_res.unwrap());
+            auto ch = read_res.unwrap();
+
+            switch (ch) {
+                case '\t':
+                    do {
+                        retval += 1;
+                    } while (retval % 8);
+                    break;
+                default:
+                    retval += wcwidth(read_res.unwrap());
+                    break;
+            }
         }
     }
 

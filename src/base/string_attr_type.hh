@@ -136,6 +136,7 @@ enum class role_t : int32_t {
     VCR_TYPE,
     VCR_SEP_REF_ACC,
     VCR_SUGGESTION,
+    VCR_SELECTED_TEXT,
 
     VCR__MAX
 };
@@ -163,8 +164,8 @@ struct text_attrs {
     }
 
     int32_t ta_attrs{0};
-    nonstd::optional<short> ta_fg_color;
-    nonstd::optional<short> ta_bg_color;
+    std::optional<short> ta_fg_color;
+    std::optional<short> ta_bg_color;
 };
 
 struct block_elem_t {
@@ -572,6 +573,13 @@ inline std::pair<std::string, string_attr_pair> operator"" _info(
 {
     return std::make_pair(std::string(str, len),
                           VC_ROLE.template value(role_t::VCR_INFO));
+}
+
+inline std::pair<std::string, string_attr_pair> operator"" _status_title(
+    const char* str, std::size_t len)
+{
+    return std::make_pair(std::string(str, len),
+                          VC_ROLE.template value(role_t::VCR_STATUS_TITLE));
 }
 
 inline std::pair<std::string, string_attr_pair> operator"" _symbol(

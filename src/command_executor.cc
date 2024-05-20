@@ -289,12 +289,14 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
             auto um
                 = lnav::console::user_message::error(
                       attr_line_t("unable to compile PRQL: ").append(stmt_al))
-                      .with_reason((std::string) msg.reason);
+                      .with_reason(
+                          attr_line_t::from_ansi_str((std::string) msg.reason));
             if (!msg.display.empty()) {
-                um.with_note((std::string) msg.display);
+                um.with_note(
+                    attr_line_t::from_ansi_str((std::string) msg.display));
             }
             for (const auto& hint : msg.hints) {
-                um.with_help(hint.data());
+                um.with_help(attr_line_t::from_ansi_str((std::string) hint));
                 break;
             }
             return Err(um);
@@ -463,14 +465,14 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
         }
         lnav_data.ld_filter_view.reload_data();
         lnav_data.ld_files_view.reload_data();
-        lnav_data.ld_views[LNV_DB].reload_data();
-        lnav_data.ld_views[LNV_DB].set_left(0);
 
         lnav_data.ld_active_files.fc_files
             | lnav::itertools::for_each(&logfile::dump_stats);
         if (ec.ec_sql_callback != sql_callback) {
             retval = ec.ec_accumulator->get_string();
         } else if (!dls.dls_rows.empty()) {
+            lnav_data.ld_views[LNV_DB].reload_data();
+            lnav_data.ld_views[LNV_DB].set_left(0);
             if (lnav_data.ld_flags & LNF_HEADLESS) {
                 if (ec.ec_local_vars.size() == 1) {
                     ensure_view(&lnav_data.ld_views[LNV_DB]);
@@ -783,6 +785,17 @@ execute_from_file(exec_context& ec,
 Result<std::string, lnav::console::user_message>
 execute_any(exec_context& ec, const std::string& cmdline_with_mode)
 {
+    if (cmdline_with_mode.empty()) {
+        auto um = lnav::console::user_message::error("empty command")
+                      .with_help(
+                          "a command should start with ':', ';', '/', '|' and "
+                          "followed by the operation to perform");
+        if (!ec.ec_source.empty()) {
+            um.with_snippet(ec.ec_source.back());
+        }
+        return Err(um);
+    }
+
     std::string retval, alt_msg, cmdline = cmdline_with_mode.substr(1);
     auto _cleanup = finally([&ec] {
         if (ec.is_read_write() &&
@@ -791,7 +804,7 @@ execute_any(exec_context& ec, const std::string& cmdline_with_mode)
             (lnav_data.ld_flags & LNF_HEADLESS || ec.ec_path_stack.size() > 1))
         {
             rescan_files();
-            wait_for_pipers(nonstd::nullopt);
+            wait_for_pipers(std::nullopt);
             rebuild_indexes_repeatedly();
         }
     });
@@ -829,7 +842,7 @@ execute_init_commands(
         return;
     }
 
-    nonstd::optional<exec_context::output_t> ec_out;
+    std::optional<exec_context::output_t> ec_out;
     auto_fd fd_copy;
 
     if (!(lnav_data.ld_flags & LNF_HEADLESS)) {
@@ -1077,7 +1090,7 @@ pipe_callback(exec_context& ec, const std::string& cmdline, auto_fd& fd)
 
     static int exec_count = 0;
     auto desc
-        = fmt::format(FMT_STRING("[{}] Output of {}"), exec_count++, cmdline);
+        = fmt::format(FMT_STRING("exec-{}-output {}"), exec_count++, cmdline);
     lnav_data.ld_active_files.fc_file_names[tmp_pair.first]
         .with_filename(desc)
         .with_include_in_session(false)
@@ -1132,7 +1145,7 @@ exec_context::clear_output()
             out.second(out.first);
         }
     };
-    this->ec_output_stack.back() = std::make_pair("default", nonstd::nullopt);
+    this->ec_output_stack.back() = std::make_pair("default", std::nullopt);
 }
 
 exec_context::exec_context(logline_value_vector* line_values,
@@ -1148,7 +1161,7 @@ exec_context::exec_context(logline_value_vector* line_values,
     this->ec_path_stack.emplace_back(".");
     this->ec_source.emplace_back(
         lnav::console::snippet::from(COMMAND_SRC, "").with_line(1));
-    this->ec_output_stack.emplace_back("screen", nonstd::nullopt);
+    this->ec_output_stack.emplace_back("screen", std::nullopt);
     this->ec_error_callback_stack.emplace_back(
         [](const auto& um) { lnav::console::print(stderr, um); });
 }
@@ -1156,6 +1169,28 @@ exec_context::exec_context(logline_value_vector* line_values,
 void
 exec_context::execute(const std::string& cmdline)
 {
+    if (this->get_provenance<mouse_input>()) {
+        require(!lnav_data.ld_rl_view->is_active());
+
+        int context = 0;
+        switch (cmdline[0]) {
+            case '/':
+                context = lnav::enums::to_underlying(ln_mode_t::SEARCH);
+                break;
+            case ':':
+                context = lnav::enums::to_underlying(ln_mode_t::COMMAND);
+                break;
+            case ';':
+                context = lnav::enums::to_underlying(ln_mode_t::SQL);
+                break;
+            case '|':
+                context = lnav::enums::to_underlying(ln_mode_t::EXEC);
+                break;
+        }
+
+        lnav_data.ld_rl_view->append_to_history(context, cmdline.substr(1));
+    }
+
     auto exec_res = execute_any(*this, cmdline);
     if (exec_res.isErr()) {
         this->ec_error_callback_stack.back()(exec_res.unwrapErr());
@@ -1204,7 +1239,7 @@ exec_context::enter_source(intern_string_t path,
 
 exec_context::output_guard::output_guard(exec_context& context,
                                          std::string name,
-                                         const nonstd::optional<output_t>& file)
+                                         const std::optional<output_t>& file)
     : sg_context(context)
 {
     if (file) {

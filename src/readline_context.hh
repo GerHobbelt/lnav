@@ -107,6 +107,8 @@ public:
 
     void load();
 
+    void set_history();
+
     void save();
 
     void add_possibility(const std::string& type, const std::string& value)
@@ -198,7 +200,7 @@ private:
     std::map<std::string, std::vector<std::string>> rc_prototypes;
     std::map<std::string, command_t*> rc_commands;
     bool rc_case_sensitive;
-    int rc_append_character;
+    int rc_append_character{' '};
     const char* rc_quote_chars;
     readline_highlighter_t rc_highlighter;
     std::vector<readline_var> rc_vars;

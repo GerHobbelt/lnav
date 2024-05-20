@@ -1,23 +1,54 @@
+## lnav v0.12.3
+
+Features:
+* Files that contain a mixture of log messages from separate
+  services (e.g. docker logs) can now be automatically
+  de-multiplexed into separate files that lnav can digest.
+
+Bug Fixes:
+* Log messages in formats with custom timestamp formats were
+  not being converted to the local timezone.
+* The timezone offset is now shown in the parser details
+  overlay for log messages.
+
+Maintenance:
+* Upgrade to C++17
+
+
 ## lnav v0.12.2
 
 Features:
-* Added the "last-word" line-format field shortening algorithm
-  from @flicus.
-* Added a `stats.hist` PRQL transform that produces a histogram
-  of values over time.
-* The preview for the `:open` command will now show a listing
-  of archive contents.
-* Added `humanize_id` SQL function that colorizes a string using
-  ANSI escape codes.
 * Added mouse support that can be toggled with `F2` or enabled
   by default with: `:config /ui/mouse/mode enabled`.  With
   mouse support enabled, many of the UI elements will respond to
   mouse inputs:
   - clicking on the main view will move the cursor to the given
     row and dragging will scroll the view as needed;
-  - shift + dragging in the main view will highlight lines and
-    then toggle their bookmark status on release;
-  - clicking in the scroll area will move the view by a page and
+  - shift + clicking/dragging in the main view will highlight
+    lines and then toggle their bookmark status on release;
+  - double-clicking in the main view will select the underlying 
+    text and drag-selecting within a line will select the given
+    text;
+  - when double-clicking text: if the mouse pointer is inside
+    a quoted string, the contents of the string will be selected;
+    if the mouse pointer is on the quote, the quote will be included
+    in the selection; if the mouse pointer is over a bracket
+    (e.g. [],{},()) where the matching bracket is on the same line,
+    the selection will span from one bracket to the other;
+  - when text is selected, a menu will pop up that can be used
+    to filter based on the current text, search for it, or copy
+    it to the clipboard;
+  - right-clicking the start of a log message in the main view
+    will open the parser details overlay;
+  - the parser details now displays a diamond next to fields to
+    indicate whether they are shown/hidden and this can be
+    clicked to toggle the state;
+  - the parser details will show a bar chart icon for fields with
+    values which, when clicked, will open either the spectrogram
+    view for the given field or open the DB query prompt with a
+    PRQL query to generate a histogram of the field values;
+  - clicking in the scroll area will move the view by a page,
+    double-clicking will move the view to that area, and
     dragging the scrollbar will move the view to the given spot;
   - clicking on the breadcrumb bar will select a crumb and
     selecting a possibility from the popup will move to that
@@ -29,8 +60,38 @@ Features:
     will open the selected panel and clicking parts of the
     display in there will perform the relevant action (e.g.
     clicking the diamond will enable/disable the file/filter);
-  - clicking in a prompt will move the cursor to the location.
-  This is new work, so there are likely to be some glitches.
+  - clicking in a prompt will move the cursor to the location;
+  - clicking on a column in the spectrogram view will select it.
+
+  (Note that this is new work, so there are likely to be some 
+  glitches.)
+* Added a `journald://` URL handler that will call `journalctl`
+  and pass any query parameters as options.  For example, the
+  following command:
+
+  ```
+  $ lnav 'journal://?since=yesterday'
+  ```
+
+  Will execute the following and capture the output:
+
+  ```
+  journalctl --output=json -f --since=yesterday
+  ```
+* Added the "last-word" line-format field shortening algorithm
+  from @flicus.
+* Added a `stats.hist` PRQL transform that produces a histogram
+  of values over time.
+* The preview for the `:open` command will now show a listing
+  of archive contents.
+* Added `humanize_id` SQL function that colorizes a string using
+  ANSI escape codes.
+* Added a `selected_text` column to the `lnav_views` table that
+  reports information about text that was selected with a mouse.
+  This makes it possible to script operations that use the
+  selected text as an input.
+* Added `breadcrumb` as an option to the `:prompt` command so
+  that the breadcrumb hotkey can be configured.
 
 Interface changes:
 * The bar charts in the DB view have now been moved to their
@@ -42,6 +103,11 @@ Interface changes:
   running:
 
   `:config /ui/movement/mode top`
+* In the parser details panel (opened by pressing `p`), you
+  can now hide/show fields by moving the cursor line to the
+  given field and pressing the space bar or by clicking on
+  the diamond with the mouse.
+* The `sv` keymap binds `§` to focus the breadcrumb bar.
 
 Bug Fixes:
 * With the recent xz backdoor shenanigans, it seems like a good
@@ -55,6 +121,7 @@ Bug Fixes:
 * A crash during initialization on Apple Silicon and MacOS 12
   has been fixed.
 * A crash when previewing non-text files.
+* Optimized ANSI-escape processing.
 * Various fixes to make lnav usable as a `PAGER`.
 
 ## lnav v0.12.1

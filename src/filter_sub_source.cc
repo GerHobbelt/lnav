@@ -290,14 +290,14 @@ size_t
 filter_sub_source::text_line_count()
 {
     return (lnav_data.ld_view_stack.top() |
-                [](auto tc) -> nonstd::optional<size_t> {
+                [](auto tc) -> std::optional<size_t> {
                text_sub_source* tss = tc->get_sub_source();
 
                if (tss == nullptr) {
-                   return nonstd::nullopt;
+                   return std::nullopt;
                }
                auto& fs = tss->get_filters();
-               return nonstd::make_optional(fs.size());
+               return std::make_optional(fs.size());
            })
         .value_or(0);
 }
@@ -434,9 +434,12 @@ filter_sub_source::rl_change(readline_curses* rc)
             break;
         case filter_lang_t::REGEX: {
             if (new_value.empty()) {
-                if (fs.get_filter(top_view->get_current_search()) == nullptr) {
-                    this->fss_editor->set_suggestion(
-                        top_view->get_current_search());
+                auto sugg = top_view->get_current_search();
+                if (top_view->tc_selected_text) {
+                    sugg = top_view->tc_selected_text->sti_value;
+                }
+                if (fs.get_filter(sugg) == nullptr) {
+                    this->fss_editor->set_suggestion(sugg);
                 }
             } else {
                 auto regex_res
@@ -683,7 +686,10 @@ filter_sub_source::list_input_handle_scroll_out(listview_curses& lv)
 }
 
 bool
-filter_sub_source::text_handle_mouse(textview_curses& tc, mouse_event& me)
+filter_sub_source::text_handle_mouse(
+    textview_curses& tc,
+    const listview_curses::display_line_content_t&,
+    mouse_event& me)
 {
     if (this->fss_editing) {
         return true;

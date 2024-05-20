@@ -43,6 +43,7 @@
 #include "lnav_config.hh"
 #include "shlex.hh"
 #include "sql_util.hh"
+#include "sqlitepp.client.hh"
 #include "xterm_mouse.hh"
 
 using namespace lnav::roles::literals;
@@ -144,8 +145,7 @@ key_sql_callback(exec_context& ec, sqlite3_stmt* stmt)
 bool
 handle_keyseq(const char* keyseq)
 {
-    key_map& km = lnav_config.lc_active_keymap;
-
+    const auto& km = lnav_config.lc_active_keymap;
     const auto& iter = km.km_seq_to_cmd.find(keyseq);
     if (iter == km.km_seq_to_cmd.end()) {
         return false;
@@ -166,8 +166,12 @@ handle_keyseq(const char* keyseq)
     vars["keyseq"] = keyseq;
     const auto& kc = iter->second;
 
-    log_debug("executing key sequence %s: %s", keyseq, kc.kc_cmd.c_str());
-    auto result = execute_any(ec, kc.kc_cmd);
+    log_debug(
+        "executing key sequence %s: %s", keyseq, kc.kc_cmd.pp_value.c_str());
+    auto sg = ec.enter_source(kc.kc_cmd.pp_location.sl_source,
+                              kc.kc_cmd.pp_location.sl_line_number,
+                              kc.kc_cmd.pp_value);
+    auto result = execute_any(ec, kc.kc_cmd.pp_value);
     if (result.isOk()) {
         lnav_data.ld_rl_view->set_value(result.unwrap());
     } else {
@@ -194,7 +198,7 @@ handle_keyseq(const char* keyseq)
 }
 
 bool
-handle_paging_key(int ch)
+handle_paging_key(int ch, const char* keyseq)
 {
     if (lnav_data.ld_view_stack.empty()) {
         return false;
@@ -211,8 +215,7 @@ handle_paging_key(int ch)
         }
     }
 
-    auto keyseq = fmt::format(FMT_STRING("x{:02x}"), ch);
-    if (handle_keyseq(keyseq.c_str())) {
+    if (handle_keyseq(keyseq)) {
         return true;
     }
 
@@ -267,10 +270,22 @@ handle_paging_key(int ch)
             if (xterm_mouse::is_available()) {
                 auto& mouse_i = injector::get<xterm_mouse&>();
                 mouse_i.set_enabled(!mouse_i.is_enabled());
-                auto um = lnav::console::user_message::ok(
-                    attr_line_t("mouse mode -- ")
-                        .append(mouse_i.is_enabled() ? "enabled"_symbol
-                                                     : "disabled"_symbol));
+
+                auto al = attr_line_t("mouse mode -- ")
+                              .append(mouse_i.is_enabled() ? "enabled"_symbol
+                                                           : "disabled"_symbol);
+                if (mouse_i.is_enabled()
+                    && lnav_config.lc_mouse_mode == lnav_mouse_mode::disabled)
+                {
+                    al.append(" -- enable permanently with ")
+                        .append(":config /ui/mouse/mode enabled"_quoted_code);
+
+                    auto clear_note = prepare_stmt(lnav_data.ld_db, R"(
+DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
+)");
+                    clear_note.unwrap().execute();
+                }
+                auto um = lnav::console::user_message::ok(al);
                 lnav_data.ld_rl_view->set_attr_value(um.to_attr_line());
             } else {
                 lnav_data.ld_rl_view->set_value(

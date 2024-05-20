@@ -114,10 +114,16 @@ public:
         return false;
     }
 
-    virtual nonstd::optional<attr_line_t> list_header_for_overlay(
+    virtual std::vector<attr_line_t> list_overlay_menu(
         const listview_curses& lv, vis_line_t line)
     {
-        return nonstd::nullopt;
+        return {};
+    }
+
+    virtual std::optional<attr_line_t> list_header_for_overlay(
+        const listview_curses& lv, vis_line_t line)
+    {
+        return std::nullopt;
     }
 
     virtual void list_value_for_overlay(const listview_curses& lv,
@@ -244,16 +250,16 @@ public:
         return this->lv_top;
     }
 
-    nonstd::optional<vis_line_t> get_overlay_selection() const
+    std::optional<vis_line_t> get_overlay_selection() const
     {
         if (this->lv_overlay_focused) {
             return this->lv_focused_overlay_selection;
         }
 
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
-    void set_overlay_selection(nonstd::optional<vis_line_t> sel);
+    void set_overlay_selection(std::optional<vis_line_t> sel);
 
     void set_sync_selection_and_top(bool value)
     {
@@ -293,7 +299,7 @@ public:
         typename std::result_of<F(const attr_line_t&)>::type
     {
         if (this->lv_top >= this->get_inner_height()) {
-            return nonstd::nullopt;
+            return std::nullopt;
         }
 
         std::vector<attr_line_t> top_line{1};
@@ -322,10 +328,10 @@ public:
     /** @return The line number that is displayed at the top. */
     vis_line_t get_top() const { return this->lv_top; }
 
-    nonstd::optional<vis_line_t> get_top_opt() const
+    std::optional<vis_line_t> get_top_opt() const
     {
         if (this->get_inner_height() == 0_vl) {
-            return nonstd::nullopt;
+            return std::nullopt;
         }
 
         return this->lv_top;
@@ -358,31 +364,10 @@ public:
      *
      * @param left The new value for left.
      */
-    void set_left(unsigned int left)
-    {
-        if (this->lv_left == left) {
-            return;
-        }
-
-        if (left > this->lv_left) {
-            unsigned long width;
-            vis_line_t height;
-
-            this->get_dimensions(height, width);
-            if ((this->get_inner_width() - this->lv_left) <= width) {
-                alerter::singleton().chime(
-                    "the maximum width of the view has been reached");
-                return;
-            }
-        }
-
-        this->lv_left = left;
-        this->invoke_scroll();
-        this->set_needs_update();
-    }
+    void set_left(int left);
 
     /** @return The column number that is displayed at the left. */
-    unsigned int get_left() const { return this->lv_left; }
+    int get_left() const { return this->lv_left; }
 
     /**
      * Shift the value of left by the given value.
@@ -390,7 +375,7 @@ public:
      * @param offset The amount to change top by.
      * @return The final value of top.
      */
-    unsigned int shift_left(int offset)
+    int shift_left(int offset)
     {
         if (this->lv_word_wrap) {
             alerter::singleton().chime(
@@ -520,13 +505,32 @@ public:
             this->lv_title.c_str(),
             this->vc_y,
             (int) this->lv_top,
-            (int) this->lv_left,
+            this->lv_left,
             this->lv_height,
             (int) this->lv_selection,
             (int) this->get_inner_height());
     }
 
     virtual void invoke_scroll() { this->lv_scroll(this); }
+
+    struct main_content {
+        vis_line_t mc_line;
+    };
+    struct static_overlay_content {};
+    struct overlay_menu {
+        vis_line_t om_line;
+    };
+    struct overlay_content {
+        vis_line_t oc_main_line;
+        vis_line_t oc_line;
+    };
+    struct empty_space {};
+
+    using display_line_content_t = mapbox::util::variant<main_content,
+                                                         overlay_menu,
+                                                         static_overlay_content,
+                                                         overlay_content,
+                                                         empty_space>;
 
 protected:
     void delegate_scroll_out()
@@ -557,7 +561,7 @@ protected:
     action lv_scroll; /*< The scroll action. */
     WINDOW* lv_window{nullptr}; /*< The window that contains this view. */
     vis_line_t lv_top{0}; /*< The line at the top of the view. */
-    unsigned int lv_left{0}; /*< The column at the left of the view. */
+    int lv_left{0}; /*< The column at the left of the view. */
     vis_line_t lv_height{0}; /*< The abs/rel height of the view. */
     bool lv_overlay_focused{false};
     vis_line_t lv_focused_overlay_top{0_vl};
@@ -580,20 +584,6 @@ protected:
     int lv_mouse_y{-1};
     lv_mode_t lv_mouse_mode{lv_mode_t::NONE};
     vis_line_t lv_tail_space{1};
-
-    struct main_content {
-        vis_line_t mc_line;
-    };
-    struct static_overlay_content {};
-    struct overlay_content {
-        vis_line_t oc_line;
-    };
-    struct empty_space {};
-
-    using display_line_content_t = mapbox::util::variant<main_content,
-                                                         static_overlay_content,
-                                                         overlay_content,
-                                                         empty_space>;
 
     std::vector<display_line_content_t> lv_display_lines;
     unsigned int lv_scroll_top{0};

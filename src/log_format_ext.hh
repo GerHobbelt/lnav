@@ -68,7 +68,6 @@ public:
 
         logline_value_meta vd_meta;
         std::string vd_collate;
-        bool vd_foreign_key{false};
         intern_string_t vd_unit_field;
         std::map<const intern_string_t, scaling_factor> vd_unit_scaling;
         bool vd_internal{false};
@@ -288,8 +287,8 @@ public:
 
     value_line_count_result value_line_count(const intern_string_t ist,
                                              bool top_level,
-                                             nonstd::optional<double> val
-                                             = nonstd::nullopt,
+                                             std::optional<double> val
+                                             = std::nullopt,
                                              const unsigned char* str = nullptr,
                                              ssize_t len = -1);
 

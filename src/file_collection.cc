@@ -66,7 +66,7 @@ child_poller::poll(file_collection& fc)
     }
 
     auto poll_res = std::move(this->cp_child.value()).poll();
-    this->cp_child = nonstd::nullopt;
+    this->cp_child = std::nullopt;
     return poll_res.match(
         [this](auto_pid<process_state::running>& alive) {
             this->cp_child = std::move(alive);
@@ -178,6 +178,7 @@ file_collection::regenerate_unique_file_names()
         switch (pair.second.ofd_format) {
             case file_format_t::UNKNOWN:
             case file_format_t::ARCHIVE:
+            case file_format_t::MULTIPLEXED:
             case file_format_t::SQLITE_DB: {
                 auto bn = ghc::filesystem::path(pair.first).filename().string();
                 if (bn.length() > this->fc_largest_path_length) {
@@ -218,8 +219,9 @@ file_collection::merge(file_collection& other)
 
         errs->insert(new_errors.begin(), new_errors.end());
     }
-    this->fc_file_names.insert(other.fc_file_names.begin(),
-                               other.fc_file_names.end());
+    for (const auto& fn_pair : other.fc_file_names) {
+        this->fc_file_names[fn_pair.first] = fn_pair.second;
+    }
     if (!other.fc_files.empty()) {
         for (const auto& lf : other.fc_files) {
             this->fc_name_to_errors->writeAccess()->erase(lf->get_filename());
@@ -291,7 +293,7 @@ struct same_file {
  * @param fd       An already-opened descriptor for 'filename'.
  * @param required Specifies whether or not the file must exist and be valid.
  */
-nonstd::optional<std::future<file_collection>>
+std::optional<std::future<file_collection>>
 file_collection::watch_logfile(const std::string& filename,
                                logfile_open_options& loo,
                                bool required)
@@ -301,18 +303,10 @@ file_collection::watch_logfile(const std::string& filename,
 
     auto filename_key = loo.loo_filename.empty() ? filename : loo.loo_filename;
     if (this->fc_closed_files.count(filename)) {
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
-    if (loo.loo_temp_file) {
-        memset(&st, 0, sizeof(st));
-        st.st_dev = loo.loo_temp_dev;
-        st.st_ino = loo.loo_temp_ino;
-        st.st_mode = S_IFREG;
-        rc = 0;
-    } else {
-        rc = stat(filename.c_str(), &st);
-    }
+    rc = stat(filename.c_str(), &st);
 
     if (rc == 0) {
         if (S_ISDIR(st.st_mode) && this->fc_recursive) {
@@ -329,14 +323,14 @@ file_collection::watch_logfile(const std::string& filename,
                         .with_visible_size_limit(256 * 1024));
                 return lnav::futures::make_ready_future(std::move(retval));
             }
-            return nonstd::nullopt;
+            return std::nullopt;
         }
         if (!S_ISREG(st.st_mode)) {
             if (required) {
                 rc = -1;
                 errno = EINVAL;
             } else {
-                return nonstd::nullopt;
+                return std::nullopt;
             }
         }
         {
@@ -365,7 +359,7 @@ file_collection::watch_logfile(const std::string& filename,
                 });
             return lnav::futures::make_ready_future(std::move(retval));
         }
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     if (this->fc_new_stats | lnav::itertools::find_if([&st](const auto& elem) {
@@ -374,7 +368,7 @@ file_collection::watch_logfile(const std::string& filename,
     {
         // this file is probably a link that we have already scanned in this
         // pass.
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     this->fc_new_stats.emplace_back(st);
@@ -384,7 +378,7 @@ file_collection::watch_logfile(const std::string& filename,
 
     if (file_iter == this->fc_files.end()) {
         if (this->fc_other_files.find(filename) != this->fc_other_files.end()) {
-            return nonstd::nullopt;
+            return std::nullopt;
         }
 
         require(this->fc_progress.get() != nullptr);
@@ -405,8 +399,7 @@ file_collection::watch_logfile(const std::string& filename,
                 }
             }
 
-            auto ff = loo.loo_temp_file ? file_format_t::UNKNOWN
-                                        : detect_file_format(filename);
+            auto ff = detect_file_format(filename);
 
             loo.loo_file_format = ff;
             switch (ff) {
@@ -414,8 +407,33 @@ file_collection::watch_logfile(const std::string& filename,
                     retval.fc_other_files[filename].ofd_format = ff;
                     break;
 
+                case file_format_t::MULTIPLEXED: {
+                    log_info("%s: file is multiplexed, creating piper",
+                             filename.c_str());
+
+                    auto open_res
+                        = lnav::filesystem::open_file(filename, O_RDONLY);
+                    if (open_res.isOk()) {
+                        auto looper_options = lnav::piper::options{};
+                        looper_options.with_tail(loo.loo_tail);
+                        auto create_res
+                            = lnav::piper::create_looper(filename,
+                                                         open_res.unwrap(),
+                                                         auto_fd{-1},
+                                                         looper_options);
+
+                        if (create_res.isOk()) {
+                            retval.fc_other_files[filename] = ff;
+                            retval.fc_file_names[filename] = loo;
+                            retval.fc_file_names[filename].with_piper(
+                                create_res.unwrap());
+                        }
+                    }
+                    break;
+                }
+
                 case file_format_t::ARCHIVE: {
-                    nonstd::optional<
+                    std::optional<
                         std::list<archive_manager::extract_progress>::iterator>
                         prog_iter_opt;
 
@@ -487,62 +505,63 @@ file_collection::watch_logfile(const std::string& filename,
                 default: {
                     auto filename_to_open = filename;
 
-                    if (!loo.loo_temp_file) {
-                        auto eff = detect_mime_type(filename);
+                    auto eff = detect_mime_type(filename);
 
-                        if (eff) {
-                            auto cr = file_converter_manager::convert(
-                                eff.value(), filename);
+                    if (eff) {
+                        auto cr = file_converter_manager::convert(eff.value(),
+                                                                  filename);
 
-                            if (cr.isErr()) {
-                                retval.fc_name_to_errors->writeAccess()
-                                    ->emplace(filename,
-                                              file_error_info{
-                                                  st.st_mtime,
-                                                  cr.unwrapErr(),
-                                              });
-                                break;
-                            }
-
-                            auto convert_res = cr.unwrap();
-                            retval.fc_child_pollers.emplace_back(child_poller{
+                        if (cr.isErr()) {
+                            retval.fc_name_to_errors->writeAccess()->emplace(
                                 filename,
-                                std::move(convert_res.cr_child),
-                                [filename,
-                                 st,
-                                 error_queue = convert_res.cr_error_queue](
-                                    auto& fc, auto& child) {
-                                    if (child.was_normal_exit()
-                                        && child.exit_status() == EXIT_SUCCESS)
-                                    {
-                                        log_info(
-                                            "converter[%d] exited normally",
-                                            child.in());
-                                        return;
-                                    }
-                                    log_error("converter[%d] exited with %d",
-                                              child.in(),
-                                              child.status());
-                                    fc.fc_name_to_errors->writeAccess()
-                                        ->emplace(
-                                            filename,
-                                            file_error_info{
-                                                st.st_mtime,
-                                                fmt::format(
-                                                    FMT_STRING("{}"),
-                                                    fmt::join(*error_queue,
-                                                              "\n")),
-                                            });
-                                },
-                            });
-                            loo.with_filename(filename);
-                            loo.with_stat_for_temp(st);
-                            loo.loo_format_name = eff->eff_format_name;
-                            filename_to_open = convert_res.cr_destination;
+                                file_error_info{
+                                    st.st_mtime,
+                                    cr.unwrapErr(),
+                                });
+                            break;
                         }
+
+                        auto convert_res = cr.unwrap();
+                        retval.fc_child_pollers.emplace_back(child_poller{
+                            filename,
+                            std::move(convert_res.cr_child),
+                            [filename,
+                             st,
+                             error_queue = convert_res.cr_error_queue](
+                                auto& fc, auto& child) {
+                                if (child.was_normal_exit()
+                                    && child.exit_status() == EXIT_SUCCESS)
+                                {
+                                    log_info("converter[%d] exited normally",
+                                             child.in());
+                                    return;
+                                }
+                                log_error("converter[%d] exited with %d",
+                                          child.in(),
+                                          child.status());
+                                fc.fc_name_to_errors->writeAccess()->emplace(
+                                    filename,
+                                    file_error_info{
+                                        st.st_mtime,
+                                        fmt::format(
+                                            FMT_STRING("{}"),
+                                            fmt::join(*error_queue, "\n")),
+                                    });
+                            },
+                        });
+                        loo.with_filename(filename);
+                        loo.with_stat_for_temp(st);
+                        loo.loo_format_name = eff->eff_format_name;
+                        filename_to_open = convert_res.cr_destination;
                     }
 
                     log_info("loading new file: filename=%s", filename.c_str());
+
+                    if (loo.loo_piper && !loo.loo_piper->get_demux_id().empty())
+                    {
+                        log_info("  treating demuxed file as a log");
+                        loo.loo_text_format = text_format_t::TF_LOG;
+                    }
 
                     auto open_res = logfile::open(filename_to_open, loo);
                     if (open_res.isOk()) {
@@ -577,7 +596,7 @@ file_collection::watch_logfile(const std::string& filename,
         return lnav::futures::make_ready_future(std::move(retval));
     }
 
-    return nonstd::nullopt;
+    return std::nullopt;
 }
 
 /**
@@ -770,7 +789,7 @@ file_collection::rescan_files(bool required)
                 pair.second.loo_piper->get_out_pattern().string(),
                 pair.second,
                 required);
-        } else if (!pair.second.loo_temp_file) {
+        } else {
             this->expand_filename(fq, pair.first, pair.second, required);
             if (this->fc_rotated) {
                 std::string path = pair.first + ".*";

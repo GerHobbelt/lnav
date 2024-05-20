@@ -41,6 +41,7 @@
 #include "config.h"
 #include "formats/logfmt/logfmt.parser.hh"
 #include "log_vtab_impl.hh"
+#include "ptimec.hh"
 #include "scn/scn.h"
 #include "sql_util.hh"
 #include "yajlpp/yajlpp.hh"
@@ -90,6 +91,21 @@ public:
                      this->plf_cached_line.size(),
                      ll.get_timeval(),
                      'T');
+        {
+            char zone_str[16];
+            exttm tmptm;
+
+            tmptm.et_flags |= ETF_ZONE_SET;
+            tmptm.et_gmtoff
+                = lnav::local_time_to_info(
+                      date::local_seconds{std::chrono::seconds{ll.get_time()}})
+                      .first.offset.count();
+            off_t zone_len = 0;
+            ftime_z(zone_str, zone_len, sizeof(zone_str), tmptm);
+            for (off_t lpc = 0; lpc < zone_len; lpc++) {
+                this->plf_cached_line.push_back(zone_str[lpc]);
+            }
+        }
         this->plf_cached_line.push_back(' ');
         const auto prefix_len = this->plf_cached_line.size();
         this->plf_cached_line.resize(this->plf_cached_line.size()
@@ -107,6 +123,7 @@ public:
         auto retval = std::make_shared<piper_log_format>(*this);
 
         retval->lf_specialized = true;
+        retval->lf_timestamp_flags |= ETF_ZONE_SET;
         return retval;
     }
 
@@ -175,7 +192,7 @@ public:
         struct exttm log_time;
         struct timeval log_tv;
         string_fragment ts;
-        nonstd::optional<string_fragment> level;
+        std::optional<string_fragment> level;
         const char* last_pos;
 
         if (dst.empty()) {
@@ -356,7 +373,7 @@ from_escaped_string(const char* str, size_t len)
     return retval;
 }
 
-nonstd::optional<const char*>
+std::optional<const char*>
 lnav_strnstr(const char* s, const char* find, size_t slen)
 {
     char c, sc;
@@ -367,13 +384,13 @@ lnav_strnstr(const char* s, const char* find, size_t slen)
         do {
             do {
                 if (slen < 1 || (sc = *s) == '\0') {
-                    return nonstd::nullopt;
+                    return std::nullopt;
                 }
                 --slen;
                 ++s;
             } while (sc != c);
             if (len > slen) {
-                return nonstd::nullopt;
+                return std::nullopt;
             }
         } while (strncmp(s, find, len) != 0);
         s--;
@@ -474,7 +491,7 @@ public:
         logline_value_meta fd_meta;
         logline_value_meta* fd_root_meta;
         std::string fd_collator;
-        nonstd::optional<size_t> fd_numeric_index;
+        std::optional<size_t> fd_numeric_index;
 
         explicit field_def(const intern_string_t name,
                            size_t col,
@@ -489,10 +506,12 @@ public:
 
         field_def& with_kind(value_kind_t kind,
                              bool identifier = false,
+                             bool foreign_key = false,
                              const std::string& collator = "")
         {
             this->fd_meta.lvm_kind = kind;
             this->fd_meta.lvm_identifier = identifier;
+            this->fd_meta.lvm_foreign_key = foreign_key;
             this->fd_collator = collator;
             return *this;
         }
@@ -565,7 +584,7 @@ public:
 
         for (auto iter = ss.begin(); iter != ss.end(); ++iter) {
             if (iter.index() == 0 && *iter == "#close") {
-                return scan_match{0};
+                return scan_match{2000};
             }
 
             if (iter.index() >= this->blf_field_defs.size()) {
@@ -647,7 +666,7 @@ public:
                 }
             }
             dst.emplace_back(li.li_file_range.fr_offset, tv, level, 0, opid);
-            return scan_match{0};
+            return scan_match{2000};
         }
         return scan_no_match{};
     }
@@ -768,11 +787,13 @@ public:
                     "bro_referrer",
                     "bro_resp_fuids",
                     "bro_service",
-                    "bro_status_code",
                     "bro_uid",
                     "bro_uri",
                     "bro_user_agent",
                     "bro_username",
+                };
+                static const char* KNOWN_FOREIGN[] = {
+                    "bro_status_code",
                 };
 
                 int numeric_count = 0;
@@ -792,7 +813,12 @@ public:
                         bool ident = std::binary_search(std::begin(KNOWN_IDS),
                                                         std::end(KNOWN_IDS),
                                                         fd.fd_meta.lvm_name);
-                        fd.with_kind(value_kind_t::VALUE_INTEGER, ident)
+                        bool foreign
+                            = std::binary_search(std::begin(KNOWN_FOREIGN),
+                                                 std::end(KNOWN_FOREIGN),
+                                                 fd.fd_meta.lvm_name);
+                        fd.with_kind(
+                              value_kind_t::VALUE_INTEGER, ident, foreign)
                             .with_numeric_index(numeric_count);
                         numeric_count += 1;
                     } else if (field_type == "bool") {
@@ -950,7 +976,7 @@ public:
             this->log_vtab_impl::get_foreign_keys(keys_inout);
 
             for (const auto& fd : this->blt_format.blf_field_defs) {
-                if (fd.fd_meta.lvm_identifier) {
+                if (fd.fd_meta.lvm_identifier || fd.fd_meta.lvm_foreign_key) {
                     keys_inout.push_back(fd.fd_meta.lvm_name.to_string());
                 }
             }
@@ -1106,7 +1132,7 @@ public:
         logline_value_meta fd_meta;
         logline_value_meta* fd_root_meta{nullptr};
         std::string fd_collator;
-        nonstd::optional<size_t> fd_numeric_index;
+        std::optional<size_t> fd_numeric_index;
 
         explicit field_def(const intern_string_t name)
             : fd_name(name), fd_meta(intern_string::lookup(sql_safe_ident(
@@ -1124,6 +1150,7 @@ public:
                   const char* name,
                   value_kind_t kind,
                   bool ident = false,
+                  bool foreign_key = false,
                   std::string coll = "")
             : fd_name(intern_string::lookup(name)),
               fd_meta(
@@ -1133,6 +1160,7 @@ public:
               fd_collator(std::move(coll))
         {
             this->fd_meta.lvm_identifier = ident;
+            this->fd_meta.lvm_foreign_key = foreign_key;
         }
 
         field_def& with_kind(value_kind_t kind,
@@ -1251,7 +1279,7 @@ public:
                 }
                 dst.emplace_back(
                     li.li_file_range.fr_offset, 0, 0, LEVEL_IGNORE, 0);
-                return scan_match{0};
+                return scan_match{2000};
             }
 
             sf = sf.trim("\" \t");
@@ -1317,7 +1345,7 @@ public:
                 }
             }
             dst.emplace_back(li.li_file_range.fr_offset, tv, level, 0);
-            return scan_match{0};
+            return scan_match{2000};
         }
 
         return scan_no_match{};
@@ -1465,7 +1493,7 @@ public:
                         }
                     }
                     auto& fd = this->wlf_field_defs.back();
-                    fd.fd_meta.lvm_format = nonstd::make_optional(this);
+                    fd.fd_meta.lvm_format = std::make_optional(this);
                     switch (fd.fd_meta.lvm_kind) {
                         case value_kind_t::VALUE_FLOAT:
                         case value_kind_t::VALUE_INTEGER:
@@ -1625,7 +1653,7 @@ public:
             this->log_vtab_impl::get_foreign_keys(keys_inout);
 
             for (const auto& fd : KNOWN_FIELDS) {
-                if (fd.fd_meta.lvm_identifier) {
+                if (fd.fd_meta.lvm_identifier || fd.fd_meta.lvm_foreign_key) {
                     keys_inout.push_back(fd.fd_meta.lvm_name.to_string());
                 }
             }
@@ -1687,6 +1715,7 @@ const std::vector<w3c_log_format::field_def> w3c_log_format::KNOWN_FIELDS = {
         "c-ip",
         value_kind_t::VALUE_TEXT,
         true,
+        false,
         "ipaddress",
     },
     {
@@ -1706,6 +1735,7 @@ const std::vector<w3c_log_format::field_def> w3c_log_format::KNOWN_FIELDS = {
         "cs-uri-stem",
         value_kind_t::VALUE_TEXT,
         true,
+        false,
         "naturalnocase",
     },
     {
@@ -1731,6 +1761,7 @@ const std::vector<w3c_log_format::field_def> w3c_log_format::KNOWN_FIELDS = {
         "s-ip",
         value_kind_t::VALUE_TEXT,
         true,
+        false,
         "ipaddress",
     },
     {
@@ -1762,6 +1793,7 @@ const std::vector<w3c_log_format::field_def> w3c_log_format::KNOWN_FIELDS = {
         "sc-status",
         value_kind_t::VALUE_INTEGER,
         false,
+        true,
     },
     {
         KNOWN_FIELD_INDEX++,
@@ -1938,7 +1970,7 @@ public:
         if (lph.lph_found_time) {
             dst.emplace_back(
                 li.li_file_range.fr_offset, lph.lph_tv, lph.lph_level);
-            retval = scan_match{0};
+            retval = scan_match{2000};
         }
 
         return retval;

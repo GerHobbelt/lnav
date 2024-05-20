@@ -34,6 +34,7 @@
 #include "gantt_status_source.hh"
 #include "logfile_sub_source.hh"
 #include "plain_text_source.hh"
+#include "text_overlay_menu.hh"
 #include "textview_curses.hh"
 
 class gantt_source
@@ -71,9 +72,9 @@ public:
     void text_crumbs_for_line(int line,
                               std::vector<breadcrumb::crumb>& crumbs) override;
 
-    nonstd::optional<vis_line_t> row_for_time(
+    std::optional<vis_line_t> row_for_time(
         struct timeval time_bucket) override;
-    nonstd::optional<row_info> time_for_row(vis_line_t row) override;
+    std::optional<row_info> time_for_row(vis_line_t row) override;
 
     void rebuild_indexes();
 
@@ -164,7 +165,7 @@ public:
     exec_context* gs_exec_context;
 };
 
-class gantt_header_overlay : public list_overlay_source {
+class gantt_header_overlay : public text_overlay_menu {
 public:
     explicit gantt_header_overlay(std::shared_ptr<gantt_source> src);
 
@@ -173,7 +174,7 @@ public:
                              int bottom,
                              attr_line_t& value_out) override;
 
-    nonstd::optional<attr_line_t> list_header_for_overlay(
+    std::optional<attr_line_t> list_header_for_overlay(
         const listview_curses& lv, vis_line_t line) override;
 
     void list_value_for_overlay(const listview_curses& lv,

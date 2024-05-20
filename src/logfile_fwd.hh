@@ -60,7 +60,6 @@ using file_location_t = mapbox::util::variant<vis_line_t, std::string>;
 struct logfile_open_options_base {
     std::string loo_filename;
     logfile_name_source loo_source{logfile_name_source::USER};
-    bool loo_temp_file{false};
     dev_t loo_temp_dev{0};
     ino_t loo_temp_ino{0};
     bool loo_detect_format{true};
@@ -70,9 +69,9 @@ struct logfile_open_options_base {
     ssize_t loo_visible_size_limit{-1};
     bool loo_tail{true};
     file_format_t loo_file_format{file_format_t::UNKNOWN};
-    nonstd::optional<std::string> loo_format_name;
-    nonstd::optional<text_format_t> loo_text_format;
-    nonstd::optional<lnav::piper::running_handle> loo_piper;
+    std::optional<std::string> loo_format_name;
+    std::optional<text_format_t> loo_text_format;
+    std::optional<lnav::piper::running_handle> loo_piper;
     file_location_t loo_init_location{mapbox::util::no_init{}};
 };
 

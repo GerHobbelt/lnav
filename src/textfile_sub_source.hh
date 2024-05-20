@@ -36,6 +36,7 @@
 #include "filter_observer.hh"
 #include "logfile.hh"
 #include "plain_text_source.hh"
+#include "text_overlay_menu.hh"
 #include "textview_curses.hh"
 
 class textfile_sub_source
@@ -124,8 +125,8 @@ public:
     };
 
     rescan_result_t rescan_files(scan_callback& callback,
-                                 nonstd::optional<ui_clock::time_point> deadline
-                                 = nonstd::nullopt);
+                                 std::optional<ui_clock::time_point> deadline
+                                 = std::nullopt);
 
     void text_filters_changed() override;
 
@@ -135,7 +136,7 @@ public:
 
     text_format_t get_text_format() const override;
 
-    nonstd::optional<location_history*> get_location_history() override
+    std::optional<location_history*> get_location_history() override
     {
         return this;
     }
@@ -143,11 +144,11 @@ public:
     void text_crumbs_for_line(int line,
                               std::vector<breadcrumb::crumb>& crumbs) override;
 
-    nonstd::optional<vis_line_t> row_for_anchor(const std::string& id) override;
+    std::optional<vis_line_t> row_for_anchor(const std::string& id) override;
 
-    nonstd::optional<std::string> anchor_for_row(vis_line_t vl) override;
+    std::optional<std::string> anchor_for_row(vis_line_t vl) override;
 
-    nonstd::optional<vis_line_t> adjacent_anchor(vis_line_t vl,
+    std::optional<vis_line_t> adjacent_anchor(vis_line_t vl,
                                                  direction dir) override;
 
     std::unordered_set<std::string> get_anchors() override;
@@ -198,7 +199,7 @@ private:
     int64_t tss_content_line{0};
 };
 
-class textfile_header_overlay : public list_overlay_source {
+class textfile_header_overlay : public text_overlay_menu {
 public:
     explicit textfile_header_overlay(textfile_sub_source* src);
 

@@ -154,7 +154,7 @@ mouse_event::is_drag_in(mouse_button_t button, line_range lr) const
 {
     return this->me_button == button
         && this->me_state == mouse_button_state_t::BUTTON_STATE_DRAGGED
-        && lr.contains(this->me_x);
+        && lr.contains(this->me_press_x) && lr.contains(this->me_x);
 }
 
 bool
@@ -236,7 +236,7 @@ view_curses::mvwattrline(WINDOW* window,
                          role_t base_role)
 {
     auto& sa = al.get_attrs();
-    auto& line = al.get_string();
+    const auto& line = al.get_string();
     std::vector<utf_to_display_adjustment> utf_adjustments;
     std::string full_line;
 
@@ -264,6 +264,13 @@ view_curses::mvwattrline(WINDOW* window,
                 do {
                     expanded_line.push_back(' ');
                     char_index += 1;
+                    if (char_index == lr_chars.lr_start) {
+                        lr_bytes.lr_start = expanded_line.size();
+                    }
+                    if (char_index == lr_chars.lr_end) {
+                        lr_bytes.lr_end = expanded_line.size();
+                        retval.mr_chars_out = char_index;
+                    }
                 } while (expanded_line.size() % 8);
                 utf_adjustments.emplace_back(
                     lpc, expanded_line.size() - exp_start_index - 1);
@@ -346,7 +353,6 @@ view_curses::mvwattrline(WINDOW* window,
     full_line = expanded_line;
 
     auto& vc = view_colors::singleton();
-    auto text_role_attrs = vc.attrs_for_role(role_t::VCR_TEXT);
     auto base_attrs = vc.attrs_for_role(base_role);
     wmove(window, y, x);
     wattr_set(
@@ -446,8 +452,8 @@ view_curses::mvwattrline(WINDOW* window,
 
         if (attr_range.lr_start < attr_range.lr_end) {
             auto attrs = text_attrs{};
-            nonstd::optional<char> graphic;
-            nonstd::optional<wchar_t> block_elem;
+            std::optional<char> graphic;
+            std::optional<wchar_t> block_elem;
 
             if (iter->sa_type == &VC_GRAPHIC) {
                 graphic = iter->sa_value.get<int64_t>();
@@ -464,6 +470,12 @@ view_curses::mvwattrline(WINDOW* window,
             } else if (iter->sa_type == &VC_ROLE) {
                 auto role = iter->sa_value.get<role_t>();
                 attrs = vc.attrs_for_role(role);
+
+                if (role == role_t::VCR_SELECTED_TEXT) {
+                    retval.mr_selected_text
+                        = string_fragment::from_str(line).sub_range(
+                            iter->sa_range.lr_start, iter->sa_range.lr_end);
+                }
             } else if (iter->sa_type == &VC_ROLE_FG) {
                 auto role_attrs
                     = vc.attrs_for_role(iter->sa_value.get<role_t>());
@@ -535,6 +547,12 @@ view_curses::mvwattrline(WINDOW* window,
 
         auto desired_fg = fg_color[lpc] != -1 ? fg_color[lpc] : cur_fg;
         auto desired_bg = bg_color[lpc] != -1 ? bg_color[lpc] : cur_bg;
+        if (desired_fg >= COLOR_BLACK && desired_fg <= COLOR_WHITE) {
+            desired_fg = vc.ansi_to_theme_color(desired_fg);
+        }
+        if (desired_bg >= COLOR_BLACK && desired_bg <= COLOR_WHITE) {
+            desired_bg = vc.ansi_to_theme_color(desired_bg);
+        }
         if (desired_fg == desired_bg) {
             if (desired_bg >= 0
                 && desired_bg
@@ -715,7 +733,7 @@ view_colors::init(bool headless)
 }
 
 inline text_attrs
-attr_for_colors(nonstd::optional<short> fg, nonstd::optional<short> bg)
+attr_for_colors(std::optional<short> fg, std::optional<short> bg)
 {
     if (fg && fg.value() == -1) {
         fg = COLOR_WHITE;
@@ -1138,6 +1156,8 @@ view_colors::init_roles(const lnav_theme& lt,
         = this->to_attrs(lt, lt.lt_style_sep_ref_acc, reporter);
     this->vc_role_attrs[lnav::enums::to_underlying(role_t::VCR_SUGGESTION)]
         = this->to_attrs(lt, lt.lt_style_suggestion, reporter);
+    this->vc_role_attrs[lnav::enums::to_underlying(role_t::VCR_SELECTED_TEXT)]
+        = this->to_attrs(lt, lt.lt_style_selected_text, reporter);
 
     this->vc_role_attrs[lnav::enums::to_underlying(role_t::VCR_RE_SPECIAL)]
         = this->to_attrs(lt, lt.lt_style_re_special, reporter);
@@ -1243,8 +1263,7 @@ view_colors::ensure_color_pair(short fg, short bg)
 }
 
 int
-view_colors::ensure_color_pair(nonstd::optional<short> fg,
-                               nonstd::optional<short> bg)
+view_colors::ensure_color_pair(std::optional<short> fg, std::optional<short> bg)
 {
     return this->ensure_color_pair(fg.value_or(-1), bg.value_or(-1));
 }
@@ -1259,23 +1278,23 @@ view_colors::ensure_color_pair(const styling::color_unit& rgb_fg,
     return this->ensure_color_pair(fg, bg);
 }
 
-nonstd::optional<short>
+std::optional<short>
 view_colors::match_color(const styling::color_unit& color) const
 {
     return color.cu_value.match(
-        [](styling::semantic) -> nonstd::optional<short> {
+        [](styling::semantic) -> std::optional<short> {
             return MATCH_COLOR_SEMANTIC;
         },
-        [](const rgb_color& color) -> nonstd::optional<short> {
+        [](const rgb_color& color) -> std::optional<short> {
             if (color.empty()) {
-                return nonstd::nullopt;
+                return std::nullopt;
             }
 
             return vc_active_palette->match_color(lab_color(color));
         });
 }
 
-nonstd::optional<short>
+std::optional<short>
 view_colors::color_for_ident(const char* str, size_t len) const
 {
     auto index = crc32(1, (const Bytef*) str, len);

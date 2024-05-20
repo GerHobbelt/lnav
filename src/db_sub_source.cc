@@ -286,6 +286,7 @@ db_label_source::push_column(const scoped_value_t& sv)
             }
         }
     }
+    hm.hm_chart.next_row();
 }
 
 void
@@ -298,13 +299,13 @@ db_label_source::clear()
     this->dls_allocator = std::make_unique<ArenaAlloc::Alloc<char>>(64 * 1024);
 }
 
-nonstd::optional<size_t>
+std::optional<size_t>
 db_label_source::column_name_to_index(const std::string& name) const
 {
     return this->dls_headers | lnav::itertools::find(name);
 }
 
-nonstd::optional<vis_line_t>
+std::optional<vis_line_t>
 db_label_source::row_for_time(struct timeval time_bucket)
 {
     std::vector<struct timeval>::iterator iter;
@@ -315,17 +316,27 @@ db_label_source::row_for_time(struct timeval time_bucket)
     if (iter != this->dls_time_column.end()) {
         return vis_line_t(std::distance(this->dls_time_column.begin(), iter));
     }
-    return nonstd::nullopt;
+    return std::nullopt;
 }
 
-nonstd::optional<text_time_translator::row_info>
+std::optional<text_time_translator::row_info>
 db_label_source::time_for_row(vis_line_t row)
 {
     if ((row < 0_vl) || (((size_t) row) >= this->dls_time_column.size())) {
-        return nonstd::nullopt;
+        return std::nullopt;
     }
 
     return row_info{this->dls_time_column[row], row};
+}
+
+std::optional<attr_line_t>
+db_overlay_source::list_header_for_overlay(const listview_curses& lv,
+                                           vis_line_t line)
+{
+    attr_line_t retval;
+
+    retval.append(" JSON column details");
+    return retval;
 }
 
 void
@@ -369,7 +380,7 @@ db_overlay_source::list_value_for_overlay(const listview_curses& lv,
             {
                 const std::string& header
                     = this->dos_labels->dls_headers[col].hm_name;
-                value_out.emplace_back(" JSON Column: " + header);
+                value_out.emplace_back(" Column: " + header);
 
                 retval += 1;
             }

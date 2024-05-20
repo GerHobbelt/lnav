@@ -305,6 +305,11 @@
                                             "title": "/ui/theme-defs/<theme_name>/styles/text",
                                             "$ref": "#/definitions/style"
                                         },
+                                        "selected-text": {
+                                            "description": "Styling for text selected in a view",
+                                            "title": "/ui/theme-defs/<theme_name>/styles/selected-text",
+                                            "$ref": "#/definitions/style"
+                                        },
                                         "alt-text": {
                                             "description": "Styling for plain text when alternating",
                                             "title": "/ui/theme-defs/<theme_name>/styles/alt-text",
@@ -789,11 +794,16 @@
                                     "title": "/ui/keymap-defs/<keymap_name>/<key_seq>",
                                     "type": "object",
                                     "properties": {
+                                        "id": {
+                                            "title": "/ui/keymap-defs/<keymap_name>/<key_seq>/id",
+                                            "description": "The identifier that can be used to refer to this key",
+                                            "type": "string"
+                                        },
                                         "command": {
                                             "title": "/ui/keymap-defs/<keymap_name>/<key_seq>/command",
                                             "description": "The command to execute for the given key sequence.  Use a script to execute more complicated operations.",
                                             "type": "string",
-                                            "pattern": "^[:|;].*",
+                                            "pattern": "^$|^[:|;].*",
                                             "examples": [
                                                 ":goto next hour"
                                             ]
@@ -883,6 +893,27 @@
                                     "description": "The script to execute to generate the annotation content. A JSON object with the log message content will be sent to the script on the standard input",
                                     "type": "string",
                                     "minLength": 1
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "demux": {
+                    "description": "Demultiplexer definitions",
+                    "title": "/log/demux",
+                    "type": "object",
+                    "patternProperties": {
+                        "^([\\w\\-\\.]+)$": {
+                            "description": "The definition of a demultiplexer",
+                            "title": "/log/demux/<name>",
+                            "type": "object",
+                            "properties": {
+                                "pattern": {
+                                    "title": "/log/demux/<name>/pattern",
+                                    "description": "A regular expression to match a line in a multiplexed file",
+                                    "type": "string"
                                 }
                             },
                             "additionalProperties": false
