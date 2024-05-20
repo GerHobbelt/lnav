@@ -6,7 +6,8 @@ RUN apk add --no-cache \
     build-base \
     curl \
     ncurses \
-    ncurses-terminfo
+    ncurses-terminfo \
+    zip
 
 RUN mkdir -p /fake.root /extract
 
@@ -58,7 +59,7 @@ RUN curl -sSL https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5
     make install PREFIX=/fake.root && \
     cd /extract && rm -rf *
 
-RUN curl -sSL https://zlib.net/zlib-1.2.13.tar.gz | tar xvzC /extract/ && \
+RUN curl -sSL https://www.zlib.net/zlib-1.3.1.tar.gz | tar xvzC /extract/ && \
     cd /extract/zlib-* && ./configure --prefix=/fake.root --static && \
     make -j2 && \
     make install && \
@@ -75,41 +76,15 @@ RUN curl -sSL https://tukaani.org/xz/xz-5.4.3.tar.gz | tar xvzC /extract/ && \
     make install && \
     cd /extract && rm -rf *
 
-RUN curl -sSL https://www.libarchive.org/downloads/libarchive-3.6.2.tar.gz | tar xvzC /extract/ && \
-    cd /extract/libarchive-* && \
+RUN curl -sSL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.gz | tar xvzC /extract/ && \
+    cd /extract/pcre2-* && \
     ./configure --prefix=/fake.root \
+        --enable-jit \
         --disable-shared \
-        "LDFLAGS=-L/fake.root/lib" \
-        "CPPFLAGS=-I/fake.root/include" \
-    && \
-    make -j2 && \
-    make install && \
-    cd /extract && rm -rf *
-
-RUN curl -sSL https://ftp.gnu.org/gnu/readline/readline-8.2.tar.gz | tar xvzC /extract/ && \
-    cd /extract/readline-* && \
-    ./configure --prefix=/fake.root --disable-shared && \
-    make -j2 && \
-    make install && \
-    cd /extract && rm -rf *
-
-RUN curl -sSL https://www.sqlite.org/2023/sqlite-autoconf-3420000.tar.gz | tar xvzC /extract/ && \
-    cd /extract/sqlite-* && \
-    ./configure --disable-editline \
-        --disable-shared \
-        --prefix=/fake.root \
-        CFLAGS="${SQLITE_CFLAGS}" \
-    && \
-    make -j2 && \
-    make install && \
-    cd /extract && rm -rf *
-
-RUN curl -sSL https://www.openssl.org/source/openssl-1.0.2n.tar.gz | tar xvzC /extract/ && \
-    cd /extract/openssl-* && \
-    ./config --prefix=/fake.root no-shared -fPIC && \
-    make -j2 && \
-    make install && \
-    cd /extract && rm -rf *
+     && \
+     make -j2 && \
+     make install && \
+     cd /extract && rm -rf *
 
 RUN curl -sSL https://ftp.gnu.org/gnu/ncurses/ncurses-6.4.tar.gz | tar xvzC /extract/ && \
     cd /extract/ncurses-* && \
@@ -128,15 +103,12 @@ RUN curl -sSL https://ftp.gnu.org/gnu/ncurses/ncurses-6.4.tar.gz | tar xvzC /ext
     make -j2 install && \
     cd /extract && rm -rf *
 
-RUN curl -sSL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.gz | tar xvzC /extract/ && \
-    cd /extract/pcre2-* && \
-    ./configure --prefix=/fake.root \
-        --enable-jit \
-        --disable-shared \
-     && \
-     make -j2 && \
-     make install && \
-     cd /extract && rm -rf *
+RUN curl -sSL https://www.openssl.org/source/openssl-1.0.2n.tar.gz | tar xvzC /extract/ && \
+    cd /extract/openssl-* && \
+    ./config --prefix=/fake.root no-shared -fPIC && \
+    make -j2 && \
+    make install && \
+    cd /extract && rm -rf *
 
 RUN curl -sSL https://www.libssh2.org/download/libssh2-1.11.0.tar.gz | tar xvzC /extract/ && \
     cd /extract/libssh2-* && \
@@ -150,13 +122,43 @@ RUN curl -sSL https://www.libssh2.org/download/libssh2-1.11.0.tar.gz | tar xvzC 
     make install && \
     cd /extract && rm -rf *
 
-RUN curl -sSL https://curl.se/download/curl-8.1.2.tar.gz | tar xvzC /extract/ && \
+RUN curl -sSL https://ftp.gnu.org/gnu/readline/readline-8.2.tar.gz | tar xvzC /extract/ && \
+    cd /extract/readline-* && \
+    ./configure --prefix=/fake.root --disable-shared && \
+    make -j2 && \
+    make install && \
+    cd /extract && rm -rf *
+
+RUN curl -sSL https://www.libarchive.org/downloads/libarchive-3.7.2.tar.gz | tar xvzC /extract/ && \
+    cd /extract/libarchive-* && \
+    ./configure --prefix=/fake.root \
+        --disable-shared \
+        "LDFLAGS=-L/fake.root/lib" \
+        "CPPFLAGS=-I/fake.root/include" \
+    && \
+    make -j2 && \
+    make install && \
+    cd /extract && rm -rf *
+
+RUN curl -sSL https://curl.se/download/curl-8.6.0.tar.gz | tar xvzC /extract/ && \
     cd /extract/curl-* && \
     ./configure --prefix=/fake.root \
         --disable-shared \
         --with-libssh2=/fake.root \
+        --without-libpsl \
         --with-ssl=/fake.root \
         --with-zlib=/fake.root && \
+    make -j2 && \
+    make install && \
+    cd /extract && rm -rf *
+
+RUN curl -sSL https://www.sqlite.org/2024/sqlite-autoconf-3450100.tar.gz | tar xvzC /extract/ && \
+    cd /extract/sqlite-* && \
+    ./configure --disable-editline \
+        --disable-shared \
+        --prefix=/fake.root \
+        CFLAGS="${SQLITE_CFLAGS}" \
+    && \
     make -j2 && \
     make install && \
     cd /extract && rm -rf *
@@ -174,7 +176,8 @@ RUN apk add --no-cache \
     autoconf \
     automake \
     build-base \
-    git
+    git \
+    zip
 
 COPY entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]

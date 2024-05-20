@@ -435,7 +435,7 @@ logfile::process_prefix(shared_buffer_ref& sbr,
              * written out at the same time as the last one, so we need to
              * go back and update everything.
              */
-            auto& last_line = this->lf_index.back();
+            const auto& last_line = this->lf_index.back();
 
             for (size_t lpc = 0; lpc < this->lf_index.size() - 1; lpc++) {
                 if (this->lf_format->lf_multiline) {
@@ -1022,7 +1022,9 @@ logfile::read_file()
             retval.append(22, '\x16');
         }
         retval.append(sbr.get_data(), sbr.length());
-        retval.push_back('\n');
+        if (retval.size() < this->lf_stat.st_size) {
+            retval.push_back('\n');
+        }
     }
 
     return Ok(std::move(retval));
@@ -1055,9 +1057,13 @@ logfile::read_full_message(logfile::const_iterator ll,
         auto read_result = this->lf_line_buffer.read_range(range_for_line);
 
         if (read_result.isErr()) {
-            log_error("unable to read range %d:%d",
+            auto errmsg = read_result.unwrapErr();
+            log_error("%s:%d:unable to read range %d:%d -- %s",
+                      this->get_unique_path().c_str(),
+                      std::distance(this->cbegin(), ll),
                       range_for_line.fr_offset,
-                      range_for_line.fr_size);
+                      range_for_line.fr_size,
+                      errmsg.c_str());
             return;
         }
         msg_out = read_result.unwrap();

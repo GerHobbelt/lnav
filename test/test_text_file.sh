@@ -66,3 +66,16 @@ run_cap_test ${lnav_test} -n \
     -c ";SELECT top_meta FROM lnav_views WHERE name = 'text'" \
     -c ':write-json-to -' \
     < ${test_dir}/example.patch
+
+run_cap_test ${lnav_test} -n \
+    < ${top_srcdir}/autogen.sh
+
+run_cap_test ${lnav_test} -n \
+    -c ';SELECT content FROM lnav_file' \
+    ${test_dir}/textfile_nonl.txt
+
+run_cap_test ${lnav_test} -n \
+    -c ':goto 23' \
+    -c ';SELECT top_meta FROM lnav_top_view' \
+    -c ':write-json-to -' \
+    ${test_dir}/formats/jsontest/format.json

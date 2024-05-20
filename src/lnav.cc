@@ -882,9 +882,7 @@ handle_key(int ch)
         default: {
             switch (lnav_data.ld_mode) {
                 case ln_mode_t::PAGING:
-                    if (ch == KEY_ENTER || ch == '\n' || ch == '\r'
-                        || ch == '`')
-                    {
+                    if (ch == '`') {
                         breadcrumb_view.focus();
                         lnav_data.ld_mode = ln_mode_t::BREADCRUMBS;
                         return true;
@@ -1917,7 +1915,7 @@ looper()
                     && lnav_data.ld_text_source.empty()
                     && lnav_data.ld_log_source.text_line_count() > 0)
                 {
-                    textview_curses* tc_log = &lnav_data.ld_views[LNV_LOG];
+                    auto* tc_log = &lnav_data.ld_views[LNV_LOG];
                     lnav_data.ld_view_stack.pop_back();
 
                     lnav_data.ld_views[LNV_LOG].set_top(
@@ -2024,6 +2022,7 @@ looper()
                         }
                     }
                     session_stage += 1;
+                    lnav_data.ld_exec_phase = lnav_exec_phase::INTERACTIVE;
                     load_time_bookmarks();
                 }
             }

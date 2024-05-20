@@ -194,11 +194,12 @@ main(int argc, char* argv[])
                 string_attrs_t sa;
 
                 if (format.get() != nullptr) {
-                    format->annotate(0, sa, ll_values);
+                    format->annotate(0, sa, ll_values, false);
                     body = find_string_attr_range(sa, &SA_BODY);
                 }
 
                 data_parser::TRACE_FILE = fopen("scanned.dpt", "w");
+                setvbuf(data_parser::TRACE_FILE, nullptr, _IONBF, 0);
 
                 data_scanner ds(sub_line, body.lr_start);
 

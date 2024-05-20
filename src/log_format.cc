@@ -1466,10 +1466,27 @@ external_log_format::scan(logfile& lf,
                     }
                 }
 
-                auto scan_res
-                    = scn::scan_value<double>(num_cap->to_string_view());
-                if (scan_res) {
-                    auto dvalue = scan_res.value();
+                nonstd::optional<double> dvalue_opt;
+                switch (vd.vd_meta.lvm_kind) {
+                    case value_kind_t::VALUE_INTEGER: {
+                        auto scan_res = scn::scan_value<int64_t>(
+                            num_cap->to_string_view());
+                        if (scan_res) {
+                            dvalue_opt = scan_res.value();
+                        }
+                        break;
+                    }
+                    case value_kind_t::VALUE_FLOAT: {
+                        auto scan_res = scn::scan_value<double>(
+                            num_cap->to_string_view());
+                        if (scan_res) {
+                            dvalue_opt = scan_res.value();
+                        }
+                        break;
+                    }
+                }
+                if (dvalue_opt) {
+                    auto dvalue = dvalue_opt.value();
                     if (scaling != nullptr) {
                         scaling->scale(dvalue);
                     }
@@ -1581,7 +1598,7 @@ external_log_format::annotate(uint64_t line_number,
             values = this->jlf_line_values;
             sa = this->jlf_line_attrs;
         } else {
-            values.lvv_sbr = this->jlf_line_values.lvv_sbr;
+            values.lvv_sbr = this->jlf_line_values.lvv_sbr.clone();
             for (const auto& llv : this->jlf_line_values.lvv_values) {
                 if (this->jlf_cached_sub_range.contains(llv.lv_origin)) {
                     values.lvv_values.emplace_back(llv);
@@ -2025,7 +2042,7 @@ external_log_format::get_subline(const logline& ll,
             sbr.share(this->jlf_share_manager,
                       &this->jlf_cached_line[0],
                       this->jlf_cached_line.size());
-            this->jlf_line_values.lvv_sbr = sbr;
+            this->jlf_line_values.lvv_sbr = sbr.clone();
             this->jlf_line_attrs.emplace_back(
                 line_range{0, -1},
                 SA_INVALID.value(fmt::format(
@@ -2090,7 +2107,7 @@ external_log_format::get_subline(const logline& ll,
                     = jlu.jlu_opid_frag->to_string();
             }
 
-            int sub_offset = 1 + this->jlf_line_format_init_count;
+            int sub_offset = this->jlf_line_format_init_count;
             for (const auto& jfe : this->jlf_line_format) {
                 static const intern_string_t ts_field
                     = intern_string::lookup("__timestamp__", -1);
@@ -2196,6 +2213,7 @@ external_log_format::get_subline(const logline& ll,
                                     lr, logline::L_OPID.value());
                             }
                             lv_iter->lv_origin = lr;
+                            lv_iter->lv_sub_offset = sub_offset;
                             used_values[std::distance(
                                 this->jlf_line_values.lvv_values.begin(),
                                 lv_iter)]
@@ -2209,6 +2227,9 @@ external_log_format::get_subline(const logline& ll,
                             ssize_t ts_len;
                             char ts[64];
 
+                            if (!jfe.jfe_prefix.empty()) {
+                                this->json_append_to_cache(jfe.jfe_prefix);
+                            }
                             if (jfe.jfe_ts_format.empty()) {
                                 ts_len = sql_strftime(
                                     ts, sizeof(ts), ll.get_timeval(), 'T');
@@ -2238,6 +2259,9 @@ external_log_format::get_subline(const logline& ll,
                                     this->jlf_line_values.lvv_values.begin(),
                                     lv_iter)]
                                     = true;
+                            }
+                            if (!jfe.jfe_suffix.empty()) {
+                                this->json_append_to_cache(jfe.jfe_suffix);
                             }
                         } else if (jfe.jfe_value.pp_value == level_field
                                    || jfe.jfe_value.pp_value
@@ -2310,6 +2334,7 @@ external_log_format::get_subline(const logline& ll,
                 }
             }
             this->json_append_to_cache("\n", 1);
+            sub_offset += 1;
 
             for (size_t lpc = 0; lpc < this->jlf_line_values.lvv_values.size();
                  lpc++)
@@ -2403,7 +2428,7 @@ external_log_format::get_subline(const logline& ll,
     sbr.get_metadata().m_has_ansi = ll.has_ansi();
     this->jlf_cached_sub_range.lr_start = this_off;
     this->jlf_cached_sub_range.lr_end = next_off;
-    this->jlf_line_values.lvv_sbr = sbr;
+    this->jlf_line_values.lvv_sbr = sbr.clone();
 }
 
 struct compiled_header_expr {
@@ -3720,7 +3745,7 @@ public:
                     intern_string_t mod_name;
 
                     this->vi_attrs.clear();
-                    values.lvv_sbr = line;
+                    values.lvv_sbr = line.clone();
                     format->annotate(cl, this->vi_attrs, values, false);
                     this->elt_container_body
                         = find_string_attr_range(this->vi_attrs, &SA_BODY);
@@ -3840,7 +3865,16 @@ external_log_format::value_line_count(const intern_string_t ist,
 {
     const auto iter = this->elf_value_defs.find(ist);
     value_line_count_result retval;
-    if (str != nullptr) {
+
+    if (iter == this->elf_value_defs.end()) {
+        if (this->jlf_hide_extra || !top_level) {
+            retval.vlcr_count = 0;
+        }
+
+        return retval;
+    }
+
+    if (str != nullptr && !val) {
         auto frag = string_fragment::from_bytes(str, len);
         while (frag.endswith("\n")) {
             frag.pop_back();
@@ -3859,14 +3893,6 @@ external_log_format::value_line_count(const intern_string_t ist,
         }
     }
 
-    if (iter == this->elf_value_defs.end()) {
-        if (this->jlf_hide_extra || !top_level) {
-            retval.vlcr_count = 0;
-        }
-
-        return retval;
-    }
-
     if (iter->second->vd_meta.lvm_values_index) {
         auto& lvs = this->lf_value_stats[iter->second->vd_meta.lvm_values_index
                                              .value()];
@@ -3878,6 +3904,11 @@ external_log_format::value_line_count(const intern_string_t ist,
         }
     }
 
+    if (iter->second->vd_meta.is_hidden()) {
+        retval.vlcr_count = 0;
+        return retval;
+    }
+
     if (std::find_if(this->jlf_line_format.begin(),
                      this->jlf_line_format.end(),
                      json_field_cmp(json_log_field::VARIABLE, ist))
@@ -3885,10 +3916,6 @@ external_log_format::value_line_count(const intern_string_t ist,
     {
         retval.vlcr_line_format_count += 1;
         retval.vlcr_count -= 1;
-    }
-
-    if (iter->second->vd_meta.is_hidden()) {
-        retval.vlcr_count = 0;
     }
 
     return retval;
