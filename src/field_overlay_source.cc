@@ -230,6 +230,12 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
         } else {
             time_line.append("none"_comment);
         }
+
+        auto file_opts = file->get_file_options();
+        if (file_opts) {
+            time_line.append("  File Options: ")
+                .append(lnav::roles::file(file_opts->first));
+        }
     }
 
     if ((!this->fos_contexts.empty() && this->fos_contexts.top().c_show)
@@ -364,7 +370,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
                     al.append(":bar_chart:"_emoji).append(" ");
                     break;
             }
-            auto prefix_len = al.utf8_length_or_length();
+            auto prefix_len = al.column_width();
             hl_range.lr_start = al.get_string().length();
             al.append(field_name);
             hl_range.lr_end = al.get_string().length();

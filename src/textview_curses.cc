@@ -38,6 +38,7 @@
 #include "base/time_util.hh"
 #include "config.h"
 #include "data_scanner.hh"
+#include "date/solar_hijri.h"
 #include "fmt/format.h"
 #include "lnav_config.hh"
 #include "log_format_fwd.hh"
@@ -184,13 +185,15 @@ const bookmark_type_t textview_curses::BM_SEARCH("search");
 const bookmark_type_t textview_curses::BM_META("meta");
 const bookmark_type_t textview_curses::BM_PARTITION("partition");
 
-textview_curses::textview_curses()
+textview_curses::
+textview_curses()
     : lnav_config_listener(__FILE__), tc_search_action(noop_func{})
 {
     this->set_data_source(this);
 }
 
-textview_curses::~textview_curses()
+textview_curses::~
+textview_curses()
 {
     this->tc_search_action = noop_func{};
 }
@@ -471,8 +474,10 @@ textview_curses::handle_mouse(mouse_event& me)
                     if (this->vc_enabled) {
                         if (this->tc_supports_marks
                             && me.me_button == mouse_button_t::BUTTON_LEFT
-                            && me.is_modifier_pressed(
-                                mouse_event::modifier_t::shift))
+                            && (me.is_modifier_pressed(
+                                    mouse_event::modifier_t::shift)
+                                || me.is_modifier_pressed(
+                                    mouse_event::modifier_t::ctrl)))
                         {
                             this->tc_selection_start = mc.mc_line;
                         }
@@ -688,6 +693,29 @@ textview_curses::handle_mouse(mouse_event& me)
                     this->reload_data();
                 }
                 this->tc_selection_start = std::nullopt;
+            }
+            if (me.me_button == mouse_button_t::BUTTON_LEFT
+                && mouse_line.is<main_content>())
+            {
+                const auto& [mc_line] = mouse_line.get<main_content>();
+                attr_line_t al;
+
+                this->textview_value_for_row(mc_line, al);
+                auto get_res = get_string_attr(al.get_attrs(),
+                                               &VC_HYPERLINK,
+                                               this->lv_left + me.me_press_x);
+                if (get_res) {
+                    auto href = get_res.value()->sa_value.get<std::string>();
+
+                    if (startswith(href, "#")) {
+                        auto* ta
+                            = dynamic_cast<text_anchors*>(this->tc_sub_source);
+                        if (ta != nullptr) {
+                            ta->row_for_anchor(href) |
+                                [this](auto row) { this->set_selection(row); };
+                        }
+                    }
+                }
             }
             if (this->tc_delegate != nullptr) {
                 this->tc_delegate->text_handle_mouse(*this, mouse_line, me);
@@ -1296,7 +1324,8 @@ text_sub_source::text_crumbs_for_line(int line,
 {
 }
 
-logfile_filter_state::logfile_filter_state(std::shared_ptr<logfile> lf)
+logfile_filter_state::
+logfile_filter_state(std::shared_ptr<logfile> lf)
     : tfs_logfile(std::move(lf))
 {
     memset(this->tfs_filter_count, 0, sizeof(this->tfs_filter_count));

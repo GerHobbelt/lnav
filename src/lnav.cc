@@ -1372,10 +1372,15 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
 
         lnav_data.ld_gantt_details_view.set_title("gantt-details");
         lnav_data.ld_gantt_details_view.set_window(lnav_data.ld_window);
+        lnav_data.ld_gantt_details_view.set_selectable(true);
         lnav_data.ld_gantt_details_view.set_show_scrollbar(true);
         lnav_data.ld_gantt_details_view.set_height(5_vl);
         lnav_data.ld_gantt_details_view.set_sub_source(
             &lnav_data.ld_gantt_details_source);
+        lnav_data.ld_gantt_details_view.tc_cursor_role
+            = role_t::VCR_CURSOR_LINE;
+        lnav_data.ld_gantt_details_view.tc_disabled_cursor_role
+            = role_t::VCR_DISABLED_CURSOR_LINE;
 
         auto top_status_lifetime
             = injector::bind<top_status_source>::to_scoped_singleton();
@@ -1542,7 +1547,11 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
             {
                 auto ui_now = ui_clock::now();
                 auto new_files = rescan_future.get();
-                if (!initial_rescan_completed && new_files.empty()) {
+                auto indexing_pipers
+                    = lnav_data.ld_active_files.initial_indexing_pipers();
+                if (!initial_rescan_completed && new_files.empty()
+                    && indexing_pipers == 0)
+                {
                     initial_rescan_completed = true;
 
                     log_debug("initial rescan rebuild");
@@ -2303,27 +2312,20 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
 
         std::vector<std::string> tables_to_drop;
         {
-            auto_mem<sqlite3_stmt> stmt(sqlite3_finalize);
-            bool done = false;
+            auto prep_res = prepare_stmt(lnav_data.ld_db.in(), VIRT_TABLES);
+            if (prep_res.isErr()) {
+                log_error("unable to prepare VIRT_TABLES: %s",
+                          prep_res.unwrapErr().c_str());
+            } else {
+                auto stmt = prep_res.unwrap();
 
-            sqlite3_prepare_v2(
-                lnav_data.ld_db.in(), VIRT_TABLES, -1, stmt.out(), nullptr);
-            do {
-                auto ret = sqlite3_step(stmt.in());
-
-                switch (ret) {
-                    case SQLITE_OK:
-                    case SQLITE_DONE:
-                        done = true;
-                        break;
-                    case SQLITE_ROW:
+                stmt.for_each_row<std::string>(
+                    [&tables_to_drop](auto table_name) {
                         tables_to_drop.emplace_back(fmt::format(
-                            FMT_STRING("DROP TABLE {}"),
-                            reinterpret_cast<const char*>(
-                                sqlite3_column_text(stmt.in(), 0))));
-                        break;
-                }
-            } while (!done);
+                            FMT_STRING("DROP TABLE {}"), table_name));
+                        return false;
+                    });
+            }
         }
 
         // XXX
@@ -2347,11 +2349,16 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
         }
 
         for (auto& drop_stmt : tables_to_drop) {
-            sqlite3_exec(lnav_data.ld_db.in(),
-                         drop_stmt.c_str(),
-                         nullptr,
-                         nullptr,
-                         nullptr);
+            auto prep_res
+                = prepare_stmt(lnav_data.ld_db.in(), drop_stmt.c_str());
+            if (prep_res.isErr()) {
+                log_error("unable to prepare DROP statement: %s",
+                          prep_res.unwrapErr().c_str());
+                continue;
+            }
+
+            auto stmt = prep_res.unwrap();
+            stmt.execute();
         }
 #if defined(HAVE_SQLITE3_DROP_MODULES)
         sqlite3_drop_modules(lnav_data.ld_db.in(), nullptr);
@@ -2762,8 +2769,8 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
     }
 
     if (lnav_data.ld_flags & LNF_SECURE_MODE) {
-        if ((sqlite3_set_authorizer(
-                lnav_data.ld_db.in(), sqlite_authorizer, nullptr))
+        if (sqlite3_set_authorizer(
+                lnav_data.ld_db.in(), sqlite_authorizer, nullptr)
             != SQLITE_OK)
         {
             fprintf(stderr, "error: unable to attach sqlite authorizer\n");
@@ -2847,6 +2854,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                                          lnav_data.ld_log_source,
                                          lnav_data.ld_gantt_details_view,
                                          lnav_data.ld_gantt_details_source,
+                                         lnav_data.ld_status[LNS_GANTT],
                                          lnav_data.ld_gantt_status_source);
     gantt_view_source->gs_exec_context = &lnav_data.ld_exec_context;
     auto gantt_header_source

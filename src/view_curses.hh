@@ -48,11 +48,14 @@
 #    include <ncurses/curses.h>
 #elif defined HAVE_NCURSES_H
 #    include <ncurses.h>
+#elif defined HAVE_CURSESW_H
+#    include <cursesw.h>
 #elif defined HAVE_CURSES_H
 #    include <curses.h>
 #else
 #    error "SysV or X/Open-compatible Curses header file required"
 #endif
+
 #include <functional>
 #include <map>
 #include <string>
@@ -251,8 +254,7 @@ public:
 
     int ensure_color_pair(short fg, short bg);
 
-    int ensure_color_pair(std::optional<short> fg,
-                          std::optional<short> bg);
+    int ensure_color_pair(std::optional<short> fg, std::optional<short> bg);
 
     int ensure_color_pair(const styling::color_unit& fg,
                           const styling::color_unit& bg);
@@ -289,6 +291,11 @@ private:
     role_attrs to_attrs(const lnav_theme& lt,
                         const positioned_property<style_config>& sc,
                         lnav_config_listener::error_reporter& reporter);
+
+    role_attrs& get_role_attrs(const role_t role)
+    {
+        return this->vc_role_attrs[lnav::enums::to_underlying(role)];
+    }
 
     role_attrs vc_level_attrs[LEVEL__MAX];
 

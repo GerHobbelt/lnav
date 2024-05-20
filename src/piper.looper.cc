@@ -120,7 +120,7 @@ public:
                     = ncap.get_index();
             }
 
-            dd.dd_enabled = true;
+            dd.dd_valid = true;
         }
     }
 };
@@ -187,10 +187,8 @@ environ_to_map()
     return retval;
 }
 
-looper::looper(std::string name,
-               auto_fd stdout_fd,
-               auto_fd stderr_fd,
-               options opts)
+looper::
+looper(std::string name, auto_fd stdout_fd, auto_fd stderr_fd, options opts)
     : l_name(std::move(name)), l_cwd(ghc::filesystem::current_path().string()),
       l_env(environ_to_map()), l_stdout(std::move(stdout_fd)),
       l_stderr(std::move(stderr_fd)), l_options(opts)
@@ -209,7 +207,8 @@ looper::looper(std::string name,
     this->l_future = std::async(std::launch::async, [this]() { this->loop(); });
 }
 
-looper::~looper()
+looper::~
+looper()
 {
     log_info("piper destructed, shutting down: %s", this->l_name.c_str());
     this->l_looping = false;
@@ -224,10 +223,12 @@ enum class read_mode_t {
 void
 looper::loop()
 {
-    static const auto FORCE_MTIME_UPDATE_DURATION = 8h;
+    static constexpr auto FORCE_MTIME_UPDATE_DURATION = 8h;
     static const auto DEFAULT_ID = string_fragment{};
     static const auto OUT_OF_FRAME_ID
         = string_fragment::from_const("_out_of_frame_");
+    static constexpr auto FILE_TIMEOUT_BACKOFF = 30ms;
+    static constexpr auto FILE_TIMEOUT_MAX = 1000ms;
 
     const auto& cfg = injector::get<const config&>();
     struct pollfd pfd[2];
@@ -265,6 +266,8 @@ looper::loop()
     date_time_scanner dts;
     struct timeval line_tv;
     struct exttm line_tm;
+    auto file_timeout = 0ms;
+    multiplex_matcher mmatcher;
 
     log_info("starting loop to capture: %s (%d %d)",
              this->l_name.c_str(),
@@ -279,9 +282,8 @@ looper::loop()
     captured_fds[1].cf_level = LEVEL_ERROR;
     auto last_write = std::chrono::system_clock::now();
     do {
-        static const auto TIMEOUT
+        static constexpr auto TIMEOUT
             = std::chrono::duration_cast<std::chrono::milliseconds>(1s).count();
-        static const auto FILE_TIMEOUT = (30ms).count();
 
         auto poll_timeout = TIMEOUT;
         size_t used_pfds = 0;
@@ -294,7 +296,7 @@ looper::loop()
 
             if (!cap.lb.is_pipe()) {
                 file_count += 1;
-                poll_timeout = FILE_TIMEOUT;
+                poll_timeout = file_timeout.count();
             } else if (!cap.lb.is_pipe_closed()) {
                 cap.pfd = &pfd[used_pfds];
                 used_pfds += 1;
@@ -435,7 +437,13 @@ looper::loop()
                                  this->l_name.c_str());
                         this->l_looping = false;
                     }
+                    if (file_count > 0 && file_timeout < FILE_TIMEOUT_MAX) {
+                        file_timeout += FILE_TIMEOUT_BACKOFF;
+                    }
                     break;
+                }
+                if (file_count > 0) {
+                    file_timeout = 0ms;
                 }
 
                 if (li.li_partial && !cap.lb.is_pipe_closed()) {
@@ -457,22 +465,29 @@ looper::loop()
                 auto body_sf = sbr.to_string_fragment();
                 auto ts_sf = string_fragment{};
                 if (!curr_demux_def && !demux_attempted) {
-                    log_trace("first input line: %s",
+                    log_trace("demux input line: %s",
                               fmt::format(FMT_STRING("{:?}"), body_sf).c_str());
 
-                    auto demux_id_opt = multiplex_id_for_line(body_sf);
-                    if (demux_id_opt) {
-                        curr_demux_def = cfg.c_demux_definitions
-                                             .find(demux_id_opt.value())
-                                             ->second;
-                        {
-                            safe::WriteAccess<safe_demux_id> di(
-                                this->l_demux_id);
+                    auto match_res = mmatcher.match(body_sf);
+                    demux_attempted = match_res.match(
+                        [this, &curr_demux_def, &cfg](
+                            multiplex_matcher::found f) {
+                            curr_demux_def
+                                = cfg.c_demux_definitions.find(f.f_id)->second;
+                            {
+                                safe::WriteAccess<safe_demux_id> di(
+                                    this->l_demux_id);
 
-                            di->assign(demux_id_opt.value());
-                        }
+                                di->assign(f.f_id);
+                            }
+                            return true;
+                        },
+                        [](multiplex_matcher::not_found nf) { return true; },
+                        [](multiplex_matcher::partial p) { return false; });
+                    if (!demux_attempted) {
+                        cap.last_range = li.li_file_range;
+                        continue;
                     }
-                    demux_attempted = true;
                 }
                 std::optional<log_level_t> demux_level;
                 if (curr_demux_def
@@ -503,6 +518,15 @@ looper::loop()
                         }
                     }
                 } else if (curr_demux_def) {
+                    if (curr_demux_def->dd_control_pattern.pp_value
+                        && curr_demux_def->dd_control_pattern.pp_value
+                               ->find_in(body_sf)
+                               .ignore_error())
+                    {
+                        cap.last_range = li.li_file_range;
+                        continue;
+                    }
+
                     demux_output = demux_output_t::invalid;
                     line_muxid_sf = OUT_OF_FRAME_ID;
                     demux_level = LEVEL_ERROR;
@@ -679,6 +703,7 @@ looper::loop()
                 }
             }
         }
+        this->l_loop_count += 1;
     } while (this->l_looping);
 
     log_info("exiting loop to capture: %s", this->l_name.c_str());
