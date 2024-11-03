@@ -32,6 +32,10 @@
 #include "config.h"
 
 #ifdef HAVE_EXECINFO_H
+// clang-format off
+#    include <sys/types.h>
+// clang-format on
+
 #    include <execinfo.h>
 #endif
 
@@ -84,7 +88,8 @@ shared_buffer_ref::subset(shared_buffer_ref& other, off_t offset, size_t len)
     return true;
 }
 
-shared_buffer_ref::shared_buffer_ref(shared_buffer_ref&& other) noexcept
+shared_buffer_ref::
+shared_buffer_ref(shared_buffer_ref&& other) noexcept
 {
     if (other.sb_data == nullptr) {
         this->sb_owner = nullptr;
