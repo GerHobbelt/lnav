@@ -60,7 +60,9 @@ struct FuncDef {
 
     FuncDef with_result_subtype() &&
     {
+#ifdef SQLITE_RESULT_SUBTYPE
         this->eTextRep |= SQLITE_RESULT_SUBTYPE;
+#endif
         return *this;
     }
 };
@@ -68,6 +70,7 @@ struct FuncDef {
 struct FuncDefAgg {
     const char* zName{nullptr};
     signed char nArg{0};
+    int eTextRep{0};
     uint8_t needCollSeq{0};
     void (*xStep)(sqlite3_context*, int, sqlite3_value**){nullptr};
     void (*xFinalize)(sqlite3_context*){nullptr};
