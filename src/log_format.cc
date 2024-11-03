@@ -930,7 +930,7 @@ read_json_number(yajlpp_parse_context* ypc,
         } else {
             jlu->jlu_exttm.et_flags |= ETF_MICROS_SET;
         }
-        jlu->jlu_exttm.et_nsec = jlu->jlu_exttm.et_nsec = tv.tv_usec * 1000;
+        jlu->jlu_exttm.et_nsec = tv.tv_usec * 1000;
         jlu->jlu_base_line->set_time(tv);
     } else if (jlu->jlu_format->lf_subsecond_field == field_name) {
         uint64_t millis = 0;
@@ -1084,7 +1084,7 @@ rewrite_json_int(yajlpp_parse_context* ypc, long long val)
         } else {
             jlu->jlu_exttm.et_flags |= ETF_MILLIS_SET;
         }
-        jlu->jlu_exttm.et_nsec = jlu->jlu_exttm.et_nsec = tv.tv_usec * 1000;
+        jlu->jlu_exttm.et_nsec = tv.tv_usec * 1000;
     } else if (jlu->jlu_format->lf_subsecond_field == field_name) {
         jlu->jlu_exttm.et_flags &= ~(ETF_MICROS_SET | ETF_MILLIS_SET);
         switch (jlu->jlu_format->lf_subsecond_unit.value()) {
@@ -1136,7 +1136,7 @@ rewrite_json_double(yajlpp_parse_context* ypc, double val)
         } else {
             jlu->jlu_exttm.et_flags |= ETF_MILLIS_SET;
         }
-        jlu->jlu_exttm.et_nsec = jlu->jlu_exttm.et_nsec = tv.tv_usec * 1000;
+        jlu->jlu_exttm.et_nsec = tv.tv_usec * 1000;
     } else if (jlu->jlu_format->lf_subsecond_field == field_name) {
         jlu->jlu_exttm.et_flags &= ~(ETF_MICROS_SET | ETF_MILLIS_SET);
         switch (jlu->jlu_format->lf_subsecond_unit.value()) {
@@ -1679,7 +1679,7 @@ external_log_format::module_scan(string_fragment body_cap,
                                  const intern_string_t& mod_name)
 {
     uint8_t mod_index;
-    body_cap.trim();
+    body_cap = body_cap.trim();
     auto& ext_fmts = GRAPH_ORDERED_FORMATS;
     module_format mf;
 
@@ -1866,8 +1866,6 @@ external_log_format::annotate(logfile* lf,
             && mod_iter->second.mf_mod_format != nullptr)
         {
             auto& mf = mod_iter->second;
-
-            body_cap->trim();
             auto narrow_res
                 = line.narrow(body_cap->sf_begin, body_cap->length());
             auto pre_mod_values_size = values.lvv_values.size();
@@ -2994,8 +2992,9 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                 auto sql_al = attr_line_t(hpair.second)
                                   .with_attr_for_all(SA_PREFORMATTED.value())
                                   .with_attr_for_all(
-                                      VC_ROLE.value(role_t::VCR_QUOTED_CODE));
-                readline_sqlite_highlighter(sql_al, -1);
+                                      VC_ROLE.value(role_t::VCR_QUOTED_CODE))
+                                  .move();
+                readline_sqlite_highlighter(sql_al, std::nullopt);
                 intern_string_t watch_expr_path = intern_string::lookup(
                     fmt::format(FMT_STRING("/{}/converter/header/expr/{}"),
                                 this->elf_name,
@@ -3006,7 +3005,8 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                 auto um = lnav::console::user_message::error(
                               "SQL expression is invalid")
                               .with_reason(sqlite3_errmsg(hexprs->e_db.in()))
-                              .with_snippet(snippet);
+                              .with_snippet(snippet)
+                              .move();
 
                 errors.emplace_back(um);
                 continue;
@@ -3024,7 +3024,8 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                           .with_help(
                               "The converter command transforms the file "
                               "into a format that can be consumed by lnav")
-                          .with_snippets(this->get_snippets());
+                          .with_snippets(this->get_snippets())
+                          .move();
             errors.emplace_back(um);
         }
     }
@@ -3071,7 +3072,8 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                     = attr_line_t("the following captures are available:\n  ")
                           .join(available_captures,
                                 VC_ROLE.value(role_t::VCR_SYMBOL),
-                                ", ");
+                                ", ")
+                          .move();
                 errors.emplace_back(
                     lnav::console::user_message::warning(
                         attr_line_t("invalid value ")
@@ -3300,7 +3302,8 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                               attr_line_t("timestamp was not fully matched: ")
                                   .append_quoted(ts_cap.value()))
                               .with_snippet(elf_sample.s_line.to_snippet())
-                              .with_note(notes);
+                              .with_note(notes)
+                              .move();
 
                     errors.emplace_back(um);
                 }
@@ -3441,7 +3444,8 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                                   .append_quoted(lnav::roles::symbol(
                                       level_names[elf_sample.s_level])))
                           .with_snippet(elf_sample.s_line.to_snippet())
-                          .with_note(note_al);
+                          .with_note(note_al)
+                          .move();
                 if (!this->elf_level_patterns.empty()) {
                     um.with_help(
                         attr_line_t("Level regexes are not anchored to the "

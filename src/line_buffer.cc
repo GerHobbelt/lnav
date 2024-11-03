@@ -163,12 +163,6 @@ line_buffer::gz_indexed::init_stream()
     }
 
     // initialize inflate struct
-    this->strm.zalloc = Z_NULL;
-    this->strm.zfree = Z_NULL;
-    this->strm.opaque = Z_NULL;
-    this->strm.avail_in = 0;
-    this->strm.next_in = Z_NULL;
-    this->strm.avail_out = 0;
     int rc = inflateInit2(&strm, GZ_HEADER_MODE);
     if (rc != Z_OK) {
         throw(rc);  // FIXME: exception wrapper
@@ -1245,7 +1239,7 @@ line_buffer::load_next_line(file_range prev_line)
             (size_t) retval.li_file_range.fr_size,
         };
 
-        char level;
+        char level = '\0';
         auto scan_res = scn::scan(sv,
                                   "{}.{}:{};",
                                   retval.li_timestamp.tv_sec,
@@ -1429,7 +1423,7 @@ line_buffer::enable_cache()
     auto guard = lnav::filesystem::file_lock::guard(&fl);
 
     if (std::filesystem::exists(cached_done_path)) {
-        log_info("%d:using existing cache file");
+        log_info("%d:using existing cache file", this->lb_fd.get());
         auto open_res = lnav::filesystem::open_file(cached_file_path, O_RDWR);
         if (open_res.isOk()) {
             this->lb_cached_fd = open_res.unwrap();
@@ -1450,7 +1444,7 @@ line_buffer::enable_cache()
     auto write_fd = create_res.unwrap();
     auto done = false;
 
-    static const ssize_t FILL_LENGTH = 1024 * 1024;
+    static constexpr ssize_t FILL_LENGTH = 1024 * 1024;
     auto off = file_off_t{0};
     while (!done) {
         log_debug("%d: caching file content at %d", this->lb_fd.get(), off);

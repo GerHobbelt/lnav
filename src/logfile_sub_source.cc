@@ -1892,8 +1892,6 @@ logfile_sub_source::eval_sql_filter(sqlite3_stmt* stmt,
         default:
             return Err(sqlite3_error_to_user_message(sqlite3_db_handle(stmt)));
     }
-
-    return Ok(true);
 }
 
 bool
@@ -2546,7 +2544,8 @@ logfile_sub_source::text_crumbs_for_line(int line,
         auto key = text_anchors::to_anchor_string(name);
         auto display = attr_line_t()
                            .append("\u2291 "_symbol)
-                           .append(lnav::roles::variable(name));
+                           .append(lnav::roles::variable(name))
+                           .move();
         crumbs.emplace_back(
             key,
             display,

@@ -332,13 +332,8 @@ files_sub_source::text_value_for_line(textview_curses& tc,
     const auto& lf = fc.fc_files[line];
     auto ld_opt = lnav_data.ld_log_source.find_data(lf);
     auto fn = fmt::to_string(std::filesystem::path(lf->get_unique_path()));
-    std::vector<std::string> file_notes;
 
     truncate_to(fn, filename_width);
-    for (const auto& pair : lf->get_notes()) {
-        file_notes.push_back(pair.second);
-    }
-
     al.append(" ");
     if (ld_opt) {
         if (ld_opt.value()->ld_visible) {
@@ -359,7 +354,6 @@ files_sub_source::text_value_for_line(textview_curses& tc,
                    humanize::file_size(lf->get_index_size(),
                                        humanize::alignment::columnar));
     }
-    al.append(" ").appendf(FMT_STRING("{}"), fmt::join(file_notes, "; "));
     if (selected) {
         al.with_attr_for_all(VC_ROLE.value(cursor_role));
     }
@@ -502,9 +496,13 @@ files_sub_source::text_selection_changed(textview_curses& tc)
             if (!notes.empty()) {
                 details.emplace_back(
                     attr_line_t("  ").append("Notes"_h2).append(":"));
-                for (const auto& pair : notes) {
-                    details.emplace_back(attr_line_t("    ").append(
-                        lnav::roles::warning(pair.second)));
+                for (const auto& [_kind, note_um] : notes) {
+                    for (const auto& note_line :
+                         note_um.to_attr_line().split_lines())
+                    {
+                        details.emplace_back(
+                            attr_line_t("    ").append(note_line));
+                    }
                 }
             }
             details.emplace_back(attr_line_t("  ").append("General"_h2));
@@ -515,7 +513,8 @@ files_sub_source::text_selection_changed(textview_curses& tc)
                                     .right_justify(NAME_WIDTH)
                                     .append(": ")
                                     .append(lnav::roles::file(
-                                        fmt::to_string(actual_path.value())));
+                                        fmt::to_string(actual_path.value())))
+                                    .move();
                     details.emplace_back(line);
                 }
             } else {
@@ -571,8 +570,10 @@ files_sub_source::text_selection_changed(textview_curses& tc)
                                     .to_string()));
             }
             {
-                auto line
-                    = attr_line_t("  ").append("Log Format"_h2).append(": ");
+                auto line = attr_line_t("  ")
+                                .append("Log Format"_h2)
+                                .append(": ")
+                                .move();
 
                 if (format != nullptr) {
                     line.append(lnav::roles::identifier(

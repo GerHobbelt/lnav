@@ -161,7 +161,8 @@ bind_sql_parameters(exec_context& ec, sqlite3_stmt* stmt)
                           "are supported")
                       .with_help(
                           "named parameters start with a dollar-sign "
-                          "($) or colon (:) followed by the variable name");
+                          "($) or colon (:) followed by the variable name")
+                      .move();
             ec.add_error_context(um);
 
             return Err(um);
@@ -359,7 +360,8 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
             auto um = lnav::console::user_message::error(
                           "failed to compile SQL statement")
                           .with_reason(errmsg)
-                          .with_snippets(ec.ec_source);
+                          .with_snippets(ec.ec_source)
+                          .move();
 
             auto annotated_sql = annotate_sql_with_error(
                 lnav_data.ld_db.in(), curr_stmt, tail);
@@ -442,7 +444,8 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
                     log_error("sqlite3_step error code: %d", retcode);
                     auto um = sqlite3_error_to_user_message(lnav_data.ld_db)
                                   .with_context_snippets(ec.ec_source)
-                                  .with_note(bound_note);
+                                  .with_note(bound_note)
+                                  .move();
 
                     return Err(um);
                 }
@@ -662,7 +665,8 @@ execute_file(exec_context& ec, const std::string& path_and_args)
                       "unable to parse script command-line")
                       .with_reason(split_err.te_msg)
                       .with_snippet(lnav::console::snippet::from(
-                          SRC, lexer.to_attr_line(split_err)));
+                          SRC, lexer.to_attr_line(split_err)))
+                      .move();
 
         return Err(um);
     }
@@ -702,8 +706,16 @@ execute_file(exec_context& ec, const std::string& path_and_args)
         paths_to_exec.push_back({script_name, "", "", ""});
     } else if (access(script_name.c_str(), R_OK) == 0) {
         struct script_metadata meta;
+        auto rp_res = lnav::filesystem::realpath(script_name);
 
-        meta.sm_path = script_name;
+        if (rp_res.isErr()) {
+            log_error("unable to get realpath() of %s -- %s",
+                      script_name.c_str(),
+                      rp_res.unwrapErr().c_str());
+            meta.sm_path = script_name;
+        } else {
+            meta.sm_path = rp_res.unwrap();
+        }
         extract_metadata_from_file(meta);
         paths_to_exec.push_back(meta);
     } else if (errno != ENOENT) {
@@ -783,7 +795,8 @@ execute_any(exec_context& ec, const std::string& cmdline_with_mode)
         auto um = lnav::console::user_message::error("empty command")
                       .with_help(
                           "a command should start with ':', ';', '/', '|' and "
-                          "followed by the operation to perform");
+                          "followed by the operation to perform")
+                      .move();
         if (!ec.ec_source.empty()) {
             um.with_snippet(ec.ec_source.back());
         }
@@ -906,7 +919,7 @@ execute_init_commands(
                 wait_for_pipers(deadline);
                 rebuild_indexes_repeatedly();
             }
-            if (dls.dls_rows.size() > 1 && lnav_data.ld_view_stack.size() == 1)
+            if (!dls.dls_headers.empty() && lnav_data.ld_view_stack.size() == 1)
             {
                 lnav_data.ld_views[LNV_DB].reload_data();
                 ensure_view(LNV_DB);
@@ -943,36 +956,38 @@ execute_init_commands(
 int
 sql_callback(exec_context& ec, sqlite3_stmt* stmt)
 {
+    const auto& vc = view_colors::singleton();
     auto& dls = *(ec.ec_label_source_stack.back());
+    int ncols = sqlite3_column_count(stmt);
 
     if (!sqlite3_stmt_busy(stmt)) {
         dls.clear();
 
+        for (int lpc = 0; lpc < ncols; lpc++) {
+            const int type = sqlite3_column_type(stmt, lpc);
+            std::string colname = sqlite3_column_name(stmt, lpc);
+
+            dls.push_header(colname, type, false);
+        }
         return 0;
     }
 
-    auto& vc = view_colors::singleton();
-    int ncols = sqlite3_column_count(stmt);
-    int row_number;
-    int lpc, retval = 0;
-    auto set_vars = false;
+    int retval = 0;
+    auto set_vars = dls.dls_rows.empty();
 
-    row_number = dls.dls_rows.size();
-    dls.dls_rows.resize(row_number + 1);
-    if (dls.dls_headers.empty()) {
-        for (lpc = 0; lpc < ncols; lpc++) {
+    if (dls.dls_rows.empty()) {
+        for (int lpc = 0; lpc < ncols; lpc++) {
             int type = sqlite3_column_type(stmt, lpc);
             std::string colname = sqlite3_column_name(stmt, lpc);
-            bool graphable;
 
-            graphable = ((type == SQLITE_INTEGER || type == SQLITE_FLOAT)
-                         && !binary_search(lnav_data.ld_db_key_names.begin(),
-                                           lnav_data.ld_db_key_names.end(),
-                                           colname));
-
-            dls.push_header(colname, type, graphable);
+            bool graphable = (type == SQLITE_INTEGER || type == SQLITE_FLOAT)
+                && !binary_search(lnav_data.ld_db_key_names.begin(),
+                                  lnav_data.ld_db_key_names.end(),
+                                  colname);
+            auto& hm = dls.dls_headers[lpc];
+            hm.hm_column_type = type;
+            hm.hm_graphable = graphable;
             if (graphable) {
-                auto& hm = dls.dls_headers.back();
                 auto name_for_ident_attrs = colname;
                 auto attrs = vc.attrs_for_ident(name_for_ident_attrs);
                 for (size_t attempt = 0;
@@ -983,14 +998,17 @@ sql_callback(exec_context& ec, sqlite3_stmt* stmt)
                     attrs = vc.attrs_for_ident(name_for_ident_attrs);
                 }
                 hm.hm_chart.with_attrs_for_ident(colname, attrs);
-                dls.dls_headers.back().hm_title_attrs = attrs;
+                hm.hm_title_attrs = attrs;
+                hm.hm_column_size = std::max(hm.hm_column_size, size_t{10});
             }
         }
-        set_vars = true;
     }
-    for (lpc = 0; lpc < ncols; lpc++) {
+
+    auto row_number = dls.dls_rows.size();
+    dls.dls_rows.resize(row_number + 1);
+    for (int lpc = 0; lpc < ncols; lpc++) {
         auto* raw_value = sqlite3_column_value(stmt, lpc);
-        auto value_type = sqlite3_value_type(raw_value);
+        const auto value_type = sqlite3_value_type(raw_value);
         scoped_value_t value;
         auto& hm = dls.dls_headers[lpc];
 

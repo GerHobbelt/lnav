@@ -703,7 +703,7 @@ vt_column(sqlite3_vtab_cursor* cur, sqlite3_context* ctx, int col)
                         break;
                     }
                     case log_footer_columns::actual_time: {
-                        char buffer[64];
+                        char buffer[64] = "";
 
                         if (ll->is_time_skewed()) {
                             if (vc->line_values.lvv_values.empty()) {
@@ -2051,7 +2051,8 @@ vt_update(sqlite3_vtab* tab,
                                          .append(" column of table ")
                                          .append_quoted(lnav::roles::symbol(
                                              vt->vi->get_name().to_string())))
-                                     .with_reason(errors[0].to_attr_line({}));
+                                     .with_reason(errors[0].to_attr_line({}))
+                                     .move();
                 set_vtable_errmsg(tab, top_error);
                 return SQLITE_ERROR;
             }

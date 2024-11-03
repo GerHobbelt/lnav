@@ -2171,6 +2171,7 @@ print_user_msgs(std::vector<lnav::console::user_message> error_list,
     }
 
     if (warning_count > 0 && !mf.mf_print_warnings
+        && verbosity != verbosity_t::quiet
         && !(lnav_data.ld_flags & LNF_HEADLESS)
         && (std::filesystem::file_time_type::clock::now()
                 - lnav_data.ld_last_dot_lnav_time
@@ -3389,7 +3390,11 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                 && verbosity == verbosity_t::quiet && load_stdin
                 && lnav_data.ld_active_files.fc_file_names.size() == 1)
             {
+                // give the pipers a chance to run to create the files to be
+                // scanned.
+                wait_for_pipers(ui_clock::now() + 10ms);
                 rescan_files(true);
+                // wait for the piper to actually finish running
                 wait_for_pipers(ui_clock::now() + 100ms);
                 auto rebuild_res = rebuild_indexes(ui_clock::now() + 15ms);
                 if (rebuild_res.rir_completed
@@ -3496,9 +3501,7 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
                     for (const auto& note : lf->get_notes()) {
                         switch (note.first) {
                             case logfile::note_type::not_utf: {
-                                auto um = lnav::console::user_message::error(
-                                    note.second);
-                                lnav::console::print(stderr, um);
+                                lnav::console::print(stderr, note.second);
                                 break;
                             }
 
