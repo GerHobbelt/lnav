@@ -593,6 +593,39 @@ com_clear_file_timezone(exec_context& ec,
 }
 
 static Result<std::string, lnav::console::user_message>
+com_set_text_view_mode(exec_context& ec,
+                       std::string cmdline,
+                       std::vector<std::string>& args)
+{
+    std::string retval;
+
+    if (args.empty()) {
+        args.emplace_back("text-view-modes");
+        return Ok(retval);
+    }
+
+    std::optional<textfile_sub_source::view_mode> vm_opt;
+
+    if (args.size() > 1) {
+        if (args[1] == "raw") {
+            vm_opt = textfile_sub_source::view_mode::raw;
+        } else if (args[1] == "rendered") {
+            vm_opt = textfile_sub_source::view_mode::rendered;
+        }
+    }
+
+    if (!vm_opt) {
+        return ec.make_error("expecting a view mode of 'raw' or 'rendered'");
+    }
+
+    if (!ec.ec_dry_run) {
+        lnav_data.ld_text_source.set_view_mode(vm_opt.value());
+    }
+
+    return Ok(retval);
+}
+
+static Result<std::string, lnav::console::user_message>
 com_convert_time_to(exec_context& ec,
                     std::string cmdline,
                     std::vector<std::string>& args)
@@ -3074,7 +3107,8 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
 
 #ifdef HAVE_LIBCURL
             if (startswith(fn, "file:")) {
-                auto* cu = curl_url();
+                auto_mem<CURLU> cu(curl_url_cleanup);
+                cu = curl_url();
                 auto set_rc = curl_url_set(cu, CURLUPART_URL, fn.c_str(), 0);
                 if (set_rc != CURLUE_OK) {
                     return Err(lnav::console::user_message::error(
@@ -3083,16 +3117,18 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                                    .with_reason(curl_url_strerror(set_rc)));
                 }
 
-                char* path_part;
-                auto get_rc = curl_url_get(cu, CURLUPART_PATH, &path_part, 0);
+                auto_mem<char> path_part;
+                auto get_rc
+                    = curl_url_get(cu, CURLUPART_PATH, path_part.out(), 0);
                 if (get_rc != CURLUE_OK) {
                     return Err(lnav::console::user_message::error(
                                    attr_line_t("cannot get path from URL: ")
                                        .append(lnav::roles::file(fn)))
                                    .with_reason(curl_url_strerror(get_rc)));
                 }
-                char* frag_part = nullptr;
-                get_rc = curl_url_get(cu, CURLUPART_FRAGMENT, &frag_part, 0);
+                auto_mem<char> frag_part;
+                get_rc
+                    = curl_url_get(cu, CURLUPART_FRAGMENT, frag_part.out(), 0);
                 if (get_rc != CURLUE_OK && get_rc != CURLUE_NO_FRAGMENT) {
                     return Err(lnav::console::user_message::error(
                                    attr_line_t("cannot get fragment from URL: ")
@@ -3101,7 +3137,8 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                 }
 
                 if (frag_part != nullptr && frag_part[0]) {
-                    fn = fmt::format(FMT_STRING("{}#{}"), path_part, frag_part);
+                    fn = fmt::format(
+                        FMT_STRING("{}#{}"), path_part.in(), frag_part.in());
                 } else {
                     fn = path_part;
                 }
@@ -3352,7 +3389,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                 attr_line_t al;
                 attr_line_builder alb(al);
 
-                switch (detect_res) {
+                switch (detect_res.dffr_file_format) {
                     case file_format_t::ARCHIVE: {
                         auto describe_res = archive_manager::describe(fn);
 
@@ -3450,7 +3487,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                         break;
                     }
                     case file_format_t::SQLITE_DB: {
-                        alb.append(fmt::to_string(detect_res));
+                        alb.append(fmt::to_string(detect_res.dffr_file_format));
                         break;
                     }
                     case file_format_t::REMOTE: {
@@ -5689,10 +5726,14 @@ breadcrumb_prompt(std::vector<std::string>& args)
 static void
 command_prompt(std::vector<std::string>& args)
 {
+    static const char* TEXT_VIEW_MODES[] = {"raw", "rendered", nullptr};
+
     auto* tc = *lnav_data.ld_view_stack.top();
     auto* rlc = lnav_data.ld_rl_view;
 
     rlc->clear_possibilities(ln_mode_t::COMMAND, "move-args");
+    rlc->add_possibility(
+        ln_mode_t::COMMAND, "text-view-modes", TEXT_VIEW_MODES);
     if (lnav_data.ld_views[LNV_LOG].get_inner_height() > 0) {
         static const char* MOVE_TIMES[]
             = {"here", "now", "today", "yesterday", nullptr};
@@ -6127,6 +6168,16 @@ readline_context::command_t STD_COMMANDS[] = {
                                       "no longer use this timezone"})
             .with_tags({"file-options"}),
         com_clear_file_timezone_prompt,
+    },
+    {
+        "set-text-view-mode",
+        com_set_text_view_mode,
+        help_text(":set-text-view-mode")
+            .with_summary("Set the display mode for text files")
+            .with_parameter(help_text{"mode"}
+                                .with_summary("The display mode")
+                                .with_enum_values({"raw", "rendered"})
+                                .with_tags({"display"})),
     },
     {"current-time",
      com_current_time,
@@ -7042,6 +7093,18 @@ static std::unordered_map<char const*, std::vector<char const*>> aliases = {
     {"write-table-to", {"write-cols-to"}},
 };
 
+static Result<std::string, lnav::console::user_message>
+com_crash(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
+{
+    if (args.empty()) {
+    } else if (!ec.ec_dry_run) {
+        int* nums = nullptr;
+
+        return ec.make_error(FMT_STRING("oops... {}"), nums[0]);
+    }
+    return Ok(std::string());
+}
+
 void
 init_lnav_commands(readline_context::command_map_t& cmd_map)
 {
@@ -7064,10 +7127,12 @@ init_lnav_commands(readline_context::command_map_t& cmd_map)
     }
     if (getenv("lnav_test") != nullptr) {
         static readline_context::command_t shexec(com_shexec),
-            poll_now(com_poll_now), test_comment(com_test_comment);
+            poll_now(com_poll_now), test_comment(com_test_comment),
+            crasher(com_crash);
 
         cmd_map["shexec"] = &shexec;
         cmd_map["poll-now"] = &poll_now;
         cmd_map["test-comment"] = &test_comment;
+        cmd_map["crash"] = &crasher;
     }
 }

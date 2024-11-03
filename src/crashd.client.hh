@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019, Timothy Stack
+ * Copyright (c) 2024, Timothy Stack
  *
  * All rights reserved.
  *
@@ -27,64 +27,28 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef lnav_file_range_hh
-#define lnav_file_range_hh
+#ifndef lnav_crashd_client_hh
+#define lnav_crashd_client_hh
 
-#include <sys/types.h>
+#include <filesystem>
+#include <functional>
 
-#include "intern_string.hh"
+#include "base/lnav.console.hh"
+#include "base/result.h"
 
-using file_off_t = int64_t;
-using file_size_t = uint64_t;
-using file_ssize_t = int64_t;
+namespace lnav::crashd::client {
 
-class file_range {
-public:
-    struct metadata {
-        bool m_valid_utf{true};
-        bool m_has_ansi{false};
-
-        metadata& operator|=(const metadata& meta)
-        {
-            if (!meta.m_valid_utf) {
-                this->m_valid_utf = false;
-            }
-            if (meta.m_has_ansi) {
-                this->m_has_ansi = true;
-            }
-
-            return *this;
-        }
-    };
-
-    file_off_t fr_offset{0};
-    file_ssize_t fr_size{0};
-    metadata fr_metadata;
-
-    void clear()
-    {
-        this->fr_offset = 0;
-        this->fr_size = 0;
-    }
-
-    ssize_t next_offset() const { return this->fr_offset + this->fr_size; }
-
-    bool empty() const { return this->fr_size == 0; }
+enum class progress_result_t {
+    ok,
+    abort,
 };
 
-struct source_location {
-    source_location()
-        : sl_source(intern_string::lookup("unknown")), sl_line_number(0)
-    {
-    }
+using progress_callback = std::function<progress_result_t(
+    double dltotal, double dlnow, double ultotal, double ulnow)>;
 
-    explicit source_location(intern_string_t source, int32_t line = 0)
-        : sl_source(source), sl_line_number(line)
-    {
-    }
+Result<void, lnav::console::user_message> upload(
+    const std::filesystem::path& log_path, progress_callback callback);
 
-    intern_string_t sl_source;
-    int32_t sl_line_number;
-};
+}  // namespace lnav::crashd::client
 
 #endif

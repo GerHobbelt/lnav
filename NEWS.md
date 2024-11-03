@@ -4,16 +4,25 @@ Features:
 * Files that contain a mixture of log messages from separate
   services (e.g. docker logs) can now be automatically
   de-multiplexed into separate files that lnav can digest.
-* The `log_opid` column on log vtables can now by `UPDATE`d
+* The `log_opid` column on log vtables can now be `UPDATE`d
   so that you can manually set an opid on log messages that
   don't have one.  Setting an opid allows messages to show
   up in the timeline view.
+* The Files panel now has a details view on the right side
+  that shows extra information about the selected file.
+  You can look here for details of why lnav selected a
+  particular log format.
 * Add support for GitHub Markdown Alerts.
 * Added the `:xopen` command that will open the given paths
   using an external opener like `open` or `xdg-open`.
 * Clicking on a link in a markdown file will open the Actions
   with options for opening the link target in lnav, opening the
   target with `:xopen`, or copying the link to a clipboard.
+* Added a `crash upload` command to the management CLI that will
+  upload crash logs to a server for analysis.
+* Added a `:set-text-view-mode` command that controls whether
+  file contents, such as markdown, are rendered or shown in
+  their raw state.
 
 Interface Changes:
 * The "Gantt Chart" view has been renamed to "timeline".
@@ -34,6 +43,8 @@ Bug Fixes:
   overlay for log messages.
 * If a theme does not define `cursor-line` or `selected-text`
   styles, the styles from the default theme will be used.
+* The first argument to a script is now the full path of the
+  script and not just the script name.
 
 Maintenance:
 * You can now do an `UPDATE` on the `lnav_top_view` SQL view.

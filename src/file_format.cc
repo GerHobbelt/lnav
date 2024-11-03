@@ -39,17 +39,17 @@
 #include "config.h"
 #include "line_buffer.hh"
 
-file_format_t
+detect_file_format_result
 detect_file_format(const std::filesystem::path& filename)
 {
+    detect_file_format_result retval = {file_format_t::UNKNOWN};
     auto describe_res = archive_manager::describe(filename);
     if (describe_res.isOk()
         && describe_res.unwrap().is<archive_manager::archive_info>())
     {
-        return file_format_t::ARCHIVE;
+        return {file_format_t::ARCHIVE};
     }
 
-    file_format_t retval = file_format_t::UNKNOWN;
     auto open_res = lnav::filesystem::open_file(filename, O_RDONLY);
     if (open_res.isErr()) {
         log_error("unable to open file for format detection: %s -- %s",
@@ -70,7 +70,7 @@ detect_file_format(const std::filesystem::path& filename)
 
             if (header_frag.startswith(SQLITE3_HEADER)) {
                 log_info("%s: appears to be a SQLite DB", filename.c_str());
-                retval = file_format_t::SQLITE_DB;
+                retval.dffr_file_format = file_format_t::SQLITE_DB;
             } else {
                 auto looping = true;
                 lnav::piper::multiplex_matcher mm;
@@ -96,7 +96,11 @@ detect_file_format(const std::filesystem::path& filename)
                                  filename.c_str());
                         break;
                     }
-                    auto li = load_res.unwrap();
+                    const auto li = load_res.unwrap();
+                    if (li.li_partial) {
+                        log_info("skipping demux match for partial line");
+                        break;
+                    }
                     auto read_res = lb.read_range(li.li_file_range);
                     if (read_res.isErr()) {
                         log_error(
@@ -114,7 +118,8 @@ detect_file_format(const std::filesystem::path& filename)
                             log_info("%s: is multiplexed using %s",
                                      filename.c_str(),
                                      f.f_id.c_str());
-                            retval = file_format_t::MULTIPLEXED;
+                            retval.dffr_file_format
+                                = file_format_t::MULTIPLEXED;
                             return false;
                         },
                         [](lnav::piper::multiplex_matcher::not_found nf) {
@@ -126,6 +131,7 @@ detect_file_format(const std::filesystem::path& filename)
 
                     next_range = li.li_file_range;
                 }
+                retval.dffr_details = std::move(mm.mm_details);
             }
         }
     }

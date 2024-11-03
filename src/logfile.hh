@@ -32,6 +32,7 @@
 #ifndef logfile_hh
 #define logfile_hh
 
+#include <filesystem>
 #include <set>
 #include <string>
 #include <utility>
@@ -49,7 +50,6 @@
 #include "bookmarks.hh"
 #include "byte_array.hh"
 #include "file_options.hh"
-#include <filesystem>
 #include "line_buffer.hh"
 #include "log_format_fwd.hh"
 #include "logfile_fwd.hh"
@@ -255,9 +255,14 @@ public:
 
     Result<shared_buffer_ref, std::string> read_line(iterator ll);
 
-    Result<std::string, std::string> read_file();
+    struct read_file_result {
+        file_range rfr_range;
+        std::string rfr_content;
+    };
 
-    Result<shared_buffer_ref, std::string> read_range(file_range fr);
+    Result<read_file_result, std::string> read_file();
+
+    Result<shared_buffer_ref, std::string> read_range(const file_range& fr);
 
     iterator line_base(iterator ll)
     {
@@ -420,6 +425,16 @@ public:
         return this->lf_file_options;
     }
 
+    const std::set<intern_string_t>& get_mismatched_formats()
+    {
+        return this->lf_mismatched_formats;
+    }
+
+    const std::vector<lnav::console::user_message>& get_format_match_messages()
+    {
+        return this->lf_format_match_messages;
+    }
+
 protected:
     /**
      * Process a line from the file.
@@ -489,6 +504,7 @@ private:
     std::map<std::string, metadata> lf_embedded_metadata;
     size_t lf_file_options_generation{0};
     std::optional<std::pair<std::string, lnav::file_options>> lf_file_options;
+    std::vector<lnav::console::user_message> lf_format_match_messages;
 };
 
 class logline_observer {

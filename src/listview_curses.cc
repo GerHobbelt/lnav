@@ -429,7 +429,7 @@ listview_curses::do_update()
         }
 
         wrap_width = width;
-        if (this->lv_show_scrollbar) {
+        if (this->lv_show_scrollbar && wrap_width > 0) {
             wrap_width -= 1;
         }
 
@@ -541,6 +541,7 @@ listview_curses::do_update()
                             row_overlay_content[overlay_row].with_attr_for_all(
                                 VC_ROLE.value(role_t::VCR_CURSOR_LINE));
                         }
+
                         this->lv_display_lines.push_back(
                             overlay_content{row, overlay_row});
                         mvwattrline(this->lv_window,
@@ -1124,7 +1125,8 @@ listview_curses::set_selection(vis_line_t sel)
     auto diff = std::optional<vis_line_t>{};
 
     if (this->lv_selection >= 0_vl && this->lv_selection > this->lv_top
-        && this->lv_selection < this->lv_top + dim.first)
+        && this->lv_selection < this->lv_top + dim.first
+        && (sel < this->lv_top || sel > this->lv_top + dim.first))
     {
         diff = this->lv_selection - this->lv_top;
     }
