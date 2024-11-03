@@ -59,6 +59,7 @@
 #    include "prqlc.cxx.hh"
 #endif
 
+using namespace std::literals::chrono_literals;
 using namespace lnav::roles::literals;
 
 exec_context INIT_EXEC_CONTEXT;
@@ -603,10 +604,10 @@ multiline_executor::final()
 }
 
 static Result<std::string, lnav::console::user_message>
-execute_file_contents(exec_context& ec, const ghc::filesystem::path& path)
+execute_file_contents(exec_context& ec, const std::filesystem::path& path)
 {
-    static const ghc::filesystem::path stdin_path("-");
-    static const ghc::filesystem::path dev_stdin_path("/dev/stdin");
+    static const std::filesystem::path stdin_path("-");
+    static const std::filesystem::path dev_stdin_path("/dev/stdin");
 
     std::string retval;
     FILE* file;
@@ -715,13 +716,13 @@ execute_file(exec_context& ec, const std::string& path_and_args)
     } else if (errno != ENOENT) {
         open_error = strerror(errno);
     } else {
-        auto script_path = ghc::filesystem::path(script_name);
+        auto script_path = std::filesystem::path(script_name);
 
         if (!script_path.is_absolute()) {
             script_path = ec.ec_path_stack.back() / script_path;
         }
 
-        if (ghc::filesystem::is_regular_file(script_path)) {
+        if (std::filesystem::is_regular_file(script_path)) {
             struct script_metadata meta;
 
             meta.sm_path = script_path;
@@ -801,7 +802,7 @@ execute_any(exec_context& ec, const std::string& cmdline_with_mode)
         if (ec.is_read_write() &&
             // only rebuild in a script or non-interactive mode so we don't
             // block the UI.
-            (lnav_data.ld_flags & LNF_HEADLESS || ec.ec_path_stack.size() > 1))
+            lnav_data.ld_flags & LNF_HEADLESS)
         {
             rescan_files();
             wait_for_pipers(std::nullopt);
@@ -903,10 +904,12 @@ execute_init_commands(
                 }
 
                 rescan_files();
-                auto deadline = current_timeval()
-                    + ((lnav_data.ld_flags & LNF_HEADLESS)
-                           ? timeval{5, 0}
-                           : timeval{0, 500000});
+                auto deadline = ui_clock::now();
+                if (lnav_data.ld_flags & LNF_HEADLESS) {
+                    deadline += 5s;
+                } else {
+                    deadline += 500ms;
+                }
                 wait_for_pipers(deadline);
                 rebuild_indexes_repeatedly();
             }
@@ -1066,7 +1069,7 @@ pipe_callback(exec_context& ec, const std::string& cmdline, auto_fd& fd)
         });
     }
     std::error_code errc;
-    ghc::filesystem::create_directories(lnav::paths::workdir(), errc);
+    std::filesystem::create_directories(lnav::paths::workdir(), errc);
     auto open_temp_res = lnav::filesystem::open_temp_file(lnav::paths::workdir()
                                                           / "exec.XXXXXX");
     if (open_temp_res.isErr()) {
@@ -1148,9 +1151,10 @@ exec_context::clear_output()
     this->ec_output_stack.back() = std::make_pair("default", std::nullopt);
 }
 
-exec_context::exec_context(logline_value_vector* line_values,
-                           sql_callback_t sql_callback,
-                           pipe_callback_t pipe_callback)
+exec_context::
+exec_context(logline_value_vector* line_values,
+             sql_callback_t sql_callback,
+             pipe_callback_t pipe_callback)
     : ec_line_values(line_values),
       ec_accumulator(std::make_unique<attr_line_t>()),
       ec_sql_callback(sql_callback), ec_pipe_callback(pipe_callback)
@@ -1237,9 +1241,10 @@ exec_context::enter_source(intern_string_t path,
     return {this};
 }
 
-exec_context::output_guard::output_guard(exec_context& context,
-                                         std::string name,
-                                         const std::optional<output_t>& file)
+exec_context::output_guard::
+output_guard(exec_context& context,
+             std::string name,
+             const std::optional<output_t>& file)
     : sg_context(context)
 {
     if (file) {
@@ -1248,7 +1253,8 @@ exec_context::output_guard::output_guard(exec_context& context,
     context.ec_output_stack.emplace_back(std::move(name), file);
 }
 
-exec_context::output_guard::~output_guard()
+exec_context::output_guard::~
+output_guard()
 {
     this->sg_context.clear_output();
     this->sg_context.ec_output_stack.pop_back();

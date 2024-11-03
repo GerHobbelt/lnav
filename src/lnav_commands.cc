@@ -385,7 +385,7 @@ com_set_file_timezone(exec_context& ec,
             const auto* tz = date::locate_zone(split_args[1]);
             auto pattern = split_args.size() == 2
                 ? line_pair->first->get_filename()
-                : ghc::filesystem::path(split_args[2]);
+                : std::filesystem::path(split_args[2]);
 
             if (!ec.ec_dry_run) {
                 static auto& safe_options_hier
@@ -485,7 +485,7 @@ com_set_file_timezone_prompt(exec_context& ec, const std::string& cmdline)
             log_error("cannot get timezones: %s", e.what());
         }
     }
-    auto arg_path = ghc::filesystem::path(pattern_arg);
+    auto arg_path = std::filesystem::path(pattern_arg);
     auto arg_parent = lnav::filesystem::escape_path(arg_path.parent_path());
     if (!endswith(arg_parent, "/")) {
         arg_parent += "/";
@@ -3118,9 +3118,11 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                     lnav_data.ld_active_files.fc_file_names[ul->get_path()]
                         .with_filename(fn)
                         .with_init_location(file_loc);
+                    lnav_data.ld_active_files.fc_files_generation += 1;
                     isc::to<curl_looper&, services::curl_streamer_t>().send(
                         [ul](auto& clooper) { clooper.add_request(ul); });
                     lnav_data.ld_files_to_front.emplace_back(fn, file_loc);
+                    closed_files.push_back(fn);
                     retval = "info: opened URL";
                 } else {
                     retval = "";
@@ -3279,6 +3281,9 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                 files_to_front.emplace_back(fn, file_loc);
 
                 closed_files.push_back(fn);
+                if (!loo.loo_filename.empty()) {
+                    closed_files.push_back(loo.loo_filename);
+                }
                 if (lnav_data.ld_rl_view != nullptr) {
                     lnav_data.ld_rl_view->set_alt_value(
                         HELP_MSG_1(X, "to close the file"));
@@ -3342,7 +3347,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                                          fn_str);
                 }
             } else {
-                auto fn = ghc::filesystem::path(fn_str);
+                auto fn = std::filesystem::path(fn_str);
                 auto detect_res = detect_file_format(fn);
                 attr_line_t al;
                 attr_line_builder alb(al);
@@ -3467,7 +3472,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                                            files_to_front.begin(),
                                            files_to_front.end());
         for (const auto& fn : closed_files) {
-            fc.fc_closed_files.erase(fn);
+            lnav_data.ld_active_files.fc_closed_files.erase(fn);
         }
 
         lnav_data.ld_active_files.merge(fc);
@@ -3542,7 +3547,7 @@ com_close(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
     }
 
     auto* tc = *lnav_data.ld_view_stack.top();
-    std::vector<std::optional<ghc::filesystem::path>> actual_path_v;
+    std::vector<std::optional<std::filesystem::path>> actual_path_v;
     std::vector<std::string> fn_v;
 
     if (args.size() > 1) {
@@ -3765,8 +3770,8 @@ com_file_visibility(exec_context& ec,
             lnav_data.ld_views[LNV_LOG]
                 .get_sub_source()
                 ->text_filters_changed();
-            if (top_tc == &lnav_data.ld_views[LNV_GANTT]) {
-                lnav_data.ld_views[LNV_GANTT]
+            if (top_tc == &lnav_data.ld_views[LNV_TIMELINE]) {
+                lnav_data.ld_views[LNV_TIMELINE]
                     .get_sub_source()
                     ->text_filters_changed();
             }
