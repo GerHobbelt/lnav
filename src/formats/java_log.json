@@ -39,10 +39,13 @@
                 "pattern": "^(?<timestamp>\\d{4}-\\d{2}-\\d{2}( |T)\\d{2}:\\d{2}:\\d{2}(,|\\.)\\d{3}(?:Z|[-+]\\d{2}:?\\d{2})?)\\s+\\[(?<thread>[^\\]]+)\\]\\s+(?<level>ERROR|WARN|INFO|DEBUG|TRACE)\\s+opId=(?<opid>\\S*)\\s+(?<class>\\S+)\\s+-\\s+(?<body>.*)$"
             },
             "level-thread-class": {
-                "pattern": "(?<timestamp>\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}[,\\.]\\d{3}) (?<level>\\w+)\\s+\\[(?<thread>[^\\]]+)\\] (?<class>[^:]+): (?<body>.*)"
+                "pattern": "^(?<timestamp>\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}[,\\.]\\d{1,3}) (?<level>\\w+)\\s+\\[(?<thread>[^\\]]+)\\] (?<class>[^:]+): (?<body>.*)"
             },
             "level-class-src": {
-                "pattern": "(?<timestamp>\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}[,\\.]\\d{3}) (?<level>\\w+)\\s+(?<class>[\\.\\w]+) \\((?<srcfile>[^:]+):(?<function>[^(]+)\\((?<srcline>\\d+)\\)\\) - (?<body>.*)"
+                "pattern": "^(?<timestamp>\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}[,\\.]\\d{1,3}) (?<level>\\w+)\\s+(?<class>[\\.\\w]+) \\((?<srcfile>[^:]+):(?<function>[^(]+)\\((?<srcline>\\d+)\\)\\) - (?<body>.*)"
+            },
+            "repeated": {
+                "pattern": "^(?<timestamp>\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}[,\\.]\\d{1,3}) \\^\\^\\^ \\d+ similar messages? omitted \\^\\^\\^$"
             }
         },
         "level-field": "level",
@@ -112,6 +115,16 @@
                 "kind": "string"
             }
         },
+        "search-table": {
+            "hdfs_finalized_blocks": {
+                "level": "info",
+                "pattern": "src: (?<blk_src>[^,]+), dest: (?<blk_dest>[^,]+), bytes: (?<blk_bytes>\\d+), op: (?<blk_op>[^,]+), cliID: (?<blk_cliid>[^,]+), offset: (?<blk_offset>[^,]+), srvID: (?<blk_srvid>[^,]+), blockid: (?<blk_id>[^,]+), duration\\(ns\\): (?<blk_duration>\\d+)"
+            },
+            "zk_established_session_id": {
+                "level": "info",
+                "pattern": "Session establishment complete on server .*, session ?id = (?<session_id>0x[a-zA-Z0-9]+), "
+            }
+        },
         "sample": [
             {
                 "line": "INFO   | jvm 1    | 2015/04/28 18:40:00 | 2015-04-28 18:40:00,077 [DefaultQuartzScheduler_Worker-8] INFO  com.redhat.rhn.taskomatic.TaskoJob - errata-queue-default: bunch errata-queue-bunch STARTED"
@@ -172,6 +185,9 @@
             },
             {
                 "line": "2024-04-23 09:17:33,457 INFO  namenode.NameNode (LogAdapter.java:info(51)) - registered UNIX signal handlers for [TERM, HUP, INT]"
+            },
+            {
+                "line": "2024-07-18 14:06:40.554 ^^^ 1 similar message omitted ^^^"
             }
         ]
     }
