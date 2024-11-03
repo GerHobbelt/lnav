@@ -490,12 +490,14 @@ load_time_bookmarks()
          ++file_iter)
     {
         auto lf = (*file_iter)->get_file();
-        const auto* format = lf->get_format_ptr();
-        content_line_t base_content_line;
-
         if (lf == nullptr) {
             continue;
         }
+        if (lf->size() == 0) {
+            continue;
+        }
+        const auto* format = lf->get_format_ptr();
+        content_line_t base_content_line;
 
         base_content_line = lss.get_file_base_content_line(file_iter);
 
@@ -730,6 +732,9 @@ load_time_bookmarks()
         content_line_t base_content_line;
 
         if (lf == nullptr) {
+            continue;
+        }
+        if (lf->size() == 0) {
             continue;
         }
 
@@ -1306,15 +1311,16 @@ save_time_bookmarks()
     }
 
     {
-        logfile_sub_source::iterator file_iter;
-
-        for (file_iter = lnav_data.ld_log_source.begin();
+        for (auto file_iter = lnav_data.ld_log_source.begin();
              file_iter != lnav_data.ld_log_source.end();
              ++file_iter)
         {
             auto lf = (*file_iter)->get_file();
 
             if (lf == nullptr) {
+                continue;
+            }
+            if (lf->size() == 0) {
                 continue;
             }
 
@@ -1421,6 +1427,9 @@ save_time_bookmarks()
             content_line_t base_content_line;
 
             if (lf == nullptr) {
+                continue;
+            }
+            if (lf->size() == 0) {
                 continue;
             }
 

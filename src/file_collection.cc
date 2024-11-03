@@ -259,7 +259,11 @@ file_collection::merge(file_collection& other)
  * Functor used to compare files based on their device and inode number.
  */
 struct same_file {
-    explicit same_file(const struct stat& stat) : sf_stat(stat) {}
+    explicit same_file(const std::filesystem::path& filename,
+                       const struct stat& stat)
+        : sf_filename(filename), sf_stat(stat)
+    {
+    }
 
     /**
      * Compare the given log file against the 'stat' given in the constructor.
@@ -271,6 +275,12 @@ struct same_file {
     {
         if (lf->is_closed()) {
             return false;
+        }
+
+        if (lf->get_actual_path()
+            && lf->get_actual_path().value() == this->sf_filename)
+        {
+            return true;
         }
 
         const auto& lf_loo = lf->get_open_options();
@@ -286,6 +296,7 @@ struct same_file {
             && this->sf_stat.st_ino == lf->get_stat().st_ino;
     }
 
+    const std::filesystem::path& sf_filename;
     const struct stat& sf_stat;
 };
 
@@ -380,8 +391,9 @@ file_collection::watch_logfile(const std::string& filename,
 
     this->fc_new_stats.emplace_back(st);
 
-    auto file_iter = std::find_if(
-        this->fc_files.begin(), this->fc_files.end(), same_file(st));
+    const auto fn_path = std::filesystem::path(filename);
+    const auto file_iter = std::find_if(
+        this->fc_files.begin(), this->fc_files.end(), same_file(fn_path, st));
 
     if (file_iter == this->fc_files.end()) {
         if (this->fc_other_files.find(filename) != this->fc_other_files.end()) {
@@ -637,10 +649,9 @@ file_collection::expand_filename(
     }
 
     auto filename_key = loo.loo_filename.empty() ? path : loo.loo_filename;
-    auto glob_flags = lnav::filesystem::is_glob(path) ? 0 : GLOB_NOCHECK;
-    if (glob(path.c_str(), glob_flags, nullptr, gl.inout()) == 0) {
-        int lpc;
-
+    auto glob_flags = lnav::filesystem::is_glob(path) ? GLOB_NOCHECK : 0;
+    auto glob_rc = glob(path.c_str(), glob_flags, nullptr, gl.inout());
+    if (glob_rc == 0) {
         if (gl->gl_pathc == 1 /*&& gl.gl_matchc == 0*/) {
             /* It's a pattern that doesn't match any files
              * yet, allow it through since we'll load it in
@@ -684,7 +695,7 @@ file_collection::expand_filename(
         }
 
         std::lock_guard<std::mutex> lg(REALPATH_CACHE_MUTEX);
-        for (lpc = 0; lpc < (int) gl->gl_pathc; lpc++) {
+        for (size_t lpc = 0; lpc < gl->gl_pathc; lpc++) {
             auto path_str = std::string(gl->gl_pathv[lpc]);
             auto iter = REALPATH_CACHE.find(path_str);
 
@@ -756,6 +767,8 @@ file_collection::expand_filename(
                 }
             }
         }
+    } else if (glob_rc != GLOB_NOMATCH) {
+        log_error("glob(%s) failed -- %s", path.c_str(), strerror(errno));
     }
 }
 

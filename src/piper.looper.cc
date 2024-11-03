@@ -658,6 +658,7 @@ looper::loop()
                         break;
                     }
                     os.os_woff += prc;
+                    log_info("  header size: %d", os.os_woff);
 
                     auto out_path = this->l_out_dir
                         / fmt::format(FMT_STRING("out.{}.{}"),
@@ -749,8 +750,8 @@ cleanup()
 {
     (void) std::async(std::launch::async, []() {
         const auto& cfg = injector::get<const config&>();
-        auto now = std::filesystem::file_time_type::clock::now();
-        auto cache_path = storage_path();
+        const auto now = std::filesystem::file_time_type::clock::now();
+        const auto& cache_path = storage_path();
         std::vector<std::filesystem::path> to_remove;
 
         for (const auto& cache_subdir :

@@ -289,7 +289,7 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
 
     std::vector<std::shared_ptr<logfile>> closed_files;
     for (auto& lf : lnav_data.ld_active_files.fc_files) {
-        if ((!lf->exists() || lf->is_closed())) {
+        if (!lf->exists() || lf->is_closed()) {
             log_info("closed log file: %s", lf->get_filename().c_str());
             lnav_data.ld_text_source.remove(lf);
             lnav_data.ld_log_source.remove_file(lf);
@@ -457,8 +457,8 @@ update_active_files(file_collection& new_files)
                   .with_help(
                       attr_line_t("Use ")
                           .append("ulimit -n"_quoted_code)
-                          .append(
-                              " to increase the limit before running lnav"));
+                          .append(" to increase the limit before running lnav"))
+                  .move();
 
         lnav_data.ld_exec_context.ec_error_callback_stack.back()(um);
     }

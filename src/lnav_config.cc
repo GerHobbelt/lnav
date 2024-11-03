@@ -279,7 +279,8 @@ install_from_git(const std::string& repo)
                   .with_reason(
                       attr_line_t("git failed to create the local directory ")
                           .append(
-                              lnav::roles::file(local_staging_path.string())));
+                              lnav::roles::file(local_staging_path.string())))
+                  .move();
         lnav::console::print(stderr, um);
         return false;
     }
@@ -330,7 +331,8 @@ install_from_git(const std::string& repo)
         auto um = lnav::console::user_message::error(
                       attr_line_t("invalid lnav repo: ")
                           .append(lnav::roles::file(repo)))
-                      .with_reason("no .json, .sql, or .lnav files were found");
+                      .with_reason("no .json, .sql, or .lnav files were found")
+                      .move();
         lnav::console::print(stderr, um);
         return false;
     }
@@ -364,7 +366,8 @@ install_from_git(const std::string& repo)
     auto um = lnav::console::user_message::ok(
                   attr_line_t("installed lnav repo at: ")
                       .append(lnav::roles::file(local_configs_path.string())))
-                  .with_note(notes);
+                  .with_note(notes)
+                  .move();
     lnav::console::print(stdout, um);
 
     return true;
@@ -514,7 +517,8 @@ static const struct json_path_container key_command_handlers = {
 };
 
 static const struct json_path_container keymap_def_handlers = {
-    yajlpp::pattern_property_handler("(?<key_seq>(?:x[0-9a-f]{2})+)")
+    yajlpp::pattern_property_handler(
+        "(?<key_seq>(?:x[0-9a-f]{2}|f[0-9]{1,2})+)")
         .with_synopsis("<utf8-key-code-in-hex>")
         .with_description(
             "Map of key codes to commands to execute.  The field names are "
@@ -1897,15 +1901,23 @@ load_config(const std::vector<std::filesystem::path>& extra_paths,
             }
         }
         for (const auto& extra_path : extra_paths) {
-            auto config_path = extra_path / "formats/*/config.*.json";
-            static_root_mem<glob_t, globfree> gl;
+            for (const auto& pat :
+                 {"formats/*/config.json", "formats/*/config.*.json"})
+            {
+                auto config_path = extra_path / pat;
+                static_root_mem<glob_t, globfree> gl;
 
-            if (glob(config_path.c_str(), 0, nullptr, gl.inout()) == 0) {
-                for (size_t lpc = 0; lpc < gl->gl_pathc; lpc++) {
-                    load_config_from(lnav_config, gl->gl_pathv[lpc], errors);
-                    if (errors.empty()) {
+                log_info(
+                    "loading configuration files in format directories: %s",
+                    config_path.c_str());
+                if (glob(config_path.c_str(), 0, nullptr, gl.inout()) == 0) {
+                    for (size_t lpc = 0; lpc < gl->gl_pathc; lpc++) {
                         load_config_from(
-                            lnav_default_config, gl->gl_pathv[lpc], errors);
+                            lnav_config, gl->gl_pathv[lpc], errors);
+                        if (errors.empty()) {
+                            load_config_from(
+                                lnav_default_config, gl->gl_pathv[lpc], errors);
+                        }
                     }
                 }
             }
@@ -2056,7 +2068,8 @@ reload_config(std::vector<lnav::console::user_message>& errors)
                     um.um_message
                         = attr_line_t()
                               .append("missing value for property ")
-                              .append_quoted(lnav::roles::symbol(path));
+                              .append_quoted(lnav::roles::symbol(path))
+                              .move();
                 }
 
                 errors.emplace_back(um);
