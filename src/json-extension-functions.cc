@@ -34,7 +34,7 @@
 
 #include "config.h"
 #include "mapbox/variant.hpp"
-#include "scn/scn.h"
+#include "scn/scan.h"
 #include "sqlite-extension-func.hh"
 #include "sqlite3.h"
 #include "vtab_module.hh"
@@ -75,7 +75,7 @@ struct contains_userdata {
 };
 
 int
-contains_string(void* ctx, const unsigned char* str, size_t len)
+contains_string(void* ctx, const unsigned char* str, size_t len, yajl_string_props_t*)
 {
     auto sf = string_fragment::from_bytes(str, len);
     auto& cu = *((contains_userdata*) ctx);
@@ -211,7 +211,7 @@ gen_handle_boolean(void* ctx, int boolVal)
 }
 
 static int
-gen_handle_string(void* ctx, const unsigned char* stringVal, size_t len)
+gen_handle_string(void* ctx, const unsigned char* stringVal, size_t len, yajl_string_props_t* props)
 {
     sql_json_op* sjo = (sql_json_op*) ctx;
     yajl_gen gen = (yajl_gen) sjo->jo_ptr_data;
@@ -233,16 +233,16 @@ gen_handle_number(void* ctx, const char* numval, size_t numlen)
     yajl_gen gen = (yajl_gen) sjo->jo_ptr_data;
 
     if (sjo->jo_ptr.jp_state == json_ptr::match_state_t::DONE) {
-        auto num_sv = scn::string_view{numval, numlen};
+        auto num_sv = std::string_view{numval, numlen};
         auto scan_int_res = scn::scan_value<int64_t>(num_sv);
 
-        if (scan_int_res && scan_int_res.empty()) {
-            sjo->sjo_int = scan_int_res.value();
+        if (scan_int_res && scan_int_res->range().empty()) {
+            sjo->sjo_int = scan_int_res->value();
             sjo->sjo_type = SQLITE_INTEGER;
         } else {
             auto scan_float_res = scn::scan_value<double>(num_sv);
 
-            sjo->sjo_float = scan_float_res.value();
+            sjo->sjo_float = scan_float_res->value();
             sjo->sjo_type = SQLITE_FLOAT;
         }
     } else {
@@ -405,7 +405,7 @@ concat_gen_number(void* ctx, const char* val, size_t len)
 }
 
 static int
-concat_gen_string(void* ctx, const unsigned char* val, size_t len)
+concat_gen_string(void* ctx, const unsigned char* val, size_t len, yajl_string_props_t*)
 {
     auto* cc = static_cast<concat_context*>(ctx);
 

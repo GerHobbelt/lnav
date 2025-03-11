@@ -54,7 +54,7 @@
 #include "log.watch.hh"
 #include "log_format.hh"
 #include "logfile.cfg.hh"
-#include "piper.looper.hh"
+#include "piper.header.hh"
 #include "yajlpp/yajlpp_def.hh"
 
 using namespace lnav::roles::literals;
@@ -621,9 +621,17 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                                     && li.li_utf8_scan_result.is_valid());
             last_line.set_has_ansi(last_line.has_ansi()
                                    || li.li_utf8_scan_result.usr_has_ansi);
+            if (last_line.get_msg_level() == LEVEL_INVALID) {
+                if (this->lf_invalid_lines.ili_lines.size() < invalid_line_info::MAX_INVALID_LINES) {
+                    this->lf_invalid_lines.ili_lines.push_back(this->lf_index.size() - 1);
+                }
+                this->lf_invalid_lines.ili_total += 1;
+            }
         }
         if (prescan_size > 0 && this->lf_index.size() >= prescan_size
-            && prescan_time != this->lf_index[prescan_size - 1].get_time<std::chrono::microseconds>())
+            && prescan_time
+                != this->lf_index[prescan_size - 1]
+                       .get_time<std::chrono::microseconds>())
         {
             retval = true;
         }
@@ -835,7 +843,7 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
                 auto check_line_off = last_line->get_offset();
                 auto last_length_res
                     = this->message_byte_length(last_line, false);
-                log_debug("flushing at %d", check_line_off);
+                log_debug("flushing at %" PRIu64, check_line_off);
                 this->lf_line_buffer.flush_at(check_line_off);
 
                 auto read_result = this->lf_line_buffer.read_range({
@@ -931,8 +939,7 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
                 this->lf_notes.writeAccess()->emplace(note_type::not_utf,
                                                       note_um);
                 if (this->lf_logfile_observer != nullptr) {
-                    this->lf_logfile_observer->logfile_indexing(
-                        this->shared_from_this(), 0, 0);
+                    this->lf_logfile_observer->logfile_indexing(this, 0, 0);
                 }
                 break;
             }
@@ -1030,7 +1037,7 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
 
             if (this->lf_logfile_observer != nullptr) {
                 auto indexing_res = this->lf_logfile_observer->logfile_indexing(
-                    this->shared_from_this(),
+                    this,
                     this->lf_line_buffer.get_read_offset(
                         li.li_file_range.next_offset()),
                     st.st_size);
@@ -1086,7 +1093,7 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
                 }
 
                 for (const auto& pd : this->lf_applicable_partitioners) {
-                    static thread_local auto part_md
+                    thread_local auto part_md
                         = lnav::pcre2pp::match_data::unitialized();
 
                     auto curr_ll = this->end() - 1;
@@ -1146,8 +1153,7 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
             this->lf_notes.writeAccess()->emplace(note_type::indexing_disabled,
                                                   note_um);
             if (this->lf_logfile_observer != nullptr) {
-                this->lf_logfile_observer->logfile_indexing(
-                    this->shared_from_this(), 0, 0);
+                this->lf_logfile_observer->logfile_indexing(this, 0, 0);
             }
         }
 
@@ -1207,12 +1213,20 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
         } else {
             retval = rebuild_result_t::NEW_LINES;
         }
+
+        {
+            auto est_rem = this->estimated_remaining_lines();
+            if (est_rem > 0) {
+                this->lf_index.reserve(this->lf_index.size() + est_rem);
+            }
+        }
     } else if (this->lf_sort_needed) {
         retval = rebuild_result_t::NEW_ORDER;
         this->lf_sort_needed = false;
     }
 
-    this->lf_index_time = std::chrono::seconds{this->lf_line_buffer.get_file_time()};
+    this->lf_index_time
+        = std::chrono::seconds{this->lf_line_buffer.get_file_time()};
     if (this->lf_index_time.count() == 0) {
         this->lf_index_time = std::chrono::seconds{st.st_mtime};
     }
@@ -1288,9 +1302,9 @@ logfile::read_range(const file_range& fr)
 }
 
 void
-logfile::read_full_message(logfile::const_iterator ll,
+logfile::read_full_message(const_iterator ll,
                            shared_buffer_ref& msg_out,
-                           int max_lines)
+                           line_buffer::scan_direction dir)
 {
     require(ll->get_sub_offset() == 0);
 
@@ -1305,7 +1319,7 @@ logfile::read_full_message(logfile::const_iterator ll,
         if (range_for_line.fr_size > line_buffer::MAX_LINE_BUFFER_SIZE) {
             range_for_line.fr_size = line_buffer::MAX_LINE_BUFFER_SIZE;
         }
-        auto read_result = this->lf_line_buffer.read_range(range_for_line);
+        auto read_result = this->lf_line_buffer.read_range(range_for_line, dir);
 
         if (read_result.isErr()) {
             auto errmsg = read_result.unwrapErr();
@@ -1348,7 +1362,7 @@ logfile::reobserve_from(iterator iter)
 
         if (this->lf_logfile_observer != nullptr) {
             auto indexing_res = this->lf_logfile_observer->logfile_indexing(
-                this->shared_from_this(), offset, this->size());
+                this, offset, this->size());
             if (indexing_res == logfile_observer::indexing_result::BREAK) {
                 break;
             }
@@ -1366,7 +1380,7 @@ logfile::reobserve_from(iterator iter)
     }
     if (this->lf_logfile_observer != nullptr) {
         this->lf_logfile_observer->logfile_indexing(
-            this->shared_from_this(), this->size(), this->size());
+            this, this->size(), this->size());
         this->lf_logline_observer->logline_eof(*this);
     }
 }
@@ -1661,4 +1675,20 @@ logfile::clear_logline_opid(uint32_t line_number)
         otr_iter->second.clear();
         this->lf_invalidated_opids.insert(opid_sf);
     }
+}
+
+size_t
+logfile::estimated_remaining_lines() const
+{
+    if (this->lf_index.empty() || this->is_compressed()) {
+        return 10;
+    }
+
+    const auto bytes_per_line = this->lf_index_size / this->lf_index.size();
+    if (this->lf_index_size > this->lf_stat.st_size) {
+        return 0;
+    }
+    const auto remaining_bytes = this->lf_stat.st_size - this->lf_index_size;
+
+    return remaining_bytes / bytes_per_line;
 }

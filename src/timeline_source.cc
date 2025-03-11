@@ -36,6 +36,7 @@
 #include "base/humanize.hh"
 #include "base/humanize.time.hh"
 #include "base/itertools.hh"
+#include "base/keycodes.hh"
 #include "base/math_util.hh"
 #include "command_executor.hh"
 #include "intervaltree/IntervalTree.h"
@@ -461,8 +462,11 @@ timeline_source::text_handle_mouse(
     const listview_curses::display_line_content_t&,
     mouse_event& me)
 {
+    auto nci = ncinput{};
     if (me.is_double_click_in(mouse_button_t::BUTTON_LEFT, line_range{0, -1})) {
-        this->list_input_handle_key(tc, {'\r'});
+        nci.id = '\r';
+        nci.eff_text[0] = '\r';
+        this->list_input_handle_key(tc, nci);
     }
 
     return false;
@@ -517,7 +521,7 @@ timeline_source::text_line_count()
     return this->gs_time_order.size();
 }
 
-void
+line_info
 timeline_source::text_value_for_line(textview_curses& tc,
                                      int line,
                                      std::string& value_out,
@@ -555,6 +559,8 @@ timeline_source::text_value_for_line(textview_curses& tc,
 
         value_out = this->gs_rendered_line.get_string();
     }
+
+    return {};
 }
 
 void
@@ -1076,6 +1082,7 @@ void
 timeline_source::text_crumbs_for_line(int line,
                                       std::vector<breadcrumb::crumb>& crumbs)
 {
+    static intern_string_t SRC = intern_string::lookup("crumb");
     text_sub_source::text_crumbs_for_line(line, crumbs);
 
     if (line >= this->gs_time_order.size()) {
@@ -1087,13 +1094,15 @@ timeline_source::text_crumbs_for_line(int line,
 
     sql_strftime(ts, sizeof(ts), row.or_value.otr_range.tr_begin, 'T');
 
-    crumbs.emplace_back(
-        std::string(ts),
-        timestamp_poss,
-        [ec = this->gs_exec_context](const auto& ts) {
-            ec->execute(fmt::format(FMT_STRING(":goto {}"),
-                                    ts.template get<std::string>()));
-        });
+    crumbs.emplace_back(std::string(ts),
+                        timestamp_poss,
+                        [ec = this->gs_exec_context](const auto& ts) {
+                            auto cmd
+                                = fmt::format(FMT_STRING(":goto {}"),
+                                              ts.template get<std::string>());
+                            auto src_guard = ec->enter_source(SRC, 1, cmd);
+                            ec->execute(cmd);
+                        });
     crumbs.back().c_expected_input
         = breadcrumb::crumb::expected_input_t::anything;
     crumbs.back().c_search_placeholder = "(Enter an absolute or relative time)";

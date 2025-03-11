@@ -199,10 +199,10 @@ struct filtered_logline_cmp {
         return (*ll_lhs) < (*ll_rhs);
     }
 
-    bool operator()(const uint32_t& lhs, const struct timeval& rhs) const
+    bool operator()(const uint32_t& lhs, const timeval& rhs) const
     {
-        content_line_t cl_lhs = (content_line_t) llss_controller.lss_index[lhs];
-        logline* ll_lhs = this->llss_controller.find_line(cl_lhs);
+        const auto cl_lhs = (content_line_t) llss_controller.lss_index[lhs];
+        const auto* ll_lhs = this->llss_controller.find_line(cl_lhs);
 
         if (ll_lhs == nullptr) {
             return true;
@@ -214,12 +214,12 @@ struct filtered_logline_cmp {
 };
 
 std::optional<vis_line_t>
-logfile_sub_source::find_from_time(const struct timeval& start) const
+logfile_sub_source::find_from_time(const timeval& start) const
 {
-    auto lb = std::lower_bound(this->lss_filtered_index.begin(),
-                               this->lss_filtered_index.end(),
-                               start,
-                               filtered_logline_cmp(*this));
+    const auto lb = std::lower_bound(this->lss_filtered_index.begin(),
+                                     this->lss_filtered_index.end(),
+                                     start,
+                                     filtered_logline_cmp(*this));
     if (lb != this->lss_filtered_index.end()) {
         return vis_line_t(lb - this->lss_filtered_index.begin());
     }
@@ -227,7 +227,7 @@ logfile_sub_source::find_from_time(const struct timeval& start) const
     return std::nullopt;
 }
 
-void
+line_info
 logfile_sub_source::text_value_for_line(textview_curses& tc,
                                         int row,
                                         std::string& value_out,
@@ -235,9 +235,10 @@ logfile_sub_source::text_value_for_line(textview_curses& tc,
 {
     if (this->lss_indexing_in_progress) {
         value_out = "";
-        return;
+        return {};
     }
 
+    line_info retval;
     content_line_t line(0);
 
     require_ge(row, 0);
@@ -247,10 +248,24 @@ logfile_sub_source::text_value_for_line(textview_curses& tc,
 
     if (flags & RF_RAW) {
         auto lf = this->find(line);
+        auto ll = lf->begin() + line;
+        retval.li_file_range = lf->get_file_range(ll, false);
+        retval.li_level = ll->get_msg_level();
+        // retval.li_timestamp = ll->get_timeval();
+        retval.li_partial = false;
+        retval.li_utf8_scan_result.usr_has_ansi = ll->has_ansi();
+        retval.li_utf8_scan_result.usr_message = ll->is_valid_utf() ? nullptr
+                                                                    : "bad";
+        // timeval start_time, end_time;
+        // gettimeofday(&start_time, NULL);
         value_out = lf->read_line(lf->begin() + line)
                         .map([](auto sbr) { return to_string(sbr); })
                         .unwrapOr({});
-        return;
+        // gettimeofday(&end_time, NULL);
+        // timeval diff = end_time - start_time;
+        // log_debug("read time %d.%06d %s:%d", diff.tv_sec, diff.tv_usec,
+        // lf->get_filename().c_str(), line);
+        return retval;
     }
 
     require_false(this->lss_in_value_for_line);
@@ -350,8 +365,8 @@ logfile_sub_source::text_value_for_line(textview_curses& tc,
                 adjusted_time = this->lss_token_line->get_timeval();
                 if (format->lf_timestamp_flags & ETF_NANOS_SET) {
                     fmt = "%Y-%m-%d %H:%M:%S.%N";
-                    struct timeval actual_tv;
-                    struct exttm tm;
+                    timeval actual_tv;
+                    exttm tm;
                     if (format->lf_date_time.scan(
                             this->lss_token_value.data() + time_range.lr_start,
                             time_range.length(),
@@ -437,6 +452,8 @@ logfile_sub_source::text_value_for_line(textview_curses& tc,
     }
 
     this->lss_in_value_for_line = false;
+
+    return retval;
 }
 
 void
@@ -768,6 +785,7 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
 
     iterator iter;
     size_t total_lines = 0;
+    size_t est_remaining_lines = 0;
     bool full_sort = false;
     int file_count = 0;
     bool force = this->lss_force_rebuild;
@@ -841,9 +859,9 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
                         if (!this->lss_index.empty()
                             && lf->size() > ld.ld_lines_indexed)
                         {
-                            logline& new_file_line = (*lf)[ld.ld_lines_indexed];
+                            auto& new_file_line = (*lf)[ld.ld_lines_indexed];
                             content_line_t cl = this->lss_index.back();
-                            logline* last_indexed_line = this->find_line(cl);
+                            auto* last_indexed_line = this->find_line(cl);
 
                             // If there are new lines that are older than what
                             // we have in the index, we need to resort.
@@ -898,6 +916,8 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
             }
             file_count += 1;
             total_lines += lf->size();
+
+            est_remaining_lines += lf->estimated_remaining_lines();
         }
     }
 
@@ -905,7 +925,7 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
         return rebuild_result::rr_appended_lines;
     }
 
-    if (this->lss_index.reserve(total_lines)) {
+    if (this->lss_index.reserve(total_lines + est_remaining_lines)) {
         // The index array was reallocated, just do a full sort/rebuild since
         // it's been cleared out.
         log_debug("expanding index capacity %zu", this->lss_index.ba_capacity);
@@ -1017,6 +1037,7 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
         }
 
         if (full_sort) {
+            log_trace("rebuild_index full sort");
             for (auto& ld : this->lss_files) {
                 auto* lf = ld->get_file_ptr();
 
@@ -1099,7 +1120,8 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
             if (this->lss_sorting_observer) {
                 this->lss_sorting_observer(*this, index_off, index_size);
             }
-            for (;;) {
+            log_trace("k-way merge") for (;;)
+            {
                 logfile::iterator lf_iter;
                 logfile_data* ld;
 
@@ -1174,6 +1196,7 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
             this->lss_index_delegate->index_start(*this);
         }
 
+        log_trace("filtered index");
         for (size_t index_index = start_size;
              index_index < this->lss_index.size();
              index_index++)
@@ -1215,8 +1238,7 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
                 }
                 this->lss_filtered_index.push_back(index_index);
                 if (this->lss_index_delegate != nullptr) {
-                    this->lss_index_delegate->index_line(
-                        *this, lf, lf->begin() + line_number);
+                    this->lss_index_delegate->index_line(*this, lf, line_iter);
                 }
             }
         }
@@ -1452,6 +1474,10 @@ logfile_sub_source::list_input_handle_key(listview_curses& lv,
                             break;
                     }
                     if (!cmd.empty()) {
+                        static intern_string_t SRC
+                            = intern_string::lookup("hotkey");
+                        auto src_guard
+                            = this->lss_exec_context->enter_source(SRC, 1, cmd);
                         this->lss_exec_context
                             ->with_provenance(exec_context::mouse_input{})
                             ->execute(cmd);
@@ -2195,7 +2221,7 @@ sql_filter::to_command() const
     return fmt::format(FMT_STRING("filter-expr {}"), this->lf_id);
 }
 
-bool
+std::optional<line_info>
 logfile_sub_source::meta_grepper::grep_value_for_line(vis_line_t line,
                                                       std::string& value_out)
 {
@@ -2240,7 +2266,11 @@ logfile_sub_source::meta_grepper::grep_value_for_line(vis_line_t line,
         value_out.append(bm.bm_opid);
     }
 
-    return !this->lmg_done;
+    if (!this->lmg_done) {
+        return line_info{};
+    }
+
+    return std::nullopt;
 }
 
 vis_line_t
@@ -2287,11 +2317,9 @@ logfile_sub_source::meta_grepper::grep_end(grep_proc<vis_line_t>& gp)
 
 void
 logfile_sub_source::meta_grepper::grep_match(grep_proc<vis_line_t>& gp,
-                                             vis_line_t line,
-                                             int start,
-                                             int end)
+                                             vis_line_t line)
 {
-    this->lmg_source.tss_view->grep_match(gp, line, start, end);
+    this->lmg_source.tss_view->grep_match(gp, line);
 }
 
 logline_window::iterator
@@ -2544,6 +2572,7 @@ void
 logfile_sub_source::text_crumbs_for_line(int line,
                                          std::vector<breadcrumb::crumb>& crumbs)
 {
+    static intern_string_t SRC = intern_string::lookup("crumb");
     text_sub_source::text_crumbs_for_line(line, crumbs);
 
     if (this->lss_filtered_index.empty()) {
@@ -2582,8 +2611,10 @@ logfile_sub_source::text_crumbs_for_line(int line,
                 return retval;
             },
             [ec = this->lss_exec_context](const auto& part) {
-                ec->execute(fmt::format(FMT_STRING(":goto {}"),
-                                        part.template get<std::string>()));
+                auto cmd = fmt::format(FMT_STRING(":goto {}"),
+                                       part.template get<std::string>());
+                auto src_guard = ec->enter_source(SRC, 1, cmd);
+                ec->execute(cmd);
             });
     }
 
@@ -2598,13 +2629,15 @@ logfile_sub_source::text_crumbs_for_line(int line,
 
     sql_strftime(ts, sizeof(ts), line_pair.second->get_timeval(), 'T');
 
-    crumbs.emplace_back(
-        std::string(ts),
-        timestamp_poss,
-        [ec = this->lss_exec_context](const auto& ts) {
-            ec->execute(fmt::format(FMT_STRING(":goto {}"),
-                                    ts.template get<std::string>()));
-        });
+    crumbs.emplace_back(std::string(ts),
+                        timestamp_poss,
+                        [ec = this->lss_exec_context](const auto& ts) {
+                            auto cmd
+                                = fmt::format(FMT_STRING(":goto {}"),
+                                              ts.template get<std::string>());
+                            auto src_guard = ec->enter_source(SRC, 1, cmd);
+                            ec->execute(cmd);
+                        });
     crumbs.back().c_expected_input
         = breadcrumb::crumb::expected_input_t::anything;
     crumbs.back().c_search_placeholder = "(Enter an absolute or relative time)";
@@ -2634,6 +2667,7 @@ logfile_sub_source::text_crumbs_for_line(int line,
      WHERE name = 'log'
 )";
 
+            auto src_guard = ec->enter_source(SRC, 1, MOVE_STMT);
             ec->execute_with(
                 MOVE_STMT,
                 std::make_pair("format_name",
@@ -2663,6 +2697,7 @@ logfile_sub_source::text_crumbs_for_line(int line,
      WHERE name = 'log'
 )";
 
+            auto src_guard = ec->enter_source(SRC, 1, MOVE_STMT);
             ec->execute_with(
                 MOVE_STMT,
                 std::make_pair("uniq_path",
@@ -2708,6 +2743,7 @@ logfile_sub_source::text_crumbs_for_line(int line,
                          WHERE name = 'log'
                     )";
 
+                auto src_guard = ec->enter_source(SRC, 1, MOVE_STMT);
                 ec->execute_with(
                     MOVE_STMT,
                     std::make_pair("opid", opid.template get<std::string>()));
@@ -3188,10 +3224,15 @@ logfile_sub_source::text_handle_mouse(
     mouse_event& me)
 {
     if (tc.get_overlay_selection()) {
+        auto nci = ncinput{};
         if (me.is_click_in(mouse_button_t::BUTTON_LEFT, 2, 4)) {
-            this->list_input_handle_key(tc, {' '});
+            nci.id = ' ';
+            nci.eff_text[0] = ' ';
+            this->list_input_handle_key(tc, nci);
         } else if (me.is_click_in(mouse_button_t::BUTTON_LEFT, 5, 6)) {
-            this->list_input_handle_key(tc, {'#'});
+            nci.id = '#';
+            nci.eff_text[0] = '#';
+            this->list_input_handle_key(tc, nci);
         }
     }
     return true;

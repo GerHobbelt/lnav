@@ -46,7 +46,7 @@ class loading_observer : public logfile_observer {
 public:
     loading_observer() : lo_last_offset(0) {}
 
-    indexing_result logfile_indexing(const std::shared_ptr<logfile>& lf,
+    indexing_result logfile_indexing(const logfile* lf,
                                      file_off_t off,
                                      file_size_t total) override
     {
@@ -54,6 +54,10 @@ public:
 
         if (lnav_data.ld_window == nullptr) {
             return indexing_result::CONTINUE;
+        }
+
+        if (lnav_data.ld_sigint_count.load() > 0) {
+            return indexing_result::BREAK;
         }
 
         /* XXX require(off <= total); */
@@ -83,16 +87,19 @@ public:
 };
 
 void
-do_observer_update(const std::shared_ptr<logfile>& lf)
+do_observer_update(const logfile* lf)
 {
-    if (lf && lnav_data.ld_mode == ln_mode_t::FILES
+    if (lf != nullptr && lnav_data.ld_mode == ln_mode_t::FILES
         && lnav_data.ld_exec_phase < lnav_exec_phase::INTERACTIVE)
     {
         auto& fc = lnav_data.ld_active_files;
-        const auto iter = std::find(fc.fc_files.begin(), fc.fc_files.end(), lf);
+        size_t index = 0;
 
-        if (iter != fc.fc_files.end()) {
-            auto index = std::distance(fc.fc_files.begin(), iter);
+        for (const auto& curr_file : fc.fc_files) {
+            if (curr_file.get() != lf) {
+                index++;
+                continue;
+            }
             lnav_data.ld_files_view.set_selection(
                 vis_line_t(fc.fc_other_files.size() + index));
             lnav_data.ld_files_view.reload_data();
@@ -223,6 +230,7 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
         }
     }
 
+    // log_trace("rescanning text files");
     {
         auto* tss = &lnav_data.ld_text_source;
         textfile_callback cb;
@@ -283,6 +291,7 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
         }
     }
 
+    // log_trace("closing files");
     std::vector<std::shared_ptr<logfile>> closed_files;
     for (auto& lf : lnav_data.ld_active_files.fc_files) {
         if (!lf->exists() || lf->is_closed()) {
@@ -296,6 +305,7 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
         lnav_data.ld_active_files.close_files(closed_files);
     }
 
+    // log_trace("rebuilding logs indexes");
     auto result = lss.rebuild_index(deadline);
     if (result != logfile_sub_source::rebuild_result::rr_no_change) {
         size_t new_count = lss.text_line_count();
@@ -343,6 +353,7 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
             }
 
             if (reload) {
+                log_trace("text filters changed");
                 lss.text_filters_changed();
             }
         }
@@ -350,6 +361,7 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
         retval.rir_changes += 1;
     }
 
+    // log_trace("updating top/selections");
     for (auto lpc : {LNV_LOG, LNV_TEXT}) {
         auto& scroll_view = lnav_data.ld_views[lpc];
 
@@ -383,6 +395,7 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
             lnav_data.ld_scroll_broadcaster(tc);
         }
     };
+    // log_trace("done");
 
     return retval;
 }
@@ -441,7 +454,8 @@ update_active_files(file_collection& new_files)
         });
 
     if (was_below_open_file_limit
-        && !lnav_data.ld_active_files.is_below_open_file_limit())
+        && !lnav_data.ld_active_files.is_below_open_file_limit()
+        && !lnav_data.ld_exec_context.ec_msg_callback_stack.empty())
     {
         auto um
             = lnav::console::user_message::error("Unable to open more files")
@@ -456,7 +470,7 @@ update_active_files(file_collection& new_files)
                           .append(" to increase the limit before running lnav"))
                   .move();
 
-        lnav_data.ld_exec_context.ec_error_callback_stack.back()(um);
+        lnav_data.ld_exec_context.ec_msg_callback_stack.back()(um);
     }
 
     return true;

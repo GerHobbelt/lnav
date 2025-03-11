@@ -31,6 +31,7 @@
 
 #include "base/itertools.enumerate.hh"
 #include "base/itertools.hh"
+#include "base/keycodes.hh"
 #include "itertools.similar.hh"
 
 using namespace lnav::roles::literals;
@@ -233,8 +234,8 @@ breadcrumb_curses::handle_key(const ncinput& ch)
             case 'a':
             case 'A':
                 mapped_id = KEY_CTRL('a');
-            break;
-            break;
+                break;
+                break;
             case 'e':
             case 'E':
                 mapped_id = KEY_CTRL('e');
@@ -494,6 +495,7 @@ breadcrumb_curses::handle_mouse(mouse_event& me)
         this->focus();
         this->on_focus(*this);
         this->do_update();
+        this->bc_initial_mouse_event = true;
     }
 
     auto find_res = this->bc_displayed_crumbs
@@ -517,7 +519,6 @@ breadcrumb_curses::handle_mouse(mouse_event& me)
                     this->blur();
                     this->reload_data();
                     this->on_blur(*this);
-                    this->bc_initial_mouse_event = true;
                 }
                 return true;
             }
@@ -530,7 +531,6 @@ breadcrumb_curses::handle_mouse(mouse_event& me)
             this->blur();
             this->reload_data();
             this->on_blur(*this);
-            this->bc_initial_mouse_event = true;
             return true;
         }
     }

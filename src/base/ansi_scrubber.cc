@@ -38,8 +38,7 @@
 #include "base/opt_util.hh"
 #include "config.h"
 #include "pcrepp/pcre2pp.hh"
-#include "scn/scn.h"
-#include "view_curses.hh"
+#include "scn/scan.h"
 
 static const lnav::pcre2pp::code&
 ansi_regex()
@@ -53,7 +52,7 @@ ansi_regex()
 size_t
 erase_ansi_escapes(string_fragment input)
 {
-    static thread_local auto md = lnav::pcre2pp::match_data::unitialized();
+    thread_local auto md = lnav::pcre2pp::match_data::unitialized();
 
     const auto& regex = ansi_regex();
     std::optional<int> move_start;
@@ -188,7 +187,7 @@ scrub_ansi_string(std::string& str, string_attrs_t* sa)
                             *sa, bold_range.lr_start, -bold_range.length() * 2);
                         tmp_sa.emplace_back(
                             bold_range,
-                            VC_STYLE.value(text_attrs{NCSTYLE_BOLD}));
+                            VC_STYLE.value(text_attrs::with_bold()));
                         bold_range.clear();
                     }
                     if (ul_range.is_valid()) {
@@ -210,7 +209,7 @@ scrub_ansi_string(std::string& str, string_attrs_t* sa)
                             *sa, ul_range.lr_start, -ul_range.length() * 2);
                         tmp_sa.emplace_back(
                             ul_range,
-                            VC_STYLE.value(text_attrs{NCSTYLE_UNDERLINE}));
+                            VC_STYLE.value(text_attrs::with_underline()));
                         ul_range.clear();
                     }
                     if (bold_range.is_valid()) {
@@ -239,14 +238,14 @@ scrub_ansi_string(std::string& str, string_attrs_t* sa)
                 shift_string_attrs(
                     *sa, ul_range.lr_start, -ul_range.length() * 2);
                 tmp_sa.emplace_back(
-                    ul_range, VC_STYLE.value(text_attrs{NCSTYLE_UNDERLINE}));
+                    ul_range, VC_STYLE.value(text_attrs::with_underline()));
                 ul_range.clear();
             }
             if (sa != nullptr && bold_range.is_valid()) {
                 shift_string_attrs(
                     *sa, bold_range.lr_start, -bold_range.length() * 2);
                 tmp_sa.emplace_back(bold_range,
-                                    VC_STYLE.value(text_attrs{NCSTYLE_BOLD}));
+                                    VC_STYLE.value(text_attrs::with_bold()));
                 bold_range.clear();
             }
             if (sa != nullptr && output_size > 0 && cp_dst > 0) {
@@ -273,7 +272,7 @@ scrub_ansi_string(std::string& str, string_attrs_t* sa)
             auto osc_id = scn::scan_value<int32_t>(md[3]->to_string_view());
 
             if (osc_id) {
-                switch (osc_id.value()) {
+                switch (osc_id->value()) {
                     case 8:
                         auto split_res = md[4]->split_pair(semi_pred);
                         if (split_res) {
@@ -312,7 +311,7 @@ scrub_ansi_string(std::string& str, string_attrs_t* sa)
                         if (!ansi_code_res) {
                             break;
                         }
-                        auto ansi_code = ansi_code_res.value();
+                        auto ansi_code = ansi_code_res->value();
                         if (90 <= ansi_code && ansi_code <= 97) {
                             ansi_code -= 60;
                             // XXX attrs.ta_attrs |= A_STANDOUT;
@@ -337,25 +336,34 @@ scrub_ansi_string(std::string& str, string_attrs_t* sa)
                             if (!color_type.has_value()) {
                                 break;
                             }
-                            if (color_type.value() == 2) {
-                            } else if (color_type.value() == 5) {
+                            if (color_type->value() == 2) {
+                                auto scan_res
+                                    = scn::scan<uint8_t, uint8_t, uint8_t>(
+                                        color_code_pair->second
+                                            .to_string_view(),
+                                        "{};{};{}");
+                                if (scan_res) {
+                                    auto [r, g, b] = scan_res->values();
+                                    attrs.ta_fg_color = rgb_color{r, g, b};
+                                }
+                            } else if (color_type->value() == 5) {
                                 auto color_index_pair
                                     = color_code_pair->second.split_when(
                                         semi_pred);
                                 auto color_index = scn::scan_value<short>(
                                     color_index_pair.first.to_string_view());
                                 if (!color_index.has_value()
-                                    || color_index.value() < 0
-                                    || color_index.value() > 255)
+                                    || color_index->value() < 0
+                                    || color_index->value() > 255)
                                 {
                                     break;
                                 }
                                 if (ansi_code == 38) {
                                     attrs.ta_fg_color = palette_color{
-                                        (uint8_t) color_index.value()};
+                                        (uint8_t) color_index->value()};
                                 } else {
                                     attrs.ta_bg_color = palette_color{
-                                        (uint8_t) color_index.value()};
+                                        (uint8_t) color_index->value()};
                                 }
                                 seq = color_index_pair.second;
                             }
@@ -421,7 +429,7 @@ scrub_ansi_string(std::string& str, string_attrs_t* sa)
                     auto role_res = scn::scan_value<int>(seq.to_string_view());
 
                     if (role_res) {
-                        role_t role_tmp = (role_t) role_res.value();
+                        role_t role_tmp = (role_t) role_res->value();
                         if (role_tmp > role_t::VCR_NONE
                             && role_tmp < role_t::VCR__MAX)
                         {

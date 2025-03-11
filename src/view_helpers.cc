@@ -30,6 +30,7 @@
 #include "view_helpers.hh"
 
 #include "base/itertools.hh"
+#include "base/itertools.enumerate.hh"
 #include "bound_tags.hh"
 #include "config.h"
 #include "document.sections.hh"
@@ -539,7 +540,8 @@ build_all_help_text()
         return;
     }
 
-    shlex lexer(help_md.to_string_fragment());
+    auto help_md_str = help_md.to_string_fragment_producer()->to_string();
+    shlex lexer(help_md_str);
     std::string sub_help_text;
 
     lexer.with_ignore_quotes(true).eval(
@@ -1007,11 +1009,11 @@ execute_example(std::unordered_map<std::string, attr_line_t>& res_map,
         return;
     }
 
-    auto& dls = lnav_data.ld_db_row_source;
-    auto& dos = lnav_data.ld_db_overlay;
+    auto& dls = lnav_data.ld_db_example_row_source;
+    auto& dos = lnav_data.ld_db_example_overlay;
     auto& db_tc = lnav_data.ld_views[LNV_DB];
 
-    for (const auto& ex : ht.ht_example) {
+    for (const auto& [index, ex] : lnav::itertools::enumerate(ht.ht_example, 1)) {
         std::string alt_msg;
         attr_line_t result;
 
@@ -1030,8 +1032,10 @@ execute_example(std::unordered_map<std::string, attr_line_t>& res_map,
             case help_context_t::HC_SQL_TABLE_VALUED_FUNCTION:
             case help_context_t::HC_PRQL_TRANSFORM:
             case help_context_t::HC_PRQL_FUNCTION: {
+                intern_string_t ex_src = intern_string::lookup(ht.ht_name);
                 exec_context ec;
 
+                auto src_guard = ec.enter_source(ex_src, index, ex.he_cmd);
                 ec.ec_label_source_stack.push_back(&dls);
 
                 auto exec_res = execute_sql(ec, ex.he_cmd, alt_msg);
@@ -1064,6 +1068,7 @@ execute_example(std::unordered_map<std::string, attr_line_t>& res_map,
                 log_trace("example: %s", ex.he_cmd);
                 log_trace("example result: %s", result.get_string().c_str());
 
+                scrub_ansi_string(result.al_string, &result.al_attrs);
                 res_map.emplace(ex.he_cmd, std::move(result));
                 break;
             }
@@ -1124,11 +1129,7 @@ eval_example(const help_text& ht, const help_example& ex)
 
         switch (ht.ht_context) {
             default: {
-                auto& dls = lnav_data.ld_db_row_source;
-                auto old_width = dls.dls_max_column_width;
-                dls.dls_max_column_width = 15;
                 execute_example(*res_map, ht);
-                dls.dls_max_column_width = old_width;
                 break;
             }
         }
@@ -1615,13 +1616,18 @@ lnav_behavior::mouse_event(
 
     auto width = ncplane_dim_x(lnav_data.ld_window);
 
-    me.me_press_x = this->lb_last_event.me_press_x;
-    me.me_press_y = this->lb_last_event.me_press_y;
-    me.me_x = x - 1;
+    me.me_x = x;
     if (me.me_x >= width) {
         me.me_x = width - 1;
     }
     me.me_y = y - 1;
+    if (me.me_state == mouse_button_state_t::BUTTON_STATE_PRESSED) {
+        me.me_press_x = me.me_x;
+        me.me_press_y = me.me_y;
+    } else {
+        me.me_press_x = this->lb_last_event.me_press_x;
+        me.me_press_y = this->lb_last_event.me_press_y;
+    }
 
     switch (me.me_state) {
         case mouse_button_state_t::BUTTON_STATE_PRESSED:

@@ -245,7 +245,7 @@ files_sub_source::text_line_width(textview_curses& curses)
     return 512;
 }
 
-void
+line_info
 files_sub_source::text_value_for_line(textview_curses& tc,
                                       int line,
                                       std::string& value_out,
@@ -291,7 +291,7 @@ files_sub_source::text_value_for_line(textview_curses& tc,
             }
 
             value_out = al.get_string();
-            return;
+            return {};
         }
 
         line -= errs->size();
@@ -321,7 +321,7 @@ files_sub_source::text_value_for_line(textview_curses& tc,
         }
 
         value_out = al.get_string();
-        return;
+        return {};
     }
 
     line -= fc.fc_other_files.size();
@@ -357,6 +357,8 @@ files_sub_source::text_value_for_line(textview_curses& tc,
 
     value_out = al.get_string();
     this->fss_last_line_len = value_out.length();
+
+    return {};
 }
 
 void
@@ -435,11 +437,16 @@ files_sub_source::text_handle_mouse(
     const listview_curses::display_line_content_t&,
     mouse_event& me)
 {
+    auto nci = ncinput{};
     if (me.is_click_in(mouse_button_t::BUTTON_LEFT, 1, 3)) {
-        this->list_input_handle_key(tc, {' '});
+        nci.id = ' ';
+        nci.eff_text[0] = ' ';
+        this->list_input_handle_key(tc, nci);
     }
     if (me.is_double_click_in(mouse_button_t::BUTTON_LEFT, line_range{4, -1})) {
-        this->list_input_handle_key(tc, {'\r'});
+        nci.id = '\r';
+        nci.eff_text[0] = '\r';
+        this->list_input_handle_key(tc, nci);
     }
 
     return false;
@@ -612,6 +619,30 @@ files_sub_source::text_selection_changed(textview_curses& tc)
                     msg_line.insert(0, 6, ' ');
                     details.emplace_back(msg_line);
                 }
+            }
+
+            const auto& ili = lf->get_invalid_line_info();
+            if (ili.ili_total > 0) {
+                auto dotdot = ili.ili_total
+                    > logfile::invalid_line_info::MAX_INVALID_LINES;
+                auto um = lnav::console::user_message::error(
+                              attr_line_t()
+                                  .append(lnav::roles::number(
+                                      fmt::to_string(ili.ili_total)))
+                                  .append(" line(s) are not handled by the "
+                                          "format and considered invalid"))
+                              .with_note(attr_line_t("Lines: ")
+                                             .join(ili.ili_lines, ", ")
+                                             .append(dotdot ? ", ..." : ""))
+                              .with_help(
+                                  "The format may be need to be adjusted to "
+                                  "capture these lines");
+
+                details.emplace_back(attr_line_t());
+                um.to_attr_line().rtrim().split_lines()
+                    | lnav::itertools::for_each([&details](const auto& al) {
+                          details.emplace_back(attr_line_t("    ").append(al));
+                      });
             }
 
             {

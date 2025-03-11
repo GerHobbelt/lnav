@@ -45,7 +45,7 @@
 #include "base/string_util.hh"
 #include "config.h"
 #include "lnav_util.hh"
-#include "scn/scn.h"
+#include "scn/scan.h"
 #include "vis_line.hh"
 
 template<typename LineType>
@@ -64,27 +64,6 @@ template<typename LineType>
 grep_proc<LineType>::~grep_proc()
 {
     this->invalidate();
-}
-
-template<typename LineType>
-void
-grep_proc<LineType>::handle_match(
-    int line, std::string& line_value, int off, int* matches, int count)
-{
-    int lpc;
-
-    if (off == 0) {
-        fprintf(stdout, "%d\n", line);
-    }
-    fprintf(stdout, "[%d:%d]\n", matches[0], matches[1]);
-    for (lpc = 1; lpc < count; lpc++) {
-        fprintf(stdout, "(%d:%d)", matches[lpc * 2], matches[lpc * 2 + 1]);
-        fwrite(&(line_value.c_str()[matches[lpc * 2]]),
-               1,
-               matches[lpc * 2 + 1] - matches[lpc * 2],
-               stdout);
-        fputc('\n', stdout);
-    }
 }
 
 template<typename LineType>
@@ -165,6 +144,7 @@ template<typename LineType>
 void
 grep_proc<LineType>::child_loop()
 {
+    auto md = lnav::pcre2pp::match_data::unitialized();
     char outbuf[BUFSIZ * 2];
     std::string line_value;
 
@@ -188,32 +168,23 @@ grep_proc<LineType>::child_loop()
              this->gp_source.grep_next_line(line))
         {
             line_value.clear();
-            done = !this->gp_source.grep_value_for_line(line, line_value);
-            if (!done) {
-                this->gp_pcre->capture_from(line_value)
-                    .for_each([&](lnav::pcre2pp::match_data& md) {
-                        if (md.leading().sf_begin == 0) {
-                            fprintf(stdout, "%d\n", (int) line);
-                        }
-                        fprintf(stdout,
-                                "[%d:%d]\n",
-                                md[0]->sf_begin,
-                                md[0]->sf_end);
-                        for (int lpc = 1; lpc < md.get_count(); lpc++) {
-                            if (!md[lpc]) {
-                                continue;
-                            }
-                            fprintf(stdout,
-                                    "(%d:%d)",
-                                    md[lpc]->sf_begin,
-                                    md[lpc]->sf_end);
-
-                            fwrite(
-                                md[lpc]->data(), 1, md[lpc]->length(), stdout);
-                            fputc('\n', stdout);
-                        }
-                        fprintf(stdout, "/\n");
-                    });
+            auto val_res
+                = this->gp_source.grep_value_for_line(line, line_value);
+            if (!val_res) {
+                done = true;
+            } else {
+                auto li = val_res.value();
+                uint32_t re_opts = 0;
+                if (li.li_utf8_scan_result.is_valid()) {
+                    re_opts = PCRE2_NO_UTF_CHECK;
+                }
+                auto match_res = this->gp_pcre->capture_from(line_value)
+                                     .into(md)
+                                     .matches(re_opts)
+                                     .ignore_error();
+                if (match_res) {
+                    fmt::println(stdout, FMT_STRING("{}"), (int) line);
+                }
             }
 
             if (((line + 1) % 10000) == 0) {
@@ -226,7 +197,7 @@ grep_proc<LineType>::child_loop()
             // When scanning to the end of the source, we need to return the
             // highest line that was seen so that the next request that
             // continues from the end works properly.
-            fprintf(stdout, "h%d\n", line - 1);
+            fmt::println(stdout, FMT_STRING("h{}"), line - 1);
         }
         this->gp_highest_line = line - 1_vl;
         this->child_term();
@@ -245,6 +216,8 @@ grep_proc<LineType>::cleanup()
             ;
         }
         require(!WIFSIGNALED(status) || WTERMSIG(status) != SIGABRT);
+
+        log_info("cleaned up grep child %d", this->gp_child);
         this->gp_child = -1;
         this->gp_child_started = false;
 
@@ -273,43 +246,21 @@ template<typename LineType>
 void
 grep_proc<LineType>::dispatch_line(const string_fragment& line)
 {
-    int start, end;
-
     require(line.is_valid());
 
     auto sv = line.to_string_view();
-    if (scn::scan(sv, "h{}", this->gp_highest_line.lvalue())) {
-    } else if (scn::scan(sv, "{}", this->gp_last_line.lvalue())) {
-        /* Starting a new line with matches. */
-        ensure(this->gp_last_line >= 0);
-    } else if (scn::scan(sv, "[{}:{}]", start, end)) {
-        require(start >= 0);
-        require(end >= 0);
-
-        /* Pass the match offsets to the sink delegate. */
-        if (this->gp_sink != nullptr) {
-            this->gp_sink->grep_match(*this, this->gp_last_line, start, end);
-        }
-    } else if (line[0] == '/') {
-        if (this->gp_sink != nullptr) {
-            this->gp_sink->grep_match_end(*this, this->gp_last_line);
-        }
+    auto h_scan_res = scn::scan<int>(sv, "h{}");
+    if (h_scan_res) {
+        this->gp_highest_line = LineType{h_scan_res->value()};
     } else {
-        auto scan_res = scn::scan(sv, "({}:{})", start, end);
-        if (scan_res) {
-            require(start == -1 || start >= 0);
-            require(end >= 0);
-
-            /* Pass the captured strings to the sink delegate. */
+        auto ll_scan_res = scn::scan<int>(sv, "{}");
+        if (ll_scan_res) {
+            this->gp_last_line = LineType{ll_scan_res->value()};
+            /* Starting a new line with matches. */
+            ensure(this->gp_last_line >= 0);
+            /* Pass the match offsets to the sink delegate. */
             if (this->gp_sink != nullptr) {
-                this->gp_sink->grep_capture(
-                    *this,
-                    this->gp_last_line,
-                    start,
-                    end,
-                    start < 0
-                        ? string_fragment{}
-                        : to_string_fragment(scan_res.range_as_string_view()));
+                this->gp_sink->grep_match(*this, this->gp_last_line);
             }
         } else {
             log_error("bad line from child -- %s", line);
@@ -418,10 +369,10 @@ grep_proc<LineType>::update_poll_set(std::vector<struct pollfd>& pollfds)
 {
     if (this->gp_line_buffer.get_fd() != -1) {
         pollfds.push_back(
-            (struct pollfd){this->gp_line_buffer.get_fd(), POLLIN, 0});
+            (struct pollfd) {this->gp_line_buffer.get_fd(), POLLIN, 0});
     }
     if (this->gp_err_pipe.get() != -1) {
-        pollfds.push_back((struct pollfd){this->gp_err_pipe, POLLIN, 0});
+        pollfds.push_back((struct pollfd) {this->gp_err_pipe, POLLIN, 0});
     }
 }
 

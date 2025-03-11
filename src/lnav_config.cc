@@ -59,7 +59,7 @@
 #include "command_executor.hh"
 #include "config.h"
 #include "default-config.h"
-#include "scn/scn.h"
+#include "scn/scan.h"
 #include "styling.hh"
 #include "view_curses.hh"
 #include "yajlpp/yajlpp.hh"
@@ -417,7 +417,7 @@ update_installs_from_git()
 }
 
 static int
-read_repo_path(yajlpp_parse_context* ypc, const unsigned char* str, size_t len)
+read_repo_path(yajlpp_parse_context* ypc, const unsigned char* str, size_t len, yajl_string_props_t*)
 {
     auto path = std::string((const char*) str, len);
 
@@ -1635,7 +1635,7 @@ const std::set<std::string> SUPPORTED_FORMAT_SCHEMAS = {
 };
 
 static int
-read_id(yajlpp_parse_context* ypc, const unsigned char* str, size_t len)
+read_id(yajlpp_parse_context* ypc, const unsigned char* str, size_t len, yajl_string_props_t*)
 {
     auto file_id = std::string((const char*) str, len);
 
@@ -1713,12 +1713,12 @@ public:
             std::string keystr;
             if (keyseq_sf.startswith("f")) {
                 auto sv = keyseq_sf.to_string_view();
-                int32_t value;
-                auto scan_res = scn::scan(sv, "f{}", value);
+                auto scan_res = scn::scan<int32_t>(sv, "f{}");
                 if (!scan_res) {
                     log_error("invalid function key sequence: %s", keyseq_sf);
                     continue;
                 }
+                auto value = scan_res->value();
                 if (value < 0 || value > 64) {
                     log_error("invalid function key number: %s", keyseq_sf);
                     continue;
@@ -1729,13 +1729,13 @@ public:
                 auto sv
                     = string_fragment::from_str(pair.first).to_string_view();
                 while (!sv.empty()) {
-                    int32_t value;
-                    auto scan_res = scn::scan(sv, "x{:2x}", value);
+                    auto scan_res = scn::scan<int32_t>(sv, "x{:2x}");
                     if (!scan_res) {
                         log_error("invalid key sequence: %s",
                                   pair.first.c_str());
                         break;
                     }
+                    auto value = scan_res->value();
                     auto ch = (char) (value & 0xff);
                     switch (ch) {
                         case '\t':
@@ -1748,7 +1748,8 @@ public:
                             keystr.push_back(ch);
                             break;
                     }
-                    sv = scan_res.range_as_string_view();
+                    sv = std::string_view{scan_res->range().data(),
+                                          scan_res->range().size()};
                 }
             }
 
@@ -1875,13 +1876,14 @@ load_default_config(struct _lnav_config& config_obj,
 
     yajl_config(handle, yajl_allow_comments, 1);
     yajl_config(handle, yajl_allow_multiple_values, 1);
-    ypc_builtin.parse_doc(bsf.to_string_fragment());
+    auto sfp = bsf.to_string_fragment_producer();
+    ypc_builtin.parse_doc(*sfp);
 
     return path == "*" || ypc_builtin.ypc_active_paths.empty();
 }
 
 static bool
-load_default_configs(struct _lnav_config& config_obj,
+load_default_configs(_lnav_config& config_obj,
                      const std::string& path,
                      std::vector<lnav::console::user_message>& errors)
 {
@@ -1900,12 +1902,27 @@ load_config(const std::vector<std::filesystem::path>& extra_paths,
 {
     auto user_config = lnav::paths::dotlnav() / "config.json";
 
-    for (auto& bsf : lnav_config_json) {
+    for (const auto& bsf : lnav_config_json) {
         auto sample_path = lnav::paths::dotlnav() / "configs" / "default"
             / fmt::format(FMT_STRING("{}.sample"), bsf.get_name());
 
-        auto write_res = lnav::filesystem::write_file(sample_path,
-                                                      bsf.to_string_fragment());
+        auto stat_res = lnav::filesystem::stat_file(sample_path);
+        if (stat_res.isOk()) {
+            auto st = stat_res.unwrap();
+            if (st.st_mtime >= lnav::filesystem::self_mtime()) {
+                log_debug("skipping writing sample: %s (mtimes %d >= %d)",
+                          bsf.get_name(),
+                          st.st_mtime,
+                          lnav::filesystem::self_mtime());
+                continue;
+            }
+            log_debug("sample file needs to be updated: %s", bsf.get_name());
+        } else {
+            log_debug("sample file does not exist: %s", bsf.get_name());
+        }
+
+        auto sfp = bsf.to_string_fragment_producer();
+        auto write_res = lnav::filesystem::write_file(sample_path, *sfp);
         if (write_res.isErr()) {
             fprintf(stderr,
                     "error:unable to write default config file: %s -- %s\n",

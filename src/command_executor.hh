@@ -58,8 +58,7 @@ int internal_sql_callback(exec_context& ec, sqlite3_stmt* stmt);
 using pipe_callback_t
     = std::future<std::string> (*)(exec_context&, const std::string&, auto_fd&);
 
-using error_callback_t
-    = std::function<void(const lnav::console::user_message&)>;
+using msg_callback_t = std::function<void(const lnav::console::user_message&)>;
 
 struct exec_context {
     enum class perm_t {
@@ -104,18 +103,28 @@ struct exec_context {
         return Err(this->make_error_msg(format_str, args...));
     }
 
-    std::optional<FILE*> get_output()
+    std::optional<FILE*> get_output() const
     {
         for (auto iter = this->ec_output_stack.rbegin();
              iter != this->ec_output_stack.rend();
              ++iter)
         {
-            if (iter->second && (*iter->second).first) {
-                return (*iter->second).first;
+            if (iter->od_output && iter->od_output->first) {
+                return iter->od_output->first;
             }
         }
 
         return std::nullopt;
+    }
+
+    text_format_t get_output_format() const
+    {
+        auto retval = text_format_t::TF_UNKNOWN;
+
+        if (!this->ec_output_stack.empty()) {
+            retval = this->ec_output_stack.back().od_format;
+        }
+        return retval;
     }
 
     void set_output(const std::string& name, FILE* file, int (*closer)(FILE*));
@@ -185,11 +194,13 @@ struct exec_context {
         explicit output_guard(exec_context& context,
                               std::string name = "default",
                               const std::optional<output_t>& file
-                              = std::nullopt);
+                              = std::nullopt,
+                              text_format_t tf = text_format_t::TF_UNKNOWN);
 
         ~output_guard();
 
         exec_context& sg_context;
+        bool sg_active;
     };
 
     struct sql_callback_guard {
@@ -212,7 +223,9 @@ struct exec_context {
                               const std::string& content);
 
     struct db_source_guard {
-        explicit db_source_guard(exec_context* context) : dsg_context(context) {}
+        explicit db_source_guard(exec_context* context) : dsg_context(context)
+        {
+        }
 
         db_source_guard(const db_source_guard&) = delete;
 
@@ -238,30 +251,33 @@ struct exec_context {
         return db_source_guard{this};
     }
 
-    struct error_cb_guard {
-        explicit error_cb_guard(exec_context* context) : sg_context(context) {}
-
-        error_cb_guard(const error_cb_guard&) = delete;
-        error_cb_guard(error_cb_guard&& other) noexcept
-            : sg_context(other.sg_context)
+    struct msg_cb_guard {
+        explicit msg_cb_guard(std::vector<msg_callback_t>* cb_stack)
+            : sg_cb_stack(cb_stack)
         {
-            other.sg_context = nullptr;
         }
 
-        ~error_cb_guard()
+        msg_cb_guard(const msg_cb_guard&) = delete;
+        msg_cb_guard(msg_cb_guard&& other) noexcept
+            : sg_cb_stack(other.sg_cb_stack)
         {
-            if (this->sg_context != nullptr) {
-                this->sg_context->ec_error_callback_stack.pop_back();
+            other.sg_cb_stack = nullptr;
+        }
+
+        ~msg_cb_guard()
+        {
+            if (this->sg_cb_stack != nullptr) {
+                this->sg_cb_stack->pop_back();
             }
         }
 
-        exec_context* sg_context;
+        std::vector<msg_callback_t>* sg_cb_stack;
     };
 
-    error_cb_guard add_error_callback(error_callback_t cb)
+    msg_cb_guard add_msg_callback(msg_callback_t cb)
     {
-        this->ec_error_callback_stack.emplace_back(std::move(cb));
-        return error_cb_guard{this};
+        this->ec_msg_callback_stack.emplace_back(std::move(cb));
+        return msg_cb_guard{&this->ec_msg_callback_stack};
     }
 
     scoped_resolver create_resolver()
@@ -288,7 +304,7 @@ struct exec_context {
         const std::string& cmdline, kv_pair_t pair, Args... args)
     {
         this->ec_local_vars.top().emplace(pair);
-        return this->execute(cmdline, args...);
+        return this->execute_with_int(cmdline, args...);
     }
 
     template<typename... Args>
@@ -326,14 +342,25 @@ struct exec_context {
     std::vector<lnav::console::snippet> ec_source;
     help_text* ec_current_help{nullptr};
 
-    std::vector<std::pair<std::string, std::optional<output_t>>>
-        ec_output_stack;
+    struct output_desc {
+        output_desc(std::string name,
+                    std::optional<output_t> out,
+                    text_format_t tf = text_format_t::TF_UNKNOWN)
+            : od_name(std::move(name)), od_output(std::move(out)), od_format(tf)
+        {
+        }
 
+        std::string od_name;
+        std::optional<output_t> od_output;
+        text_format_t od_format{text_format_t::TF_UNKNOWN};
+    };
+
+    std::vector<output_desc> ec_output_stack;
     std::unique_ptr<attr_line_t> ec_accumulator;
 
     sql_callback_t ec_sql_callback;
     pipe_callback_t ec_pipe_callback;
-    std::vector<error_callback_t> ec_error_callback_stack;
+    std::vector<msg_callback_t> ec_msg_callback_stack;
     std::vector<db_label_source*> ec_label_source_stack;
 
     struct ui_callbacks {

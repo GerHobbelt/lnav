@@ -32,11 +32,11 @@
 #ifndef spectro_source_hh
 #define spectro_source_hh
 
+#include <chrono>
 #include <unordered_map>
 #include <vector>
 
 #include <math.h>
-#include <time.h>
 
 #include "statusview_curses.hh"
 #include "textview_curses.hh"
@@ -163,10 +163,10 @@ public:
 
     std::optional<vis_line_t> row_for_time(struct timeval time_bucket) override;
 
-    void text_value_for_line(textview_curses& tc,
-                             int row,
-                             std::string& value_out,
-                             line_flags_t flags) override;
+    line_info text_value_for_line(textview_curses& tc,
+                                  int row,
+                                  std::string& value_out,
+                                  line_flags_t flags) override;
 
     void text_attrs_for_line(textview_curses& tc,
                              int row,

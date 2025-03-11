@@ -1039,11 +1039,11 @@ apply_term_heuristics(tinfo* ti, const char* tname, queried_terminals_e qterm,
   }
   tname = newname;
   // run a wcwidth(⣿) to guarantee libc Unicode 3 support, independent of term
-  if(wcwidth(L'⣿') < 0){
+  if(uc_width(L'⣿', "UTF-8") < 0){
     ti->caps.braille = false;
   }
   // run a wcwidth(🬸) to guarantee libc Unicode 13 support, independent of term
-  if(wcwidth(L'🬸') < 0){
+  if(uc_width(L'🬸', "UTF-8") < 0){
     ti->caps.sextants = false;
   }
   ti->termname = tname;
@@ -1471,6 +1471,7 @@ int interrogate_terminfo(tinfo* ti, FILE* out, unsigned utf8,
     }
   }
   unsigned kitty_graphics = 0;
+    loginfo("ttyfd %d", ti->ttyfd);
   if(ti->ttyfd >= 0){
     if(handle_responses(ti, &tablelen, &tableused, cursor_y, cursor_x,
                         draininput, &kitty_graphics)){

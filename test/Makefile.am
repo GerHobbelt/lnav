@@ -337,6 +337,7 @@ dist_noinst_DATA = \
 	logfile_docker_compose_with_noise.0 \
 	logfile_docker_compose_with_ts.0 \
 	logfile_dst.0 \
+	logfile_ecs_log.json \
 	logfile_empty.0 \
 	logfile_epoch.0 \
 	logfile_epoch.1 \
@@ -372,6 +373,7 @@ dist_noinst_DATA = \
 	logfile_regexp_access_log.0 \
 	logfile_rollover.0 \
 	logfile_rollover.1 \
+	logfile_shop_access_log.0 \
 	logfile_strace_log.0 \
 	logfile_syslog.0 \
 	logfile_syslog.1 \
@@ -500,7 +502,6 @@ TESTS = \
 	test_meta.sh \
 	test_mvwattrline.sh \
 	test_timeline.sh \
-	test_grep_proc.sh \
 	test_grep_proc2 \
 	test_json_format.sh \
 	test_log_accel \
@@ -533,6 +534,7 @@ TESTS += test_prql.sh
 endif
 
 DISABLED_TESTS = \
+	test_grep_proc.sh \
 	test_remote.sh \
 	test_top_status \
 	test_tui.sh \

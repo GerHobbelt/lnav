@@ -31,7 +31,7 @@
 
 #include "base/itertools.hh"
 #include "config.h"
-#include "scn/scn.h"
+#include "scn/scan.h"
 
 static std::vector<plain_text_source::text_line>
 to_text_line(const std::vector<attr_line_t>& lines)
@@ -49,30 +49,29 @@ to_text_line(const std::vector<attr_line_t>& lines)
            });
 }
 
-plain_text_source::
-plain_text_source(const std::string& text)
+plain_text_source::plain_text_source(const std::string& text)
 {
     size_t start = 0, end;
 
     while ((end = text.find('\n', start)) != std::string::npos) {
         size_t len = (end - start);
-        this->tds_lines.emplace_back(start, text.substr(start, len));
+        this->tds_lines.emplace_back(
+            start, attr_line_t::from_ansi_str(text.substr(start, len)));
         start = end + 1;
     }
     if (start < text.length()) {
-        this->tds_lines.emplace_back(start, text.substr(start));
+        this->tds_lines.emplace_back(
+            start, attr_line_t::from_ansi_str(text.substr(start)));
     }
     this->tds_longest_line = this->compute_longest_line();
 }
 
-plain_text_source::
-plain_text_source(const std::vector<std::string>& text_lines)
+plain_text_source::plain_text_source(const std::vector<std::string>& text_lines)
 {
     this->replace_with(text_lines);
 }
 
-plain_text_source::
-plain_text_source(const std::vector<attr_line_t>& text_lines)
+plain_text_source::plain_text_source(const std::vector<attr_line_t>& text_lines)
     : tds_lines(to_text_line(text_lines))
 {
     this->tds_longest_line = this->compute_longest_line();
@@ -130,7 +129,7 @@ plain_text_source::replace_with(const std::vector<std::string>& text_lines)
 {
     file_off_t off = 0;
     for (const auto& str : text_lines) {
-        this->tds_lines.emplace_back(off, str);
+        this->tds_lines.emplace_back(off, attr_line_t::from_ansi_str(str));
         off += str.length() + 1;
     }
     this->tds_longest_line = this->compute_longest_line();
@@ -185,7 +184,7 @@ plain_text_source::text_line_width(textview_curses& curses)
     return this->tds_longest_line;
 }
 
-void
+line_info
 plain_text_source::text_value_for_line(textview_curses& tc,
                                        int row,
                                        std::string& value_out,
@@ -204,6 +203,8 @@ plain_text_source::text_value_for_line(textview_curses& tc,
             break;
         }
     }
+
+    return {};
 }
 
 void
@@ -416,8 +417,8 @@ plain_text_source::row_for_anchor(const std::string& id)
             auto comp_pair = hier_sf.split_when(string_fragment::tag1{'/'});
             auto scan_res
                 = scn::scan_value<int64_t>(comp_pair.first.to_string_view());
-            if (scan_res && scan_res.empty()) {
-                path.emplace_back(scan_res.value());
+            if (scan_res && scan_res->range().empty()) {
+                path.emplace_back(scan_res->value());
             } else {
                 path.emplace_back(json_ptr::decode(comp_pair.first));
             }

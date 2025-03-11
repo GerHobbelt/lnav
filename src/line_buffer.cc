@@ -59,8 +59,8 @@
 #include "fmtlib/fmt/format.h"
 #include "hasher.hh"
 #include "line_buffer.hh"
-#include "piper.looper.hh"
-#include "scn/scn.h"
+#include "piper.header.hh"
+#include "scn/scan.h"
 
 using namespace std::chrono_literals;
 
@@ -135,8 +135,7 @@ private:
 
 #define Z_BUFSIZE      65536U
 #define SYNCPOINT_SIZE (1024 * 1024)
-line_buffer::gz_indexed::
-gz_indexed()
+line_buffer::gz_indexed::gz_indexed()
 {
     if ((this->inbuf = auto_mem<Bytef>::malloc(Z_BUFSIZE)) == nullptr) {
         throw std::bad_alloc();
@@ -368,14 +367,12 @@ line_buffer::gz_indexed::read(void* buf, size_t offset, size_t size)
     return bytes;
 }
 
-line_buffer::
-line_buffer()
+line_buffer::line_buffer()
 {
     ensure(this->invariant());
 }
 
-line_buffer::~
-line_buffer()
+line_buffer::~line_buffer()
 {
     if (this->lb_loader_future.valid()) {
         this->lb_loader_future.wait();
@@ -511,7 +508,9 @@ line_buffer::resize_buffer(size_t new_max)
 }
 
 void
-line_buffer::ensure_available(file_off_t start, ssize_t max_length)
+line_buffer::ensure_available(file_off_t start,
+                              ssize_t max_length,
+                              scan_direction dir)
 {
     ssize_t prefill, available;
 
@@ -539,19 +538,38 @@ line_buffer::ensure_available(file_off_t start, ssize_t max_length)
         this->lb_share_manager.invalidate_refs();
         prefill = 0;
         this->lb_buffer.clear();
-        if ((this->lb_file_size != (ssize_t) -1)
-            && (start + this->lb_buffer.capacity() > this->lb_file_size))
-        {
+
+        switch (dir) {
+            case scan_direction::forward:
+                break;
+            case scan_direction::backward: {
+                auto padded_max_length = max_length * 4;
+                if (padded_max_length < this->lb_buffer.capacity()) {
+                    start = std::max(
+                        file_off_t{0},
+                        static_cast<file_off_t>(start
+                                                - (this->lb_buffer.capacity()
+                                                   - padded_max_length)));
+                }
+                break;
+            }
+        }
+
+        if (this->lb_file_size == (ssize_t) -1) {
+            this->lb_file_offset = start;
+        } else {
             require(start <= this->lb_file_size);
             /*
              * If the start is near the end of the file, move the offset back a
              * bit so we can get more of the file in the cache.
              */
-            this->lb_file_offset = this->lb_file_size
-                - std::min(this->lb_file_size,
-                           (file_ssize_t) this->lb_buffer.capacity());
-        } else {
-            this->lb_file_offset = start;
+            if (start + this->lb_buffer.capacity() > this->lb_file_size) {
+                this->lb_file_offset = this->lb_file_size
+                    - std::min(this->lb_file_size,
+                               (file_ssize_t) this->lb_buffer.capacity());
+            } else {
+                this->lb_file_offset = start;
+            }
         }
     } else {
         /* The request is in the cached range.  Record how much extra data is in
@@ -755,13 +773,14 @@ line_buffer::load_next_buffer()
 }
 
 bool
-line_buffer::fill_range(file_off_t start, ssize_t max_length)
+line_buffer::fill_range(file_off_t start,
+                        ssize_t max_length,
+                        scan_direction dir)
 {
     bool retval = false;
 
     require(start >= 0);
 
-    // log_debug("fill range %d %d", start, max_length);
 #if 0
     log_debug("(%p) fill range %d %d (%d) %d",
               this,
@@ -804,6 +823,8 @@ line_buffer::fill_range(file_off_t start, ssize_t max_length)
         this->lb_line_has_ansi = std::move(this->lb_alt_line_has_ansi);
         this->lb_alt_line_has_ansi.clear();
         this->lb_stats.s_used_preloads += 1;
+        this->lb_next_line_start_index = 0;
+        this->lb_next_buffer_offset = 0;
     }
     if (this->in_range(start)
         && (max_length == 0 || this->in_range(start + max_length - 1)))
@@ -850,7 +871,7 @@ line_buffer::fill_range(file_off_t start, ssize_t max_length)
         ssize_t rc;
 
         /* Make sure there is enough space, then */
-        this->ensure_available(start, max_length);
+        this->ensure_available(start, max_length, dir);
 
         safe::WriteAccess<safe_gz_indexed> gi(this->lb_gz_file);
 
@@ -1114,22 +1135,43 @@ line_buffer::load_next_line(file_range prev_line)
         if (!this->lb_line_starts.empty()) {
             auto buffer_offset = offset - this->lb_file_offset;
 
-            auto start_iter = std::lower_bound(this->lb_line_starts.begin(),
-                                               this->lb_line_starts.end(),
-                                               buffer_offset);
-            if (start_iter != this->lb_line_starts.end()) {
+            if (this->lb_next_buffer_offset == buffer_offset) {
+                auto start_iter = this->lb_line_starts.begin()
+                    + this->lb_next_line_start_index;
                 auto next_line_iter = start_iter + 1;
-
-                // log_debug("found offset %d %d", buffer_offset, *start_iter);
                 if (next_line_iter != this->lb_line_starts.end()) {
                     utf8_end = *next_line_iter - 1 - *start_iter;
                     found_in_cache = true;
                     lf = line_start + utf8_end;
+
+                    this->lb_next_buffer_offset = *next_line_iter;
+                    this->lb_next_line_start_index += 1;
                 } else {
                     // log_debug("no next iter");
                 }
             } else {
-                // log_debug("no buffer_offset found");
+                auto start_iter = std::lower_bound(this->lb_line_starts.begin(),
+                                                   this->lb_line_starts.end(),
+                                                   buffer_offset);
+                if (start_iter != this->lb_line_starts.end()) {
+                    auto next_line_iter = start_iter + 1;
+
+                    // log_debug("found offset %d %d", buffer_offset,
+                    // *start_iter);
+                    if (next_line_iter != this->lb_line_starts.end()) {
+                        utf8_end = *next_line_iter - 1 - *start_iter;
+                        found_in_cache = true;
+                        lf = line_start + utf8_end;
+
+                        this->lb_next_line_start_index = std::distance(
+                            this->lb_alt_line_starts.begin(), next_line_iter);
+                        this->lb_next_buffer_offset = *next_line_iter;
+                    } else {
+                        // log_debug("no next iter");
+                    }
+                } else {
+                    // log_debug("no buffer_offset found");
+                }
             }
         }
 
@@ -1236,18 +1278,16 @@ line_buffer::load_next_line(file_range prev_line)
         = retval.li_utf8_scan_result.is_valid();
 
     if (this->lb_line_metadata) {
-        auto sv = scn::string_view{
+        auto sv = std::string_view{
             line_start,
             (size_t) retval.li_file_range.fr_size,
         };
 
-        char level = '\0';
-        auto scan_res = scn::scan(sv,
-                                  "{}.{}:{};",
-                                  retval.li_timestamp.tv_sec,
-                                  retval.li_timestamp.tv_usec,
-                                  level);
+        auto scan_res = scn::scan<int64_t, int64_t, char>(sv, "{}.{}:{};");
         if (scan_res) {
+            auto& [tv_sec, tv_usec, level] = scan_res->values();
+            retval.li_timestamp.tv_sec = tv_sec;
+            retval.li_timestamp.tv_usec = tv_usec;
             retval.li_timestamp.tv_sec
                 = lnav::to_local_time(date::sys_seconds{std::chrono::seconds{
                                           retval.li_timestamp.tv_sec}})
@@ -1261,7 +1301,7 @@ line_buffer::load_next_line(file_range prev_line)
 }
 
 Result<shared_buffer_ref, std::string>
-line_buffer::read_range(file_range fr)
+line_buffer::read_range(file_range fr, scan_direction dir)
 {
     shared_buffer_ref retval;
     const char* line_start;
@@ -1286,7 +1326,7 @@ line_buffer::read_range(file_range fr)
     if (!(this->in_range(fr.fr_offset)
           && this->in_range(fr.fr_offset + fr.fr_size - 1)))
     {
-        if (!this->fill_range(fr.fr_offset, fr.fr_size)) {
+        if (!this->fill_range(fr.fr_offset, fr.fr_size, dir)) {
             return Err(std::string("unable to read file"));
         }
     }
@@ -1318,8 +1358,8 @@ line_buffer::get_available()
             static_cast<file_ssize_t>(this->lb_buffer.size())};
 }
 
-line_buffer::gz_indexed::indexDict::
-indexDict(const z_stream& s, const file_size_t size)
+line_buffer::gz_indexed::indexDict::indexDict(const z_stream& s,
+                                              const file_size_t size)
 {
     assert((s.data_type & GZ_END_OF_BLOCK_MASK));
     assert(!(s.data_type & GZ_END_OF_FILE_MASK));

@@ -32,16 +32,16 @@
 #ifndef text_format_hh
 #define text_format_hh
 
+#include <filesystem>
 #include <string>
 
 #include <sys/types.h>
 
+#include "base/enum_util.hh"
 #include "base/intern_string.hh"
 #include "fmt/format.h"
-#include <filesystem>
 
-enum class text_format_t {
-    TF_UNKNOWN,
+enum class text_format_t : uint8_t {
     TF_BINARY,
     TF_C_LIKE,
     TF_JAVA,
@@ -58,7 +58,12 @@ enum class text_format_t {
     TF_TOML,
     TF_DIFF,
     TF_SHELL_SCRIPT,
+    TF_UNKNOWN,
 };
+
+extern const string_fragment
+    TEXT_FORMAT_STRINGS[lnav::enums::to_underlying(text_format_t::TF_UNKNOWN)
+                        + 1];
 
 namespace fmt {
 template<>
@@ -67,58 +72,11 @@ struct formatter<text_format_t> : formatter<string_view> {
     auto format(text_format_t tf, FormatContext& ctx)
     {
         string_view name = "unknown";
-        switch (tf) {
-            case text_format_t::TF_UNKNOWN:
-                name = "text/plain";
-                break;
-            case text_format_t::TF_BINARY:
-                name = "application/octet-stream";
-                break;
-            case text_format_t::TF_LOG:
-                name = "text/log";
-                break;
-            case text_format_t::TF_PYTHON:
-                name = "text/python";
-                break;
-            case text_format_t::TF_RUST:
-                name = "text/rust";
-                break;
-            case text_format_t::TF_JAVA:
-                name = "text/java";
-                break;
-            case text_format_t::TF_C_LIKE:
-                name = "text/c";
-                break;
-            case text_format_t::TF_SQL:
-                name = "application/sql";
-                break;
-            case text_format_t::TF_XML:
-                name = "text/xml";
-                break;
-            case text_format_t::TF_JSON:
-                name = "application/json";
-                break;
-            case text_format_t::TF_MAKEFILE:
-                name = "text/x-makefile";
-                break;
-            case text_format_t::TF_MAN:
-                name = "text/man";
-                break;
-            case text_format_t::TF_MARKDOWN:
-                name = "text/markdown";
-                break;
-            case text_format_t::TF_YAML:
-                name = "application/yaml";
-                break;
-            case text_format_t::TF_TOML:
-                name = "application/toml";
-                break;
-            case text_format_t::TF_DIFF:
-                name = "text/x-diff";
-                break;
-            case text_format_t::TF_SHELL_SCRIPT:
-                name = "text/x-shellscript";
-                break;
+        if (lnav::enums::to_underlying(tf)
+            <= lnav::enums::to_underlying(text_format_t::TF_UNKNOWN))
+        {
+            name = TEXT_FORMAT_STRINGS[lnav::enums::to_underlying(tf)]
+                       .to_string_view();
         }
         return formatter<string_view>::format(name, ctx);
     }
@@ -139,6 +97,6 @@ struct text_format_meta_t {
 };
 
 std::optional<text_format_meta_t> extract_text_meta(string_fragment sf,
-                                                       text_format_t tf);
+                                                    text_format_t tf);
 
 #endif

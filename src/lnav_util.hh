@@ -34,7 +34,6 @@
 #ifndef lnav_util_hh
 #define lnav_util_hh
 
-#include <future>
 #include <iterator>
 #include <numeric>
 #include <string>
@@ -43,17 +42,16 @@
 
 #include <fcntl.h>
 #include <poll.h>
+#include <stdio.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 
-#include "base/auto_mem.hh"
 #include "base/intern_string.hh"
 #include "base/lnav.console.hh"
 #include "base/result.h"
 #include "config.h"
-#include "fmt/format.h"
 
 #if SIZEOF_OFF_T == 8
 #    define FORMAT_OFF_T "%lld"

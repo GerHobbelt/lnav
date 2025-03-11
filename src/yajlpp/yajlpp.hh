@@ -249,7 +249,7 @@ struct json_path_handler_base {
               void* root = nullptr,
               const std::string& base = "/") const;
 
-    enum class schema_type_t : std::uint32_t {
+    enum class schema_type_t : uint32_t {
         ANY,
         BOOLEAN,
         INTEGER,
@@ -298,7 +298,7 @@ struct json_path_handler_base {
     std::function<int(yajlpp_parse_context*, int)> jph_bool_cb;
     std::function<int(yajlpp_parse_context*, long long)> jph_integer_cb;
     std::function<int(yajlpp_parse_context*, double)> jph_double_cb;
-    std::function<int(yajlpp_parse_context*, const string_fragment& sf)>
+    std::function<int(yajlpp_parse_context*, const string_fragment& sf, yajl_string_props_t*)>
         jph_str_cb;
 
     void validate_string(yajlpp_parse_context& ypc, string_fragment sf) const;
@@ -357,6 +357,8 @@ public:
         return std::string(frag, len);
     }
 
+    string_fragment get_path_as_string_fragment() const;
+
     const intern_string_t get_path() const;
 
     const intern_string_t get_full_path() const;
@@ -404,11 +406,28 @@ public:
         return this->parse((const unsigned char*) sf.data(), sf.length());
     }
 
+    yajl_status parse(string_fragment_producer& sfp);
+
     int get_line_number() const;
 
     yajl_status complete_parse();
 
-    bool parse_doc(const string_fragment& sf);
+    bool parse_doc(string_fragment_producer& sfp);
+
+    bool parse_doc(const string_fragment& sf)
+    {
+        if (this->parse_frag(sf) != yajl_status_ok) {
+            return false;
+        }
+
+        this->ypc_json_text = sf.udata();
+        this->ypc_json_text_len = sf.length();
+        auto status = this->complete_parse();
+        this->ypc_json_text = nullptr;
+        this->ypc_json_text_len = 0;
+
+        return status == yajl_status_ok;
+    }
 
     void report_error(const lnav::console::user_message& msg) const
     {
@@ -461,7 +480,7 @@ public:
         return lvalue;
     }
 
-    template<typename T, typename MEM_T, MEM_T T::*MEM>
+    template<typename T, typename MEM_T, MEM_T T::* MEM>
     auto& get_obj_member()
     {
         auto obj = (T*) this->ypc_obj_stack.top();
@@ -506,6 +525,8 @@ public:
                           int child_start = 0);
 
 private:
+    yajl_status parse_frag(string_fragment sf);
+
     static const yajl_callbacks DEFAULT_CALLBACKS;
 
     static int map_start(void* ctx);

@@ -82,6 +82,11 @@ public:
 
     plain_text_source& replace_with(const std::vector<attr_line_t>& text_lines);
 
+    plain_text_source& replace_with(const char *str)
+    {
+        return this->replace_with(attr_line_t::from_ansi_str(str));
+    }
+
     void clear();
 
     plain_text_source& truncate_to(size_t max_lines);
@@ -92,10 +97,10 @@ public:
 
     size_t text_line_width(textview_curses& curses) override;
 
-    void text_value_for_line(textview_curses& tc,
-                             int row,
-                             std::string& value_out,
-                             line_flags_t flags) override;
+    line_info text_value_for_line(textview_curses& tc,
+                                  int row,
+                                  std::string& value_out,
+                                  line_flags_t flags) override;
 
     void text_attrs_for_line(textview_curses& tc,
                              int line,
@@ -127,7 +132,7 @@ public:
     std::optional<std::string> anchor_for_row(vis_line_t vl) override;
     std::unordered_set<std::string> get_anchors() override;
     std::optional<vis_line_t> adjacent_anchor(vis_line_t vl,
-                                                 direction dir) override;
+                                              direction dir) override;
 
 protected:
     size_t compute_longest_line();

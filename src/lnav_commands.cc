@@ -60,6 +60,7 @@
 #include "db_sub_source.hh"
 #include "external_opener.hh"
 #include "field_overlay_source.hh"
+#include "fmt/color.h"
 #include "fmt/printf.h"
 #include "hasher.hh"
 #include "itertools.similar.hh"
@@ -79,12 +80,13 @@
 #include "readline_highlighters.hh"
 #include "readline_possibilities.hh"
 #include "relative_time.hh"
-#include "scn/scn.h"
+#include "scn/scan.h"
 #include "service_tags.hh"
 #include "session.export.hh"
 #include "session_data.hh"
 #include "shlex.hh"
 #include "spectro_impls.hh"
+#include "sql_util.hh"
 #include "sqlite-extension-func.hh"
 #include "sysclip.hh"
 #include "tailer/tailer.looper.hh"
@@ -1651,39 +1653,63 @@ com_save_to(exec_context& ec,
         }
     } else if (args[0] == "write-cols-to" || args[0] == "write-table-to") {
         bool first = true;
+        auto tf = ec.get_output_format();
 
-        fprintf(outfile, "\u250f");
-        for (const auto& hdr : dls.dls_headers) {
-            auto cell_line = repeat("\u2501", hdr.hm_column_size);
+        if (tf != text_format_t::TF_MARKDOWN) {
+            fprintf(outfile, "\u250f");
+            for (const auto& hdr : dls.dls_headers) {
+                auto cell_line = repeat("\u2501", hdr.hm_column_size);
 
-            if (!first) {
-                fprintf(outfile, "\u2533");
+                if (!first) {
+                    fprintf(outfile, "\u2533");
+                }
+                fprintf(outfile, "%s", cell_line.c_str());
+                first = false;
             }
-            fprintf(outfile, "%s", cell_line.c_str());
-            first = false;
+            fprintf(outfile, "\u2513\n");
         }
-        fprintf(outfile, "\u2513\n");
 
         for (const auto& hdr : dls.dls_headers) {
             auto centered_hdr = center_str(hdr.hm_name, hdr.hm_column_size);
+            auto style = fmt::text_style{};
 
-            fprintf(outfile, "\u2503");
-            fprintf(outfile, "%s", centered_hdr.c_str());
+            fprintf(outfile, tf == text_format_t::TF_MARKDOWN ? "|" : "\u2503");
+            if (tf != text_format_t::TF_MARKDOWN) {
+                style |= fmt::emphasis::bold;
+            }
+            fmt::print(outfile, style, FMT_STRING("{}"), centered_hdr);
         }
-        fprintf(outfile, "\u2503\n");
+        fprintf(outfile, tf == text_format_t::TF_MARKDOWN ? "|\n" : "\u2503\n");
 
         first = true;
-        fprintf(outfile, "\u2521");
+        fprintf(outfile, tf == text_format_t::TF_MARKDOWN ? "|" : "\u2521");
         for (const auto& hdr : dls.dls_headers) {
-            auto cell_line = repeat("\u2501", hdr.hm_column_size);
+            auto cell_line
+                = repeat(tf == text_format_t::TF_MARKDOWN ? "-" : "\u2501",
+                         hdr.hm_column_size);
 
+            if (tf == text_format_t::TF_MARKDOWN) {
+                switch (hdr.hm_align) {
+                    case db_label_source::align_t::left:
+                        cell_line.front() = ':';
+                        break;
+                    case db_label_source::align_t::center:
+                        cell_line.front() = ':';
+                        cell_line.back() = ':';
+                        break;
+                    case db_label_source::align_t::right:
+                        cell_line.back() = ':';
+                        break;
+                }
+            }
             if (!first) {
-                fprintf(outfile, "\u2547");
+                fprintf(outfile,
+                        tf == text_format_t::TF_MARKDOWN ? "|" : "\u2547");
             }
             fprintf(outfile, "%s", cell_line.c_str());
             first = false;
         }
-        fprintf(outfile, "\u2529\n");
+        fprintf(outfile, tf == text_format_t::TF_MARKDOWN ? "|\n" : "\u2529\n");
 
         for (size_t row = 0; row < dls.text_line_count(); row++) {
             if (ec.ec_dry_run && row > 10) {
@@ -1693,7 +1719,8 @@ com_save_to(exec_context& ec,
             for (size_t col = 0; col < dls.dls_headers.size(); col++) {
                 const auto& hdr = dls.dls_headers[col];
 
-                fprintf(outfile, "\u2502");
+                fprintf(outfile,
+                        tf == text_format_t::TF_MARKDOWN ? "|" : "\u2502");
 
                 auto cell = std::string(dls.dls_rows[row][col]);
                 if (anonymize) {
@@ -1702,33 +1729,36 @@ com_save_to(exec_context& ec,
                 auto cell_length
                     = utf8_string_length(cell).unwrapOr(cell.size());
                 auto padding = anonymize ? 1 : hdr.hm_column_size - cell_length;
+                auto rjust = hdr.hm_align == db_label_source::align_t::right;
 
-                if (hdr.hm_column_type != SQLITE3_TEXT) {
+                if (rjust) {
                     fprintf(outfile, "%s", std::string(padding, ' ').c_str());
                 }
                 fprintf(outfile, "%s", cell.c_str());
-                if (hdr.hm_column_type == SQLITE3_TEXT) {
+                if (!rjust) {
                     fprintf(outfile, "%s", std::string(padding, ' ').c_str());
                 }
             }
-            fprintf(outfile, "\u2502\n");
+            fprintf(outfile,
+                    tf == text_format_t::TF_MARKDOWN ? "|\n" : "\u2502\n");
 
             line_count += 1;
         }
 
-        first = true;
-        fprintf(outfile, "\u2514");
-        for (const auto& hdr : dls.dls_headers) {
-            auto cell_line = repeat("\u2501", hdr.hm_column_size);
+        if (tf != text_format_t::TF_MARKDOWN) {
+            first = true;
+            fprintf(outfile, "\u2514");
+            for (const auto& hdr : dls.dls_headers) {
+                auto cell_line = repeat("\u2501", hdr.hm_column_size);
 
-            if (!first) {
-                fprintf(outfile, "\u2534");
+                if (!first) {
+                    fprintf(outfile, "\u2534");
+                }
+                fprintf(outfile, "%s", cell_line.c_str());
+                first = false;
             }
-            fprintf(outfile, "%s", cell_line.c_str());
-            first = false;
+            fprintf(outfile, "\u2518\n");
         }
-        fprintf(outfile, "\u2518\n");
-
     } else if (args[0] == "write-json-to") {
         yajlpp_gen gen;
 
@@ -3090,13 +3120,13 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
             auto colon_index = fn.rfind(':');
             auto hash_index = fn.rfind('#');
             if (colon_index != std::string::npos) {
-                auto top_range
-                    = scn::string_view{&fn[colon_index + 1], &(*fn.cend())};
+                auto top_range = std::string_view{&fn[colon_index + 1],
+                                                  fn.size() - colon_index - 1};
                 auto scan_res = scn::scan_value<int>(top_range);
 
                 if (scan_res) {
                     fn = fn.substr(0, colon_index);
-                    file_loc = vis_line_t(scan_res.value());
+                    file_loc = vis_line_t(scan_res->value());
                 }
             } else if (hash_index != std::string::npos) {
                 file_loc = fn.substr(hash_index);
@@ -5549,19 +5579,21 @@ com_config(exec_context& ec,
                 }
 
                 if (ypc.ypc_current_handler->jph_callbacks.yajl_string) {
+                    yajl_string_props_t props{};
                     ypc.ypc_callbacks.yajl_string(
                         &ypc,
                         (const unsigned char*) value.c_str(),
-                        value.size());
+                        value.size(),
+                        &props);
                     changed = true;
                 } else if (ypc.ypc_current_handler->jph_callbacks.yajl_integer)
                 {
                     auto scan_res = scn::scan_value<int64_t>(value);
-                    if (!scan_res || !scan_res.empty()) {
+                    if (!scan_res || !scan_res->range().empty()) {
                         return ec.make_error("expecting an integer, found: {}",
                                              value);
                     }
-                    ypc.ypc_callbacks.yajl_integer(&ypc, scan_res.value());
+                    ypc.ypc_callbacks.yajl_integer(&ypc, scan_res->value());
                     changed = true;
                 } else if (ypc.ypc_current_handler->jph_callbacks.yajl_boolean)
                 {

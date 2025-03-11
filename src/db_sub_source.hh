@@ -30,7 +30,6 @@
 #ifndef db_sub_source_hh
 #define db_sub_source_hh
 
-#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
@@ -63,16 +62,16 @@ public:
     {
         size_t retval = 0;
 
-        for (auto& dls_header : this->dls_headers) {
+        for (const auto& dls_header : this->dls_headers) {
             retval += dls_header.hm_column_size + 1;
         }
         return retval;
     }
 
-    void text_value_for_line(textview_curses& tc,
-                             int row,
-                             std::string& label_out,
-                             line_flags_t flags) override;
+    line_info text_value_for_line(textview_curses& tc,
+                                  int row,
+                                  std::string& label_out,
+                                  line_flags_t flags) override;
 
     void text_attrs_for_line(textview_curses& tc,
                              int row,
@@ -86,9 +85,15 @@ public:
 
     std::optional<size_t> column_name_to_index(const std::string& name) const;
 
-    std::optional<vis_line_t> row_for_time(struct timeval time_bucket) override;
+    std::optional<vis_line_t> row_for_time(timeval time_bucket) override;
 
     std::optional<row_info> time_for_row(vis_line_t row) override;
+
+    enum class align_t {
+        left,
+        center,
+        right,
+    };
 
     struct header_meta {
         explicit header_meta(std::string name) : hm_name(std::move(name)) {}
@@ -103,14 +108,16 @@ public:
         unsigned int hm_sub_type{0};
         bool hm_graphable{false};
         size_t hm_column_size{0};
+        align_t hm_align{align_t::left};
         text_attrs hm_title_attrs;
         stacked_bar_chart<std::string> hm_chart;
     };
 
+    uint32_t dls_generation{0};
     size_t dls_max_column_width{120};
     std::vector<header_meta> dls_headers;
     std::vector<std::vector<const char*>> dls_rows;
-    std::vector<struct timeval> dls_time_column;
+    std::vector<timeval> dls_time_column;
     std::vector<size_t> dls_cell_width;
     int dls_time_column_index{-1};
     std::optional<size_t> dls_time_column_invalidated_at;

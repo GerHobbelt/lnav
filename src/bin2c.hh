@@ -36,7 +36,6 @@
 
 #include <assert.h>
 #include <sys/types.h>
-#include <zlib.h>
 
 #include "base/intern_string.hh"
 
@@ -44,31 +43,17 @@ struct bin_src_file {
     bin_src_file(const char* name,
                  const unsigned char* data,
                  size_t compressed_size,
-                 size_t size)
-        : bsf_name(name), bsf_data(new unsigned char[size + 1]), bsf_size(size)
-    {
-        uLongf zsize = size;
-        auto rc
-            = uncompress(this->bsf_data.get(), &zsize, data, compressed_size);
-        assert(rc == Z_OK);
-        assert(zsize == size);
-        this->bsf_data[size] = '\0';
-    };
+                 size_t size);
 
-    string_fragment to_string_fragment() const
-    {
-        return string_fragment{this->bsf_data.get(), 0, (int) this->bsf_size};
-    }
+    std::unique_ptr<string_fragment_producer> to_string_fragment_producer()
+        const;
 
-    const char* get_name() const
-    {
-        return this->bsf_name;
-    }
+    const char* get_name() const { return this->bsf_name; }
 
 private:
     const char* bsf_name;
-    std::unique_ptr<unsigned char[]> bsf_data;
-    ssize_t bsf_size;
+    const unsigned char* bsf_compressed_data;
+    size_t bsf_compressed_size;
 };
 
 #endif

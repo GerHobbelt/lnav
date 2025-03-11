@@ -40,8 +40,64 @@
 #include "lnav_log.hh"
 #include "opt_util.hh"
 
-namespace lnav {
-namespace filesystem {
+#ifdef HAVE_LIBPROC_H
+#    include <libproc.h>
+#endif
+
+namespace lnav::filesystem {
+
+std::optional<std::filesystem::path>
+self_path()
+{
+#ifdef HAVE_LIBPROC_H
+    auto pid = getpid();
+    char pathbuf[PROC_PIDPATHINFO_MAXSIZE];
+
+    auto rc = proc_pidpath(pid, pathbuf, sizeof(pathbuf));
+    if (rc <= 0) {
+        log_error("unable to determine self path: %s", strerror(errno));
+    } else {
+        log_info("self path: %s", pathbuf);
+        return std::filesystem::path(pathbuf);
+    }
+    return std::nullopt;
+#else
+    std::error_code ec;
+    auto target = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec) {
+        log_error("failed to read /proc/self/exe: %s", ec.message().c_str());
+        return std::nullopt;
+    }
+    return target;
+#endif
+}
+
+static time_t
+init_self_mtime()
+{
+    auto retval = time_t{};
+    auto path_opt = self_path();
+
+    time(&retval);
+    if (path_opt) {
+        auto stat_res = stat_file(path_opt.value());
+        if (stat_res.isErr()) {
+            log_error("unable to stat self: %s", stat_res.unwrapErr().c_str());
+        } else {
+            retval = stat_res.unwrap().st_mtime;
+        }
+    }
+
+    return retval;
+}
+
+time_t
+self_mtime()
+{
+    static auto RETVAL = init_self_mtime();
+
+    return RETVAL;
+}
 
 std::string
 escape_path(const std::filesystem::path& p)
@@ -161,7 +217,7 @@ read_file(const std::filesystem::path& path)
 
 Result<write_file_result, std::string>
 write_file(const std::filesystem::path& path,
-           const string_fragment& content,
+           string_fragment_producer& content,
            std::set<write_file_options> options)
 {
     write_file_result retval;
@@ -169,19 +225,30 @@ write_file(const std::filesystem::path& path,
     tmp_pattern += ".XXXXXX";
 
     auto tmp_pair = TRY(open_temp_file(tmp_pattern));
-    auto bytes_written
-        = write(tmp_pair.second.get(), content.data(), content.length());
-    if (bytes_written < 0) {
-        return Err(
-            fmt::format(FMT_STRING("unable to write to temporary file {}: {}"),
-                        tmp_pair.first.string(),
-                        strerror(errno)));
-    }
-    if (bytes_written != content.length()) {
-        return Err(fmt::format(FMT_STRING("short write to file {}: {} < {}"),
-                               tmp_pair.first.string(),
-                               bytes_written,
-                               content.length()));
+    auto for_res = content.for_each(
+        [&tmp_pair](string_fragment sf) -> Result<void, std::string> {
+            auto bytes_written
+                = write(tmp_pair.second.get(), sf.data(), sf.length());
+            if (bytes_written < 0) {
+                return Err(fmt::format(
+                    FMT_STRING("unable to write to temporary file {}: {}"),
+                    tmp_pair.first.string(),
+                    strerror(errno)));
+            }
+
+            if (bytes_written != sf.length()) {
+                return Err(
+                    fmt::format(FMT_STRING("short write to file {}: {} < {}"),
+                                tmp_pair.first.string(),
+                                bytes_written,
+                                sf.length()));
+            }
+
+            return Ok();
+        });
+
+    if (for_res.isErr()) {
+        return Err(for_res.unwrapErr());
     }
 
     std::error_code ec;
@@ -202,6 +269,16 @@ write_file(const std::filesystem::path& path,
         }
     }
 
+    auto mode = S_IRUSR | S_IWUSR;
+    if (options.count(write_file_options::executable)) {
+        mode |= S_IXUSR;
+    }
+    if (options.count(write_file_options::read_only)) {
+        mode &= ~S_IWUSR;
+    }
+
+    fchmod(tmp_pair.second.get(), mode);
+
     std::filesystem::rename(tmp_pair.first, path, ec);
     if (ec) {
         return Err(
@@ -210,6 +287,7 @@ write_file(const std::filesystem::path& path,
                         ec.message()));
     }
 
+    log_debug("wrote file: %s", path.c_str());
     return Ok(retval);
 }
 
@@ -244,8 +322,7 @@ stat_file(const std::filesystem::path& path)
                            strerror(errno)));
 }
 
-file_lock::
-file_lock(const std::filesystem::path& archive_path)
+file_lock::file_lock(const std::filesystem::path& archive_path)
 {
     auto lock_path = archive_path;
 
@@ -258,8 +335,7 @@ file_lock(const std::filesystem::path& archive_path)
     this->lh_fd = open_res.unwrap();
 }
 
-}  // namespace filesystem
-}  // namespace lnav
+}  // namespace lnav::filesystem
 
 namespace fmt {
 

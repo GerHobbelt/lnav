@@ -44,8 +44,7 @@
 #include "base/result.h"
 #include "mapbox/variant.hpp"
 
-namespace lnav {
-namespace pcre2pp {
+namespace lnav::pcre2pp {
 
 class code;
 struct capture_builder;
@@ -79,6 +78,14 @@ public:
             this->md_input.i_string.sf_end);
     }
 
+    size_t capture_size(size_t index) const
+    {
+        const auto start = this->md_ovector[(index * 2)];
+        const auto stop = this->md_ovector[(index * 2) + 1];
+
+        return stop - start;
+    }
+
     std::optional<string_fragment> operator[](size_t index) const
     {
         if (index >= this->md_capture_end) {
@@ -100,6 +107,11 @@ public:
     size_t get_count() const { return this->md_capture_end; }
 
     uint32_t get_capacity() const { return this->md_ovector_count; }
+
+    string_fragment get_mark() const
+    {
+        return string_fragment::from_c_str(pcre2_get_mark(this->md_data.in()));
+    }
 
     std::string to_string() const;
 
@@ -163,6 +175,8 @@ public:
         return *this;
     }
 
+    bool found_p(uint32_t options = 0);
+
     matches_result matches(uint32_t options = 0);
 
     int get_next_offset() const { return this->mb_input.i_next_offset; }
@@ -183,11 +197,18 @@ private:
 struct capture_builder {
     const code& mb_code;
     input mb_input;
+    uint32_t mb_options{0};
 
     capture_builder at(const string_fragment& remaining) &&
     {
         this->mb_input.i_offset = this->mb_input.i_next_offset
             = remaining.sf_begin;
+        return *this;
+    }
+
+    capture_builder with_options(uint32_t opts) &&
+    {
+        this->mb_options = opts;
         return *this;
     }
 
@@ -346,7 +367,7 @@ capture_builder::for_each(F func) &&
     matcher::error eret;
 
     while (!done) {
-        auto match_res = mat.matches(Options);
+        auto match_res = mat.matches(Options | this->mb_options);
         done = match_res.match(
             [mat, &func](matcher::found) {
                 func(mat.mb_match_data);
@@ -365,7 +386,6 @@ capture_builder::for_each(F func) &&
     return Err(eret);
 }
 
-}  // namespace pcre2pp
-}  // namespace lnav
+}  // namespace lnav::pcre2pp
 
 #endif

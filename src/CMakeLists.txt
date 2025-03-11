@@ -8,6 +8,7 @@ check_type_size(off_t SIZEOF_OFF_T)
 check_include_file("pty.h" HAVE_PTY_H)
 check_include_file("util.h" HAVE_UTIL_H)
 check_include_file("execinfo.h" HAVE_EXECINFO_H)
+check_include_file("libproc.h" HAVE_LIBPROC_H)
 
 set(VCS_PACKAGE_STRING "lnav ${CMAKE_PROJECT_VERSION}")
 set(PACKAGE_VERSION "${CMAKE_PROJECT_VERSION}")
@@ -25,7 +26,7 @@ add_subdirectory(yajlpp)
 add_executable(bin2c bin2c.hh ../tools/bin2c.c)
 target_link_libraries(bin2c ZLIB::ZLIB)
 
-add_executable(ptimec ptimec.hh ptimec.c)
+add_executable(ptimec ptimec.hh ptimec.cc)
 
 set(TIME_FORMATS
         "@%@"
@@ -86,6 +87,7 @@ set(TIME_FORMATS
         "%a %b %d %H:%M:%S.%L "
         "%a %b %d %H:%M "
         "%a %b %e %H:%M:%S %Z %Y"
+        "%d/%m/%y %H:%M:%S"
         "%d/%b/%Y:%H:%M:%S %z"
         "%d-%b-%Y %H:%M:%S %z"
         "%d-%b-%Y %H:%M:%S %Z"
@@ -115,7 +117,9 @@ set(TIME_FORMATS
         "%m/%d/%Y %H:%M:%S"
         "%d/%b/%Y %H:%M:%S"
         "%d/%b/%y %H:%M:%S"
+        "%m.%d %H:%M:%S"
         "%m%d %H:%M:%S"
+        "%y%m%d %H%M%S"
         "%Y%m%d %H:%M:%S"
         "%Y%m%d.%H%M%S"
         "%H:%M:%S"
@@ -132,8 +136,10 @@ set(TIME_FORMATS
 
 set(GEN_SRCS "")
 
-add_custom_command(OUTPUT time_fmts.cc COMMAND ptimec ${TIME_FORMATS} >
-        time_fmts.cc)
+add_custom_command(
+        OUTPUT time_fmts.cc
+        DEPENDS ptimec
+        COMMAND ptimec ${TIME_FORMATS} > time_fmts.cc)
 
 add_library(lnavdt STATIC config.h.in ptimec.hh ptimec_rt.cc time_fmts.cc)
 target_include_directories(lnavdt PUBLIC . ${CMAKE_CURRENT_BINARY_DIR} third-party/date/include)
@@ -169,6 +175,7 @@ set(FORMAT_FILES
         formats/cloudvm_ram_log.json
         formats/cups_log.json
         formats/dpkg_log.json
+        formats/ecs_log.json
         formats/elb_log.json
         formats/engine_log.json
         formats/error_log.json
@@ -189,6 +196,7 @@ set(FORMAT_FILES
         formats/page_log.json
         formats/pcap_log.json
         formats/procstate_log.json
+        formats/proxifier_log.json
         formats/redis_log.json
         formats/snaplogic_log.json
         formats/sssd_log.json
@@ -262,12 +270,18 @@ list(APPEND GEN_SRCS default-config.h default-config.cc)
 set(BUILTIN_LNAV_SCRIPTS
         scripts/dhclient-summary.lnav
         scripts/docker-url-handler.lnav
+        scripts/find-msg.lnav
+        scripts/find-chained-msg.lnav
         scripts/journald-url-handler.lnav
+        scripts/lnav-copy-text.lnav
+        scripts/lnav-link-callback.lnav
         scripts/lnav-pop-view.lnav
         scripts/partition-by-boot.lnav
         scripts/piper-url-handler.lnav
         scripts/rename-stdin.lnav
+        scripts/report-access-log.lnav
         scripts/search-for.lnav
+        scripts/zk-set-ops.lnav
 )
 
 set(BUILTIN_LNAV_SCRIPT_PATHS ${BUILTIN_LNAV_SCRIPTS})
@@ -280,7 +294,12 @@ add_custom_command(
         DEPENDS bin2c ${BUILTIN_LNAV_SCRIPTS})
 list(APPEND GEN_SRCS builtin-scripts.h builtin-scripts.cc)
 
-set(BUILTIN_SH_SCRIPTS scripts/com.vmware.btresolver.py scripts/dump-pid.sh scripts/pcap_log-converter.sh)
+set(BUILTIN_SH_SCRIPTS
+        scripts/com.vmware.btresolver.py
+        scripts/dump-pid.sh
+        scripts/pcap_log-converter.sh
+        scripts/zookeeper.sql
+)
 
 set(BUILTIN_SH_SCRIPT_PATHS ${BUILTIN_SH_SCRIPTS})
 
@@ -322,65 +341,21 @@ target_link_libraries(datepp ${lnav_LIBS})
 
 add_library(
         cppscnlib STATIC
-        third-party/scnlib/src/reader_float.cpp
-        third-party/scnlib/src/reader_int.cpp
-        third-party/scnlib/src/locale.cpp
-        third-party/scnlib/src/file.cpp
-        third-party/scnlib/src/vscan.cpp
+        third-party/scnlib/src/scn/impl.cpp
+        third-party/scnlib/src/scn/impl.h
 
-        third-party/scnlib/include/scn/reader/reader.h
-        third-party/scnlib/include/scn/reader/float.h
-        third-party/scnlib/include/scn/reader/types.h
-        third-party/scnlib/include/scn/reader/int.h
-        third-party/scnlib/include/scn/reader/common.h
-        third-party/scnlib/include/scn/reader/string.h
-        third-party/scnlib/include/scn/ranges/custom_impl.h
-        third-party/scnlib/include/scn/ranges/std_impl.h
-        third-party/scnlib/include/scn/ranges/ranges.h
-        third-party/scnlib/include/scn/ranges/util.h
         third-party/scnlib/include/scn/fwd.h
-        third-party/scnlib/include/scn/util/algorithm.h
-        third-party/scnlib/include/scn/util/small_vector.h
-        third-party/scnlib/include/scn/util/optional.h
-        third-party/scnlib/include/scn/util/expected.h
-        third-party/scnlib/include/scn/util/array.h
-        third-party/scnlib/include/scn/util/unique_ptr.h
-        third-party/scnlib/include/scn/util/math.h
-        third-party/scnlib/include/scn/util/memory.h
-        third-party/scnlib/include/scn/util/span.h
-        third-party/scnlib/include/scn/util/meta.h
-        third-party/scnlib/include/scn/util/string_view.h
-        third-party/scnlib/include/scn/unicode/unicode.h
-        third-party/scnlib/include/scn/unicode/common.h
-        third-party/scnlib/include/scn/unicode/utf16.h
-        third-party/scnlib/include/scn/unicode/utf8.h
-        third-party/scnlib/include/scn/all.h
-        third-party/scnlib/include/scn/tuple_return/tuple_return.h
-        third-party/scnlib/include/scn/tuple_return/util.h
-        third-party/scnlib/include/scn/scan/ignore.h
-        third-party/scnlib/include/scn/scan/getline.h
-        third-party/scnlib/include/scn/scan/list.h
-        third-party/scnlib/include/scn/scan/common.h
-        third-party/scnlib/include/scn/scan/istream.h
-        third-party/scnlib/include/scn/scan/vscan.h
-        third-party/scnlib/include/scn/scan/scan.h
-        third-party/scnlib/include/scn/tuple_return.h
-        third-party/scnlib/include/scn/detail/error.h
-        third-party/scnlib/include/scn/detail/fwd.h
-        third-party/scnlib/include/scn/detail/range.h
-        third-party/scnlib/include/scn/detail/locale.h
-        third-party/scnlib/include/scn/detail/config.h
-        third-party/scnlib/include/scn/detail/file.h
-        third-party/scnlib/include/scn/detail/context.h
-        third-party/scnlib/include/scn/detail/result.h
-        third-party/scnlib/include/scn/detail/visitor.h
-        third-party/scnlib/include/scn/detail/args.h
-        third-party/scnlib/include/scn/detail/parse_context.h
-        third-party/scnlib/include/scn/detail/vectored.h
-        third-party/scnlib/include/scn/scn.h
+        third-party/scnlib/include/scn/ranges.h
+        third-party/scnlib/include/scn/xchar.h
+        third-party/scnlib/include/scn/chrono.h
+        third-party/scnlib/include/scn/regex.h
         third-party/scnlib/include/scn/istream.h
+        third-party/scnlib/include/scn/scan.h
 )
-target_include_directories(cppscnlib PRIVATE third-party/scnlib/src/deps/fast_float/single_include)
+target_include_directories(
+        cppscnlib PRIVATE
+        third-party/scnlib/src
+        third-party/scnlib/src/deps/fast_float/single_include)
 target_include_directories(cppscnlib PUBLIC third-party/scnlib/include)
 
 add_library(
@@ -394,6 +369,7 @@ target_include_directories(base64 PUBLIC third-party/base64/include)
 
 add_library(
         lnavnotcurses STATIC
+        third-party/notcurses/src/compat/compat.c
         third-party/notcurses/src/lib/automaton.c
         third-party/notcurses/src/lib/blit.c
         third-party/notcurses/src/lib/debug.c
@@ -443,15 +419,14 @@ add_library(lnavfileio STATIC
         grep_proc.hh
         line_buffer.hh
         log_level.hh
-        piper.looper.cfg.hh
-        piper.looper.hh
+        piper.header.hh
         pollable.hh
         shared_buffer.hh
 
         grep_proc.cc
         line_buffer.cc
         log_level.cc
-        piper.looper.cc
+        piper.header.cc
         pollable.cc
         shared_buffer.cc
 )
@@ -466,6 +441,7 @@ add_library(
         archive_manager.cc
         document.sections.cc
         bin2c.hh
+        bin2c_rt.cc
         bookmarks.cc
         bottom_status_source.cc
         breadcrumb_curses.cc
@@ -525,6 +501,8 @@ add_library(
         data_scanner_re.cc
         data_parser.cc
         file_converter_manager.cc
+        piper.looper.cc
+        piper.match.cc
         plain_text_source.cc
         pretty_printer.cc
         pugixml/pugixml.cpp
@@ -554,7 +532,6 @@ add_library(
         styling.cc
         text_anonymizer.cc
         text_format.cc
-        text_link_handler.cc
         text_overlay_menu.cc
         textfile_highlighters.cc
         textfile_sub_source.cc
@@ -646,6 +623,9 @@ add_library(
         md2attr_line.hh
         md4cpp.hh
         file_converter_manager.hh
+        piper.looper.cfg.hh
+        piper.looper.hh
+        piper.match.hh
         plain_text_source.hh
         pretty_printer.hh
         preview_status_source.hh
@@ -683,7 +663,6 @@ add_library(
         termios_guard.hh
         text_anonymizer.hh
         text_format.hh
-        text_link_handler.hh
         text_overlay_menu.hh
         textfile_highlighters.hh
         textfile_sub_source.hh

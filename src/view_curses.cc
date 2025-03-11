@@ -37,6 +37,8 @@
 #include <cmath>
 #include <string>
 
+#include <zlib.h>
+
 #include "base/ansi_scrubber.hh"
 #include "base/attr_line.hh"
 #include "base/from_trait.hh"
@@ -46,6 +48,7 @@
 #include "config.h"
 #include "lnav_config.hh"
 #include "shlex.hh"
+#include "uniwidth.h"
 #include "view_curses.hh"
 #include "xterm_mouse.hh"
 
@@ -323,8 +326,11 @@ view_curses::mvwattrline(ncplane* window,
                     lpc = lpc_start + 1;
                 } else {
                     auto wch = read_res.unwrap();
-                    auto wcw_res = wcwidth(wch);
+                    auto wcw_res = uc_width(wch, "UTF-8");
                     if (wcw_res < 0) {
+                        log_trace(
+                            "uc_width(%x) does not recognize width character",
+                            wch);
                         wcw_res = 1;
                     }
                     if (lpc > (lpc_start + 1)) {
@@ -774,11 +780,16 @@ view_colors::match_color(styling::color_unit cu) const
     }
 
     if (cu.cu_value.is<rgb_color>()) {
-        log_info("matching RGB to palette");
-        auto lab = lab_color{cu.cu_value.get<rgb_color>()};
+        auto rgb = cu.cu_value.get<rgb_color>();
+        auto lab = lab_color{rgb};
+        auto pal = vc_active_palette->match_color(lab);
 
-        return styling::color_unit::from_palette(
-            palette_color{vc_active_palette->match_color(lab)});
+        log_trace("mapped RGB (%d, %d, %d) to palette %d",
+                  rgb.rc_r,
+                  rgb.rc_g,
+                  rgb.rc_b,
+                  pal);
+        return styling::color_unit::from_palette(palette_color{pal});
     }
 
     return cu;
@@ -838,22 +849,6 @@ view_colors::to_attrs(const lnav_theme& lt,
     fg = this->match_color(fg);
     bg = this->match_color(bg);
 
-    log_debug("pp %s fg color %s", pp_sc.pp_path.c_str(), fg_color.c_str());
-    fg.cu_value.match(
-        [](styling::transparent) { log_debug("  trans"); },
-        [](styling::semantic) { log_debug("  semantic"); },
-        [](const palette_color& pc) { log_debug("  palette %d", pc); },
-        [](const rgb_color& rc) {
-            log_debug("  rgb %d %d %d", rc.rc_r, rc.rc_g, rc.rc_b);
-        });
-    log_debug("pp %s bg color %s", pp_sc.pp_path.c_str(), bg_color.c_str());
-    bg.cu_value.match(
-        [](styling::transparent) { log_debug("  trans"); },
-        [](styling::semantic) { log_debug("  semantic"); },
-        [](const palette_color& pc) { log_debug("  palette %d", pc); },
-        [](const rgb_color& rc) {
-            log_debug("  rgb %d %d %d", rc.rc_r, rc.rc_g, rc.rc_b);
-        });
     auto retval1 = text_attrs{0, fg, bg};
     text_attrs retval2;
 
@@ -1311,4 +1306,9 @@ screen_curses::create(const notcurses_options& options)
              notcurses_detected_terminal(nc));
 
     return Ok(screen_curses(nc));
+}
+
+screen_curses::screen_curses(screen_curses&& other) noexcept
+    : sc_notcurses(std::exchange(other.sc_notcurses, nullptr))
+{
 }

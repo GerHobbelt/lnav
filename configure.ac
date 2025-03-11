@@ -8,6 +8,7 @@ AC_PREFIX_DEFAULT(/usr)
 
 AC_CANONICAL_HOST
 AX_PROG_CC_FOR_BUILD
+AX_PROG_CXX_FOR_BUILD
 
 AX_PTHREAD()
 LIBS="$PTHREAD_LIBS $LIBS"
@@ -116,7 +117,7 @@ AS_CASE(["$host_os"],
     )
 )
 
-AC_CHECK_HEADERS(execinfo.h pty.h util.h zlib.h bzlib.h libutil.h sys/ttydefaults.h)
+AC_CHECK_HEADERS(execinfo.h pty.h util.h zlib.h bzlib.h libutil.h sys/ttydefaults.h libproc.h)
 
 dnl Experimental SIMD features.
 AC_ARG_ENABLE([simd],
@@ -154,8 +155,6 @@ AS_IF([test "x$with_system_doctest" != "xyes"], [
 
 
 LNAV_WITH_JEMALLOC
-
-LNAV_WITH_LOCAL_YAJL
 
 AX_WITH_CURSES
 
@@ -315,7 +314,6 @@ AS_IF([test $? -eq 0],
     AC_DEFINE_UNQUOTED([VCS_PACKAGE_STRING], ["$PACKAGE_STRING"], [VCS package string]))
 
 AM_CONDITIONAL(HAVE_CARGO, test x"$CARGO_CMD" != x"")
-AM_CONDITIONAL(USE_INCLUDED_YAJL, test $HAVE_LOCAL_YAJL -eq 0)
 AM_CONDITIONAL(HAVE_LIBCURL, test x"$LIBCURL" != x"")
 AM_CONDITIONAL([CROSS_COMPILING], [ test x"$cross_compiling" != x"no" ])
 AM_CONDITIONAL(HAVE_CHECK_JSONSCHEMA, test x"$CHECK_JSONSCHEMA" != x"")

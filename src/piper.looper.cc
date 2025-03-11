@@ -45,7 +45,9 @@
 #include "line_buffer.hh"
 #include "lnav_config_fwd.hh"
 #include "pcrepp/pcre2pp.hh"
+#include "piper.header.hh"
 #include "piper.looper.cfg.hh"
+#include "piper.match.hh"
 #include "robin_hood/robin_hood.h"
 
 using namespace std::chrono_literals;
@@ -66,8 +68,7 @@ write_line_meta(int fd, struct timeval& tv, log_level_t level, off_t woff)
 
 extern char** environ;
 
-namespace lnav {
-namespace piper {
+namespace lnav::piper {
 
 class piper_config_listener : public lnav_config_listener {
 public:
@@ -127,41 +128,6 @@ public:
 
 piper_config_listener _PIPER_LISTENER;
 
-const json_path_container header_env_handlers = {
-    yajlpp::pattern_property_handler("(?<name>.*)")
-        .with_synopsis("<name>")
-        .for_field(&lnav::piper::header::h_env),
-};
-
-const json_path_container header_demux_handlers = {
-    yajlpp::pattern_property_handler("(?<name>.*)")
-        .with_synopsis("<name>")
-        .for_field(&lnav::piper::header::h_demux_meta),
-};
-
-static const json_path_handler_base::enum_value_t demux_output_values[] = {
-    {"not_applicable", demux_output_t::not_applicable},
-    {"signal", demux_output_t::signal},
-    {"invalid", demux_output_t::invalid},
-
-    json_path_handler_base::ENUM_TERMINATOR,
-};
-
-const typed_json_path_container<lnav::piper::header> header_handlers = {
-    yajlpp::property_handler("name").for_field(&lnav::piper::header::h_name),
-    yajlpp::property_handler("timezone")
-        .for_field(&lnav::piper::header::h_timezone),
-    yajlpp::property_handler("ctime").for_field(&lnav::piper::header::h_ctime),
-    yajlpp::property_handler("cwd").for_field(&lnav::piper::header::h_cwd),
-    yajlpp::property_handler("env").with_children(header_env_handlers),
-    yajlpp::property_handler("mux_id").for_field(
-        &lnav::piper::header::h_mux_id),
-    yajlpp::property_handler("demux_output")
-        .with_enum_values(demux_output_values)
-        .for_field(&lnav::piper::header::h_demux_output),
-    yajlpp::property_handler("demux_meta").with_children(header_demux_handlers),
-};
-
 static std::map<std::string, std::string>
 environ_to_map()
 {
@@ -195,8 +161,10 @@ looper::get_wakeup_pipe()
     return retval;
 }
 
-looper::
-looper(std::string name, auto_fd stdout_fd, auto_fd stderr_fd, options opts)
+looper::looper(std::string name,
+               auto_fd stdout_fd,
+               auto_fd stderr_fd,
+               options opts)
     : l_name(std::move(name)), l_cwd(std::filesystem::current_path().string()),
       l_env(environ_to_map()), l_stdout(std::move(stdout_fd)),
       l_stderr(std::move(stderr_fd)), l_options(opts)
@@ -215,8 +183,7 @@ looper(std::string name, auto_fd stdout_fd, auto_fd stderr_fd, options opts)
     this->l_future = std::async(std::launch::async, [this]() { this->loop(); });
 }
 
-looper::~
-looper()
+looper::~looper()
 {
     char ch = '\0';
 
@@ -787,5 +754,4 @@ cleanup()
     });
 }
 
-}  // namespace piper
-}  // namespace lnav
+}  // namespace lnav::piper

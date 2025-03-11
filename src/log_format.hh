@@ -231,6 +231,8 @@ public:
 
     std::string to_string() const;
 
+    string_fragment to_string_fragment(ArenaAlloc::Alloc<char>& alloc) const;
+
     const char* text_value() const
     {
         if (this->lv_str) {
@@ -337,31 +339,37 @@ struct logline_value_stats {
     double lvs_max_value;
 };
 
-struct logline_value_cmp {
-    explicit logline_value_cmp(const intern_string_t* name = nullptr,
-                               std::optional<logline_value_meta::column_t> col
-                               = std::nullopt)
-        : lvc_name(name), lvc_column(col)
+struct logline_value_name_cmp {
+    explicit logline_value_name_cmp(const intern_string_t* name)
+        : lvc_name(name)
     {
     }
 
     bool operator()(const logline_value& lv) const
     {
-        bool retval = true;
-
-        if (this->lvc_name != nullptr) {
-            retval = retval && ((*this->lvc_name) == lv.lv_meta.lvm_name);
-        }
-        if (this->lvc_column) {
-            retval
-                = retval && (this->lvc_column.value() == lv.lv_meta.lvm_column);
-        }
-
-        return retval;
+        return (*this->lvc_name) == lv.lv_meta.lvm_name;
     }
 
     const intern_string_t* lvc_name;
-    std::optional<logline_value_meta::column_t> lvc_column;
+};
+
+struct logline_value_col_eq {
+    explicit logline_value_col_eq(const logline_value_meta::table_column& col)
+        : lvc_column(col)
+    {
+    }
+
+    bool operator()(const logline_value& lv) const
+    {
+        if (lv.lv_meta.lvm_column.is<logline_value_meta::table_column>()) {
+            return this->lvc_column
+                == lv.lv_meta.lvm_column
+                       .get<logline_value_meta::table_column>();
+        }
+        return false;
+    }
+
+    const logline_value_meta::table_column& lvc_column;
 };
 
 class log_vtab_impl;
@@ -654,6 +662,9 @@ public:
                                     intern_hasher,
                                     std::equal_to<intern_string_t>>;
     desc_cap_map lf_desc_captures;
+
+    static const intern_string_t LOG_TIME_STR;
+    static const intern_string_t LOG_LEVEL_STR;
 
 protected:
     static std::vector<std::shared_ptr<log_format>> lf_root_formats;

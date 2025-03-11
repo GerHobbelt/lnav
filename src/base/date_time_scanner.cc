@@ -36,8 +36,9 @@
 #include "config.h"
 #include "date_time_scanner.cfg.hh"
 #include "injector.hh"
+#include "math_util.hh"
 #include "ptimec.hh"
-#include "scn/scn.h"
+#include "scn/scan.h"
 
 size_t
 date_time_scanner::ftime(char* dst,
@@ -123,10 +124,10 @@ date_time_scanner::scan(const char* time_dest,
         tm_out->et_flags = 0;
         if (time_len > 1 && time_dest[0] == '+' && isdigit(time_dest[1])) {
             retval = nullptr;
-            auto sv = scn::string_view{time_dest, time_len};
+            auto sv = std::string_view{time_dest, time_len};
             auto epoch_scan_res = scn::scan_value<int64_t>(sv);
             if (epoch_scan_res) {
-                time_t gmt = epoch_scan_res.value();
+                time_t gmt = epoch_scan_res->value();
 
                 if (convert_local
                     && (this->dts_local_time || this->dts_zoned_to_local))
@@ -144,7 +145,7 @@ date_time_scanner::scan(const char* time_dest,
                     | ETF_MACHINE_ORIENTED | ETF_EPOCH_TIME | ETF_ZONE_SET;
 
                 this->dts_fmt_lock = curr_time_fmt;
-                this->dts_fmt_len = sv.length() - epoch_scan_res.range().size();
+                this->dts_fmt_len = sv.length() - epoch_scan_res->range().size();
                 retval = time_dest + this->dts_fmt_len;
                 found = true;
                 break;
@@ -337,6 +338,19 @@ date_time_scanner::scan(const char* time_dest,
 }
 
 void
+date_time_scanner::clear()
+{
+    this->dts_base_time = 0;
+    this->dts_base_tm = exttm{};
+    this->dts_fmt_lock = -1;
+    this->dts_fmt_len = -1;
+    this->dts_last_tv = timeval{};
+    this->dts_last_tm = exttm{};
+    this->dts_localtime_cached_gmt = 0;
+    this->dts_localtime_cached_tm = tm{};
+}
+
+void
 date_time_scanner::set_base_time(time_t base_time, const tm& local_tm)
 {
     this->dts_base_time = base_time;
@@ -371,7 +385,29 @@ date_time_scanner::to_localtime(time_t t, exttm& tm_out)
             -= this->dts_local_offset_expiry % EXPIRE_TIME;
     } else {
         time_t adjust_gmt = t + this->dts_local_offset_cache;
-        secs2tm(adjust_gmt, &tm_out.et_tm);
+        auto adjust_gmt_min = adjust_gmt / 60;
+        if (this->dts_localtime_cached_gmt == adjust_gmt_min)
+        {
+            tm_out.et_tm = this->dts_localtime_cached_tm;
+            tm_out.et_tm.tm_sec = adjust_gmt % 60;
+        } else {
+            secs2tm(adjust_gmt, &tm_out.et_tm);
+            this->dts_localtime_cached_gmt = adjust_gmt_min;
+            this->dts_localtime_cached_tm = tm_out.et_tm;
+            this->dts_localtime_cached_tm.tm_sec = 0;
+        }
+#if 0
+        {
+            tm verify_tm;
+            secs2tm(adjust_gmt, &verify_tm);
+            require(tm_out.et_tm.tm_year == verify_tm.tm_year);
+            require(tm_out.et_tm.tm_mon == verify_tm.tm_mon);
+            require(tm_out.et_tm.tm_mday == verify_tm.tm_mday);
+            require(tm_out.et_tm.tm_hour == verify_tm.tm_hour);
+            require(tm_out.et_tm.tm_min == verify_tm.tm_min);
+            require(tm_out.et_tm.tm_sec == verify_tm.tm_sec);
+        }
+#endif
     }
     tm_out.et_gmtoff = 0;
 #ifdef HAVE_STRUCT_TM_TM_ZONE

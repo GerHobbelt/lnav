@@ -32,14 +32,11 @@
 
 #include <map>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "base/color_spaces.hh"
 #include "base/intern_string.hh"
-#include "base/result.h"
-#include "log_level.hh"
-#include "mapbox/variant.hpp"
+#include "base/log_level_enum.hh"
 #include "yajlpp/yajlpp.hh"
 #include "yajlpp/yajlpp_def.hh"
 
@@ -52,7 +49,7 @@ struct term_color {
 };
 
 struct term_color_palette {
-    term_color_palette(const char* name, const string_fragment& json);
+    term_color_palette(const char* name, string_fragment_producer& json);
 
     uint8_t match_color(const lab_color& to_match) const;
 

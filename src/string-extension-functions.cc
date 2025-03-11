@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "base/humanize.hh"
+#include "base/is_utf8.hh"
 #include "base/lnav.gzip.hh"
 #include "base/string_util.hh"
 #include "column_namer.hh"
@@ -26,13 +27,13 @@
 #include "data_scanner.hh"
 #include "elem_to_json.hh"
 #include "formats/logfmt/logfmt.parser.hh"
+#include "hasher.hh"
 #include "libbase64.h"
 #include "mapbox/variant.hpp"
 #include "pcrepp/pcre2pp.hh"
 #include "pretty_printer.hh"
 #include "safe/safe.h"
-#include "scn/scn.h"
-#include "spookyhash/SpookyV2.h"
+#include "scn/scan.h"
 #include "sqlite-extension-func.hh"
 #include "text_anonymizer.hh"
 #include "view_curses.hh"
@@ -146,9 +147,6 @@ mapbox::util::
         throw std::runtime_error(err.get_message());
     }
 
-    yajlpp_gen gen;
-    yajl_gen_config(gen, yajl_gen_beautify, false);
-
     if (extractor.get_capture_count() == 1) {
         auto cap = md[1];
 
@@ -156,18 +154,24 @@ mapbox::util::
             return static_cast<const char*>(nullptr);
         }
 
-        auto scan_int_res = scn::scan_value<int64_t>(cap->to_string_view());
-        if (scan_int_res && scan_int_res.empty()) {
-            return scan_int_res.value();
-        }
-
-        auto scan_float_res = scn::scan_value<double>(cap->to_string_view());
-        if (scan_float_res && scan_float_res.empty()) {
-            return scan_float_res.value();
+        auto scan_int_res = scn::scan_int<int64_t>(cap->to_string_view());
+        if (scan_int_res) {
+            if (scan_int_res->range().empty()) {
+                return scan_int_res->value();
+            }
+            auto scan_float_res
+                = scn::scan_value<double>(cap->to_string_view());
+            if (scan_float_res && scan_float_res->range().empty()) {
+                return scan_float_res->value();
+            }
         }
 
         return cap.value();
-    } else {
+    }
+
+    yajlpp_gen gen;
+    yajl_gen_config(gen, yajl_gen_beautify, false);
+    {
         yajlpp_map root_map(gen);
 
         for (size_t lpc = 0; lpc < extractor.get_capture_count(); lpc++) {
@@ -181,12 +185,12 @@ mapbox::util::
             } else {
                 auto scan_int_res
                     = scn::scan_value<int64_t>(cap->to_string_view());
-                if (scan_int_res && scan_int_res.empty()) {
-                    yajl_gen_integer(gen, scan_int_res.value());
+                if (scan_int_res && scan_int_res->range().empty()) {
+                    yajl_gen_integer(gen, scan_int_res->value());
                 } else {
                     auto scan_float_res
                         = scn::scan_value<double>(cap->to_string_view());
-                    if (scan_float_res && scan_float_res.empty()) {
+                    if (scan_float_res && scan_float_res->range().empty()) {
                         yajl_gen_number(gen, cap->data(), cap->length());
                     } else {
                         yajl_gen_pstring(gen, cap->data(), cap->length());
@@ -279,25 +283,24 @@ regexp_replace(string_fragment str, string_fragment re, const char* repl)
     return reobj->re2->replace(str, repl);
 }
 
-std::string
+string_fragment
 spooky_hash(const std::vector<const char*>& args)
 {
-    byte_array<2, uint64> hash;
-    SpookyHash context;
+    thread_local char hash_str_buf[hasher::STRING_SIZE];
 
-    context.Init(0, 0);
+    hasher context;
     for (const auto* const arg : args) {
         int64_t len = arg != nullptr ? strlen(arg) : 0;
 
-        context.Update(&len, sizeof(len));
+        context.update((const char*) &len, sizeof(len));
         if (arg == nullptr) {
             continue;
         }
-        context.Update(arg, len);
+        context.update(arg, len);
     }
-    context.Final(hash.out(0), hash.out(1));
+    context.to_string(hash_str_buf);
 
-    return hash.to_string();
+    return string_fragment::from_bytes(hash_str_buf, sizeof(hash_str_buf));
 }
 
 void
@@ -571,15 +574,16 @@ sql_decode(string_fragment str, encode_algo algo)
             auto sv = str.to_string_view();
 
             while (!sv.empty()) {
-                int32_t value;
-                auto scan_res = scn::scan(sv, "{:2x}", value);
+                auto scan_res = scn::scan<int32_t>(sv, "{:2x}");
                 if (!scan_res) {
                     throw sqlite_func_error(
                         "invalid hex input at: {}",
                         std::distance(str.begin(), sv.begin()));
                 }
+                auto value = scan_res->value();
                 buf.push_back((char) (value & 0xff));
-                sv = scan_res.range_as_string_view();
+                sv = std::string_view{scan_res->range().begin(),
+                                      scan_res->range().size()};
             }
 
             return blob_auto_buffer{std::move(buf)};
@@ -630,9 +634,21 @@ sql_parse_url(std::string url)
     auto rc = curl_url_set(
         cu, CURLUPART_URL, url.c_str(), CURLU_NON_SUPPORT_SCHEME);
     if (rc != CURLUE_OK) {
-        throw lnav::console::user_message::error(
-            attr_line_t("invalid URL: ").append(lnav::roles::file(url)))
-            .with_reason(curl_url_strerror(rc));
+        auto_mem<char> url_part(curl_free);
+        yajlpp_gen gen;
+        yajl_gen_config(gen, yajl_gen_beautify, false);
+
+        {
+            yajlpp_map root(gen);
+            root.gen("error");
+            root.gen("invalid-url");
+            root.gen("url");
+            root.gen(url);
+            root.gen("reason");
+            root.gen(curl_url_strerror(rc));
+        }
+
+        return json_string(gen);
     }
 
     auto_mem<char> url_part(curl_free);
@@ -681,7 +697,18 @@ sql_parse_url(std::string url)
         root.gen("path");
         rc = curl_url_get(cu, CURLUPART_PATH, url_part.out(), CURLU_URLDECODE);
         if (rc == CURLUE_OK) {
-            root.gen(string_fragment::from_c_str(url_part.in()));
+            auto path_frag = string_fragment::from_c_str(url_part.in());
+            auto path_utf_res = is_utf8(path_frag);
+            if (path_utf_res.is_valid()) {
+                root.gen(path_frag);
+            } else {
+                rc = curl_url_get(cu, CURLUPART_PATH, url_part.out(), 0);
+                if (rc == CURLUE_OK) {
+                    root.gen(string_fragment::from_c_str(url_part.in()));
+                } else {
+                    root.gen();
+                }
+            }
         } else {
             root.gen();
         }
@@ -720,12 +747,24 @@ sql_parse_url(std::string url)
                 if (eq_index_opt) {
                     auto key = kv_pair_frag.sub_range(0, eq_index_opt.value());
                     auto val = kv_pair_frag.substr(eq_index_opt.value() + 1);
-                    auto key_str = key.to_string();
 
-                    if (seen_keys.count(key_str) == 0) {
-                        seen_keys.emplace(key_str);
-                        query_map.gen(key);
-                        query_map.gen(val);
+                    auto key_utf_res = is_utf8(key);
+                    auto val_utf_res = is_utf8(val);
+                    if (key_utf_res.is_valid()) {
+                        auto key_str = key.to_string();
+
+                        if (seen_keys.count(key_str) == 0) {
+                            seen_keys.emplace(key_str);
+                            query_map.gen(key);
+                            if (val_utf_res.is_valid()) {
+                                query_map.gen(val);
+                            } else {
+                                auto eq = strchr(kv_pair_encoded.data(), '=');
+                                query_map.gen(
+                                    string_fragment::from_c_str(eq + 1));
+                            }
+                        }
+                    } else {
                     }
                 } else {
                     auto val_str = split_res.first.to_string();

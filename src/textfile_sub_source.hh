@@ -36,12 +36,11 @@
 #include "filter_observer.hh"
 #include "logfile.hh"
 #include "plain_text_source.hh"
-#include "text_link_handler.hh"
 #include "text_overlay_menu.hh"
 #include "textview_curses.hh"
 
 class textfile_sub_source
-    : public text_link_handler
+    : public text_sub_source
     , public vis_location_history
     , public text_accel_source
     , public text_anchors {
@@ -61,10 +60,10 @@ public:
             : this->current_file()->get_longest_line_length();
     }
 
-    void text_value_for_line(textview_curses& tc,
-                             int line,
-                             std::string& value_out,
-                             line_flags_t flags) override;
+    line_info text_value_for_line(textview_curses& tc,
+                                  int line,
+                                  std::string& value_out,
+                                  line_flags_t flags) override;
 
     void text_attrs_for_line(textview_curses& tc,
                              int row,
@@ -234,6 +233,7 @@ private:
     size_t tss_line_indent_size{0};
     bool tss_completed_last_scan{true};
     attr_line_t tss_hex_line;
+    string_attrs_t tss_plain_line_attrs;
     int64_t tss_content_line{0};
     view_mode tss_view_mode{view_mode::rendered};
 };

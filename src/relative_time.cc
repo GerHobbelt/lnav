@@ -35,7 +35,7 @@
 #include "base/time_util.hh"
 #include "config.h"
 #include "pcrepp/pcre2pp.hh"
-#include "scn/scn.h"
+#include "scn/scan.h"
 
 using namespace std::chrono_literals;
 
@@ -506,7 +506,7 @@ relative_time::from_str(string_fragment str)
                             FMT_STRING("Invalid number: {}"), md[0].value());
                         return Err(pe_out);
                     }
-                    number = num_scan_res.value();
+                    number = num_scan_res->value();
                     number_set = true;
                     break;
                 }
@@ -1002,10 +1002,7 @@ relative_time::window_start(const struct exttm& tm) const
         tv.tv_sec = us / 1000000ULL;
         tv.tv_usec = us % 1000000ULL;
 
-        retval.et_tm = *gmtime(&tv.tv_sec);
-        retval.et_nsec = tv.tv_usec * 1000ULL;
-
-        return retval;
+        return exttm::from_tv(tv);
     }
 
     bool clear = false;

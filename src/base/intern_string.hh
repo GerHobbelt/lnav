@@ -34,6 +34,7 @@
 
 #include <optional>
 #include <ostream>
+#include <string_view>
 #include <vector>
 
 #include <assert.h>
@@ -41,8 +42,8 @@
 #include <sys/types.h>
 
 #include "fmt/format.h"
+#include "mapbox/variant.hpp"
 #include "result.h"
-#include "scn/util/string_view.h"
 #include "strnatcmp.h"
 
 unsigned long hash_str(const char* str, size_t len);
@@ -630,9 +631,11 @@ struct string_fragment {
         };
     }
 
-    scn::string_view to_string_view() const
+    std::string_view to_string_view() const
     {
-        return scn::string_view{this->begin(), this->end()};
+        return std::string_view{
+            this->data(),
+            static_cast<std::string_view::size_type>(this->length())};
     }
 
     enum class case_style {
@@ -687,6 +690,48 @@ operator<<(std::ostream& os, const string_fragment& sf)
     os.write(sf.data(), sf.length());
     return os;
 }
+
+class string_fragment_producer {
+public:
+    struct eof {};
+    struct error {
+        std::string what;
+    };
+    using next_result = mapbox::util::variant<eof, string_fragment, error>;
+    static std::unique_ptr<string_fragment_producer> from(string_fragment sf);
+
+    Result<void, std::string> for_each(
+        std::function<Result<void, std::string>(string_fragment)> cb)
+    {
+        while (true) {
+            auto next_res = this->next();
+            if (next_res.is<error>()) {
+                auto err = next_res.get<error>();
+
+                return Err(err.what);
+            }
+
+            if (next_res.is<eof>()) {
+                break;
+            }
+
+            const auto sf = next_res.get<string_fragment>();
+            auto cb_res = cb(sf);
+
+            if (cb_res.isErr()) {
+                return Err(cb_res.unwrapErr());
+            }
+        }
+
+        return Ok();
+    }
+
+    virtual ~string_fragment_producer() {}
+
+    virtual next_result next() = 0;
+
+    std::string to_string();
+};
 
 class intern_string {
 public:
@@ -917,7 +962,7 @@ to_string_fragment(const std::string& s)
 }
 
 inline string_fragment
-to_string_fragment(const scn::string_view& sv)
+to_string_fragment(const std::string_view& sv)
 {
     return string_fragment::from_bytes(sv.data(), sv.length());
 }

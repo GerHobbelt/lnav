@@ -43,12 +43,10 @@
 #include <unistd.h>
 
 #include "base/auto_fd.hh"
-#include "base/auto_mem.hh"
 #include "base/lnav_log.hh"
 #include "line_buffer.hh"
 #include "pcrepp/pcre2pp.hh"
 #include "pollable.hh"
-#include "strong_int.hh"
 
 template<typename LineType>
 class grep_proc;
@@ -72,7 +70,9 @@ public:
      * @param line The line to retrieve.
      * @param value_out The destination for the line value.
      */
-    virtual bool grep_value_for_line(LineType line, std::string& value_out) = 0;
+    virtual std::optional<line_info> grep_value_for_line(LineType line,
+                                                         std::string& value_out)
+        = 0;
 
     virtual LineType grep_initial_line(LineType start, LineType highest)
     {
@@ -129,30 +129,7 @@ public:
      * @param end The offset of the character after the last character in the
      * match.
      */
-    virtual void grep_match(grep_proc<LineType>& gp,
-                            LineType line,
-                            int start,
-                            int end)
-        = 0;
-
-    /**
-     * Called for each captured substring in the line.
-     *
-     * @param line The line number that matched.
-     * @param start The offset within the line where the capture begins.
-     * @param end The offset of the character after the last character in the
-     * capture.
-     * @param capture The captured substring itself.
-     */
-    virtual void grep_capture(grep_proc<LineType>& gp,
-                              LineType line,
-                              int start,
-                              int end,
-                              const string_fragment& capture)
-    {
-    }
-
-    virtual void grep_match_end(grep_proc<LineType>& gp, LineType line) {}
+    virtual void grep_match(grep_proc<LineType>& gp, LineType line) = 0;
 };
 
 /**
@@ -170,7 +147,7 @@ class grep_proc : public pollable {
 public:
     class error : public std::exception {
     public:
-        error(int err) : e_err(err){};
+        error(int err) : e_err(err) {};
 
         int e_err;
     };
@@ -190,7 +167,7 @@ public:
 
     using injectable = grep_proc(std::shared_ptr<pollable_supervisor>);
 
-    virtual ~grep_proc();
+    ~grep_proc() override;
 
     /** @param gpd The sink to send results to. */
     void set_sink(grep_proc_sink<LineType>* gpd) { this->gp_sink = gpd; }
@@ -267,14 +244,11 @@ protected:
 
     void child_loop();
 
-    virtual void child_init(){};
+    virtual void child_init() {};
 
     virtual void child_batch() { fflush(stdout); }
 
     virtual void child_term() { fflush(stdout); }
-
-    virtual void handle_match(
-        int line, std::string& line_value, int off, int* matches, int count);
 
     std::shared_ptr<lnav::pcre2pp::code> gp_pcre;
     grep_proc_source<LineType>& gp_source; /*< The data source delegate. */

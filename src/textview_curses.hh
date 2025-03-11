@@ -48,6 +48,7 @@
 #include "ring_span.hh"
 #include "text_format.hh"
 #include "textview_curses_fwd.hh"
+#include "vis_line.hh"
 
 class textview_curses;
 
@@ -64,6 +65,8 @@ public:
     void clear_deleted_filter_state(uint32_t used_mask);
 
     void resize(size_t newsize);
+
+    void reserve(size_t expected);
 
     std::optional<size_t> content_line_to_vis_line(uint32_t line);
 
@@ -255,9 +258,7 @@ public:
 
         row_info(struct timeval tv, int64_t id) : ri_time(tv), ri_id(id) {}
 
-        struct timeval ri_time {
-            0, 0
-        };
+        struct timeval ri_time{0, 0};
         int64_t ri_id{-1};
     };
 
@@ -412,10 +413,10 @@ public:
      * @param raw Indicates that the raw contents of the line should be returned
      *   without any post processing.
      */
-    virtual void text_value_for_line(textview_curses& tc,
-                                     int line,
-                                     std::string& value_out,
-                                     line_flags_t flags = 0)
+    virtual line_info text_value_for_line(textview_curses& tc,
+                                          int line,
+                                          std::string& value_out,
+                                          line_flags_t flags = 0)
         = 0;
 
     virtual size_t text_size_for_line(textview_curses& tc,
@@ -508,8 +509,6 @@ public:
     virtual void quiesce() {}
 
     virtual void scroll_invoked(textview_curses* tc);
-
-    virtual void text_open_href(const std::string& href) {}
 
     bool tss_supports_filtering{false};
     bool tss_apply_filters{true};
@@ -677,7 +676,8 @@ public:
             : this->tc_sub_source->text_source_name(*this);
     }
 
-    bool grep_value_for_line(vis_line_t line, std::string& value_out);
+    std::optional<line_info> grep_value_for_line(vis_line_t line,
+                                                 std::string& value_out);
 
     void grep_quiesce()
     {
@@ -689,10 +689,7 @@ public:
     void grep_begin(grep_proc<vis_line_t>& gp,
                     vis_line_t start,
                     vis_line_t stop);
-    void grep_match(grep_proc<vis_line_t>& gp,
-                    vis_line_t line,
-                    int start,
-                    int end);
+    void grep_match(grep_proc<vis_line_t>& gp, vis_line_t line);
 
     bool is_searching() const { return this->tc_searching > 0; }
 
@@ -809,6 +806,7 @@ public:
         int sti_x;
         int64_t sti_line;
         line_range sti_range;
+        string_attrs_t sti_attrs;
         std::string sti_value;
         std::string sti_href;
     };
@@ -854,9 +852,7 @@ protected:
     vis_bookmarks tc_bookmarks;
 
     int tc_searching{0};
-    struct timeval tc_follow_deadline {
-        0, 0
-    };
+    struct timeval tc_follow_deadline{0, 0};
     vis_line_t tc_follow_selection{-1_vl};
     std::function<bool()> tc_follow_func;
     action tc_search_action;

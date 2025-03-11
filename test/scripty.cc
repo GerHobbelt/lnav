@@ -157,6 +157,7 @@ public:
             dup2(slave, STDOUT_FILENO);
 
             unsetenv("TERM_PROGRAM");
+            unsetenv("COLORTERM");
             setenv("IN_SCRIPTY", "1", 1);
             setenv("TERM", term_type, 1);
         } else {
@@ -317,6 +318,8 @@ static const std::map<std::string, std::string> CSI_TO_DESC = {
     {"[?1l", "Normal cursor keys"},
     {"[?47h", "Use alternate screen buffer"},
     {"[?1049h", "Use alternate screen buffer"},
+    {"[?25l", "Hide cursor"},
+    {"[?25h", "Show cursor"},
     {"[?47l", "Use normal screen buffer"},
     {"[2h", "Set Keyboard Action mode"},
     {"[4h", "Set Replace mode"},
@@ -696,18 +699,20 @@ struct term_machine {
                                 break;
                             }
                             case 'c': {
-                                fprintf(stderr, "%s:got DA1\n", tstamp());
-                                fprintf(scripty_data.sd_from_child,
-                                        "CSI send device attributes\n");
-                                if (!this->tm_child_term.get_passout()) {
-                                    static const auto* DA = "\x1b[?1;2c";
+                                if (this->tm_escape_buffer.size() == 3) {
+                                    fprintf(stderr, "%s:got DA1\n", tstamp());
+                                    fprintf(scripty_data.sd_from_child,
+                                            "CSI send device attributes\n");
+                                    if (!this->tm_child_term.get_passout()) {
+                                        static const auto* DA = "\x1b[?1;2c";
 
-                                    fprintf(stderr,
-                                            "%s:sending DA1 response\n",
-                                            tstamp());
-                                    write(this->tm_child_term.get_fd(),
-                                          DA,
-                                          strlen(DA));
+                                        fprintf(stderr,
+                                                "%s:sending DA1 response\n",
+                                                tstamp());
+                                        write(this->tm_child_term.get_fd(),
+                                              DA,
+                                              strlen(DA));
+                                    }
                                 }
                                 break;
                             }
@@ -881,11 +886,11 @@ struct term_machine {
                                     fprintf(scripty_data.sd_from_child,
                                             "CSI DSR cursor position\n");
                                     if (!this->tm_child_term.get_passout()) {
-                                        static const auto* CPR = "\x1b[1;1R";
+                                        static const auto CPR = "\x1b[1;1R";
 
                                         write(this->tm_child_term.get_fd(),
                                               CPR,
-                                              sizeof(CPR));
+                                              strlen(CPR));
                                     }
                                 }
                                 break;

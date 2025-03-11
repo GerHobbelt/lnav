@@ -30,7 +30,6 @@
 #ifndef filter_sub_source_hh
 #define filter_sub_source_hh
 
-#include "base/injector.hh"
 #include "plain_text_source.hh"
 #include "readline_curses.hh"
 #include "textview_curses.hh"
@@ -59,10 +58,10 @@ public:
 
     size_t text_line_width(textview_curses& curses) override;
 
-    void text_value_for_line(textview_curses& tc,
-                             int line,
-                             std::string& value_out,
-                             line_flags_t flags) override;
+    line_info text_value_for_line(textview_curses& tc,
+                                  int line,
+                                  std::string& value_out,
+                                  line_flags_t flags) override;
 
     void text_attrs_for_line(textview_curses& tc,
                              int line,

@@ -32,7 +32,7 @@
 #include "base/itertools.hh"
 #include "lnav.hh"
 #include "logfile_sub_source.hh"
-#include "scn/scn.h"
+#include "scn/scan.h"
 
 using namespace lnav::roles::literals;
 
@@ -43,16 +43,18 @@ class filtered_sub_source
 public:
     size_t text_line_count() override { return this->fss_lines.size(); }
 
-    void text_value_for_line(textview_curses& tc,
-                             int line,
-                             std::string& value_out,
-                             line_flags_t flags) override
+    line_info text_value_for_line(textview_curses& tc,
+                                  int line,
+                                  std::string& value_out,
+                                  line_flags_t flags) override
     {
         this->fss_lines | lnav::itertools::nth(line)
             | lnav::itertools::for_each([&](const auto row) {
                   this->fss_delegate->text_value_for_line(
                       tc, *row, value_out, flags);
               });
+
+        return {};
     }
 
     size_t text_size_for_line(textview_curses& tc,
@@ -205,7 +207,7 @@ log_spectro_value_source::spectro_row(spectrogram_request& sr,
         const auto& values = msg_info.get_values();
         auto lv_iter = find_if(values.lvv_values.begin(),
                                values.lvv_values.end(),
-                               logline_value_cmp(&this->lsvs_colname));
+                               logline_value_name_cmp(&this->lsvs_colname));
 
         if (lv_iter != values.lvv_values.end()) {
             switch (lv_iter->lv_meta.lvm_kind) {
@@ -246,7 +248,7 @@ log_spectro_value_source::spectro_row(spectrogram_request& sr,
             const auto& values = msg_info.get_values();
             auto lv_iter = find_if(values.lvv_values.begin(),
                                    values.lvv_values.end(),
-                                   logline_value_cmp(&this->lsvs_colname));
+                                   logline_value_name_cmp(&this->lsvs_colname));
 
             if (lv_iter != values.lvv_values.end()) {
                 switch (lv_iter->lv_meta.lvm_kind) {
@@ -311,7 +313,7 @@ log_spectro_value_source::spectro_mark(textview_curses& tc,
 
         auto lv_iter = find_if(values.lvv_values.begin(),
                                values.lvv_values.end(),
-                               logline_value_cmp(&this->lsvs_colname));
+                               logline_value_name_cmp(&this->lsvs_colname));
 
         if (lv_iter != values.lvv_values.end()) {
             switch (lv_iter->lv_meta.lvm_kind) {
@@ -496,11 +498,11 @@ db_spectro_value_source::spectro_row(spectrogram_request& sr,
                        .value_or(vis_line_t(dls.dls_rows.size()));
 
     for (auto lpc = begin_row; lpc < end_row; ++lpc) {
-        auto scan_res = scn::scan_value<double>(scn::string_view{
+        auto scan_res = scn::scan_value<double>(std::string_view{
             dls.dls_rows[lpc][this->dsvs_column_index.value()]});
 
         if (scan_res) {
-            row_out.add_value(sr, scan_res.value(), false);
+            row_out.add_value(sr, scan_res->value(), false);
         }
     }
 
@@ -519,12 +521,12 @@ db_spectro_value_source::spectro_row(spectrogram_request& sr,
                            .value_or(vis_line_t(dls.dls_rows.size()));
 
         for (auto lpc = begin_row; lpc < end_row; ++lpc) {
-            auto scan_res = scn::scan_value<double>(scn::string_view{
+            auto scan_res = scn::scan_value<double>(std::string_view{
                 dls.dls_rows[lpc][this->dsvs_column_index.value()]});
             if (!scan_res) {
                 continue;
             }
-            auto value = scan_res.value();
+            auto value = scan_res->value();
             if ((range_min == value)
                 || (range_min < value && value < range_max))
             {

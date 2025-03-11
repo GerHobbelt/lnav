@@ -30,6 +30,8 @@
 #ifndef lnav_hasher_hh
 #define lnav_hasher_hh
 
+#include <string>
+
 #include <stdint.h>
 
 #include "base/auto_mem.hh"
@@ -73,7 +75,7 @@ public:
         return *this;
     }
 
-    array_t to_array()
+    array_t to_array() const
     {
         uint64_t h1;
         uint64_t h2;
@@ -85,22 +87,48 @@ public:
         return retval;
     }
 
-    void to_string(auto_buffer& buf)
+    void to_string(auto_buffer& buf) const
     {
-        array_t bits = this->to_array();
+        auto bits = this->to_array();
 
         bits.to_string(std::back_inserter(buf));
     }
 
-    std::string to_string()
+    void to_string(char buf[STRING_SIZE])
     {
-        array_t bits = this->to_array();
+        auto bits = this->to_array();
+
+        fmt::format_to(
+            buf,
+            FMT_STRING("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}"
+                       "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}"),
+            bits.ba_data[0],
+            bits.ba_data[1],
+            bits.ba_data[2],
+            bits.ba_data[3],
+            bits.ba_data[4],
+            bits.ba_data[5],
+            bits.ba_data[6],
+            bits.ba_data[7],
+            bits.ba_data[8],
+            bits.ba_data[9],
+            bits.ba_data[10],
+            bits.ba_data[11],
+            bits.ba_data[12],
+            bits.ba_data[13],
+            bits.ba_data[14],
+            bits.ba_data[15]);
+    }
+
+    std::string to_string() const
+    {
+        auto bits = this->to_array();
         return bits.to_string();
     }
 
-    std::string to_uuid_string()
+    std::string to_uuid_string() const
     {
-        array_t bits = this->to_array();
+        auto bits = this->to_array();
         return bits.to_uuid_string();
     }
 

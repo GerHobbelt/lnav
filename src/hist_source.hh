@@ -34,7 +34,6 @@
 
 #include <cmath>
 #include <limits>
-#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -189,7 +188,7 @@ public:
         bucket_stats_t overall_stats;
         struct line_range lr;
 
-        lr.lr_unit = line_range::unit::codepoint;
+        // lr.lr_unit = line_range::unit::codepoint;
 
         size_t ident_to_show = this->sbc_show_state.match(
             [](const show_none) { return -1; },
@@ -334,7 +333,7 @@ protected:
         ssize_t ci_last_seen_row{-1};
     };
 
-    struct chart_ident& find_ident(const T& ident)
+    chart_ident& find_ident(const T& ident)
     {
         auto iter = this->sbc_ident_lookup.find(ident);
         if (iter == this->sbc_ident_lookup.end()) {
@@ -347,7 +346,7 @@ protected:
 
     bool sbc_do_stacking{true};
     unsigned long sbc_left{0}, sbc_right{0};
-    std::vector<struct chart_ident> sbc_idents;
+    std::vector<chart_ident> sbc_idents;
     std::unordered_map<T, unsigned int> sbc_ident_lookup;
     show_state sbc_show_state{show_none()};
 
@@ -377,9 +376,15 @@ public:
 
     void init();
 
-    void set_time_slice(std::chrono::microseconds slice) { this->hs_time_slice = slice; }
+    void set_time_slice(std::chrono::microseconds slice)
+    {
+        this->hs_time_slice = slice;
+    }
 
-    std::chrono::microseconds get_time_slice() const { return this->hs_time_slice; }
+    std::chrono::microseconds get_time_slice() const
+    {
+        return this->hs_time_slice;
+    }
 
     size_t text_line_count() override { return this->hs_line_count; }
 
@@ -390,14 +395,16 @@ public:
 
     void clear();
 
-    void add_value(std::chrono::microseconds row, hist_type_t htype, double value = 1.0);
+    void add_value(std::chrono::microseconds ts,
+                   hist_type_t htype,
+                   double value = 1.0);
 
     void end_of_row();
 
-    void text_value_for_line(textview_curses& tc,
-                             int row,
-                             std::string& value_out,
-                             line_flags_t flags) override;
+    line_info text_value_for_line(textview_curses& tc,
+                                  int row,
+                                  std::string& value_out,
+                                  line_flags_t flags) override;
 
     void text_attrs_for_line(textview_curses& tc,
                              int row,
@@ -412,7 +419,7 @@ public:
 
     std::optional<row_info> time_for_row(vis_line_t row) override;
 
-    std::optional<vis_line_t> row_for_time(struct timeval tv_bucket) override;
+    std::optional<vis_line_t> row_for_time(timeval tv_bucket) override;
 
 private:
     struct hist_value {
@@ -424,7 +431,7 @@ private:
         hist_value b_values[HT__MAX];
     };
 
-    static const int64_t BLOCK_SIZE = 100;
+    static constexpr int64_t BLOCK_SIZE = 100;
 
     struct bucket_block {
         bucket_block()
@@ -440,9 +447,9 @@ private:
 
     std::chrono::microseconds hs_time_slice{10 * 60};
     int64_t hs_line_count;
-    int64_t hs_last_bucket;
-    std::chrono::microseconds hs_last_row;
-    std::map<int64_t, struct bucket_block> hs_blocks;
+    int64_t hs_current_row;
+    std::chrono::microseconds hs_last_ts;
+    std::vector<bucket_block> hs_blocks;
     stacked_bar_chart<hist_type_t> hs_chart;
     bool hs_needs_flush{false};
 };

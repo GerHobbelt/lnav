@@ -11,6 +11,7 @@ FORMAT_FILES = \
     $(srcdir)/%reldir%/cloudvm_ram_log.json \
     $(srcdir)/%reldir%/cups_log.json \
     $(srcdir)/%reldir%/dpkg_log.json \
+    $(srcdir)/%reldir%/ecs_log.json \
     $(srcdir)/%reldir%/elb_log.json \
     $(srcdir)/%reldir%/engine_log.json \
     $(srcdir)/%reldir%/env_logger_log.json \
@@ -32,6 +33,7 @@ FORMAT_FILES = \
     $(srcdir)/%reldir%/page_log.json \
     $(srcdir)/%reldir%/pcap_log.json \
     $(srcdir)/%reldir%/procstate_log.json \
+    $(srcdir)/%reldir%/proxifier_log.json \
     $(srcdir)/%reldir%/rails_log.json \
     $(srcdir)/%reldir%/redis_log.json \
     $(srcdir)/%reldir%/simple_rs_log.json \
@@ -51,6 +53,7 @@ FORMAT_FILES = \
     $(srcdir)/%reldir%/vmw_vc_svc_log.json \
     $(srcdir)/%reldir%/vmw_py_log.json \
     $(srcdir)/%reldir%/vpostgres_log.json \
+    $(srcdir)/%reldir%/web_robot_log.json \
     $(srcdir)/%reldir%/xmlrpc_log.json \
     $(srcdir)/%reldir%/zookeeper_log.json \
     $()

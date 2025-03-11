@@ -334,10 +334,10 @@ SELECT *result-column* FROM *table* WHERE *\[cond\]* GROUP BY *grouping-expr* OR
 
       ;SELECT * FROM lnav_example_log
        log_line  log_part    log_time     log_actual_time log_idle_msecs log_level  log_mark  log_comment log_tags log_filters ex_procname ex_duration log_time_msecs log_path    log_text        log_body     
-               0 <NULL>   2017-02⋯:06.100 2017-02⋯:06.100              0 info               0      <NULL>   <NULL>      <NULL> hw                    2  1486094706000 /tmp/log 2017-02⋯ World! Hello, World!   
-               1 <NULL>   2017-02⋯:06.200 2017-02⋯:06.200            100 error              0      <NULL>   <NULL>      <NULL> gw                    4  1486094706000 /tmp/log 2017-02⋯ World! Goodbye, World! 
-               2 new      2017-02⋯:06.200 2017-02⋯:06.200        1200000 warn               0      <NULL>   <NULL>      <NULL> gw                    1  1486095906000 /tmp/log 2017-02⋯ World! Goodbye, World! 
-               3 new      2017-02⋯:06.200 2017-02⋯:06.200        1800000 debug              0      <NULL>   <NULL>      <NULL> gw                   10  1486097706000 /tmp/log 2017-02⋯ World! Goodbye, World! 
+               0 <NULL>   2017-02⋯:06.100 2017-02⋯:06.100              0 info               0 <NULL>      <NULL>   <NULL>      hw                    2  1486094706000 /tmp/log 2017-02⋯ World! Hello, World!   
+               1 <NULL>   2017-02⋯:06.200 2017-02⋯:06.200            100 error              0 <NULL>      <NULL>   <NULL>      gw                    4  1486094706000 /tmp/log 2017-02⋯ World! Goodbye, World! 
+               2 new      2017-02⋯:06.200 2017-02⋯:06.200        1200000 warn               0 <NULL>      <NULL>   <NULL>      gw                    1  1486095906000 /tmp/log 2017-02⋯ World! Goodbye, World! 
+               3 new      2017-02⋯:06.200 2017-02⋯:06.200        1800000 debug              0 <NULL>      <NULL>   <NULL>      gw                   10  1486097706000 /tmp/log 2017-02⋯ World! Goodbye, World! 
 
 
 ----
@@ -456,8 +456,8 @@ acos(*num*)
 
     .. code-block::  custsqlite
 
-      ;SELECT acos(0.2)
-      1.3694384060045657
+      ;SELECT printf('%.3f', acos(0.2))
+      1.369
 
   **See Also**
     :ref:`abs`, :ref:`acosh`, :ref:`asin`, :ref:`asinh`, :ref:`atan2`, :ref:`atan`, :ref:`atanh`, :ref:`atn2`, :ref:`avg`, :ref:`ceil`, :ref:`degrees`, :ref:`exp`, :ref:`floor`, :ref:`log10`, :ref:`log`, :ref:`max`, :ref:`min`, :ref:`pi`, :ref:`power`, :ref:`radians`, :ref:`round`, :ref:`sign`, :ref:`square`, :ref:`sum`, :ref:`total`
@@ -1315,8 +1315,8 @@ fstat(*pattern*)
       ;SELECT ifnull(data, raise_error('cannot read: ' || st_name, error)) FROM fstat('/non-existent')
       ✘ error: cannot read: non-existent
        reason: No such file or directory
-       --> command:1
-      
+       --> fstat:1
+       | SELECT ifnull(data, raise_error('cannot read: ' || st_name, error)) FROM fstat('/non-existent')
 
 
 ----
@@ -1642,7 +1642,7 @@ humanize_id(*id*)
     .. code-block::  custsqlite
 
       ;SELECT humanize_id('cluster1')
-      [38;5;6mcluster1[0m
+      cluster1
 
   **See Also**
     :ref:`anonymize`, :ref:`char`, :ref:`charindex`, :ref:`decode`, :ref:`encode`, :ref:`endswith`, :ref:`extract`, :ref:`group_concat`, :ref:`group_spooky_hash_agg`, :ref:`gunzip`, :ref:`gzip`, :ref:`humanize_duration`, :ref:`humanize_file_size`, :ref:`instr`, :ref:`leftstr`, :ref:`length`, :ref:`logfmt2json`, :ref:`lower`, :ref:`ltrim`, :ref:`padc`, :ref:`padl`, :ref:`padr`, :ref:`parse_url`, :ref:`pretty_print`, :ref:`printf`, :ref:`proper`, :ref:`regexp_capture_into_json`, :ref:`regexp_capture`, :ref:`regexp_match`, :ref:`regexp_replace`, :ref:`replace`, :ref:`replicate`, :ref:`reverse`, :ref:`rightstr`, :ref:`rtrim`, :ref:`sparkline`, :ref:`spooky_hash`, :ref:`startswith`, :ref:`strfilter`, :ref:`substr`, :ref:`timezone`, :ref:`trim`, :ref:`unicode`, :ref:`unparse_url`, :ref:`upper`, :ref:`xpath`
@@ -1959,9 +1959,9 @@ json_each(*X*, *\[P\]*)
 
       ;SELECT * FROM json_each('[null,1,"two",{"three":4.5}]')
       key     value      type    atom  id parent fullkey path 
-        0 <NULL>        null    <NULL>  2 <NULL> $[0]    $    
-        1 1             integer 1       3 <NULL> $[1]    $    
-        2 two           text    two     5 <NULL> $[2]    $    
+        0        <NULL> null    <NULL>  2 <NULL> $[0]    $    
+        1             1 integer      1  3 <NULL> $[1]    $    
+        2           two text       two  5 <NULL> $[2]    $    
         3 {"three":4.5} object  <NULL>  9 <NULL> $[3]    $    
 
   **See Also**
@@ -2303,11 +2303,11 @@ json_tree(*X*, *\[P\]*)
       ;SELECT key,value,type,atom,fullkey,path FROM json_tree('[null,1,"two",{"three":4.5}]')
        key        value       type    atom   fullkey   path 
       <NULL> [null,1⋯":4.5}] array   <NULL> $          $    
-      0      <NULL>          null    <NULL> $[0]       $    
-      1      1               integer 1      $[1]       $    
-      2      two             text    two    $[2]       $    
-      3      {"three":4.5}   object  <NULL> $[3]       $    
-      three  4.5             real    4.5    $[3].three $[3] 
+           0          <NULL> null    <NULL> $[0]       $    
+           1               1 integer      1 $[1]       $    
+           2             two text       two $[2]       $    
+           3   {"three":4.5} object  <NULL> $[3]       $    
+       three             4.5 real       4.5 $[3].three $[3] 
 
   **See Also**
     :ref:`jget`, :ref:`json_array_length`, :ref:`json_array`, :ref:`json_concat`, :ref:`json_contains`, :ref:`json_each`, :ref:`json_extract`, :ref:`json_group_array`, :ref:`json_group_object`, :ref:`json_insert`, :ref:`json_object`, :ref:`json_quote`, :ref:`json_remove`, :ref:`json_replace`, :ref:`json_set`, :ref:`json_type`, :ref:`json_valid`, :ref:`json`, :ref:`yaml_to_json`
@@ -3287,8 +3287,8 @@ raise_error(*msg*, *\[reason\]*)
       ;SELECT ifnull($val, raise_error('please set $val', 'because'))
       ✘ error: please set $val
        reason: because
-       --> command:1
-      
+       --> raise_error:1
+       | SELECT ifnull($val, raise_error('please set $val', 'because'))
 
 
 ----
@@ -3401,12 +3401,12 @@ regexp_capture(*string*, *pattern*)
 
       ;SELECT * FROM regexp_capture('a=1; b=2', '(\w+)=(\d+)')
       match_index capture_index capture_name capture_count range_start range_stop content 
-                0             0       <NULL>             3           1          4 a=1     
-                0             1       <NULL>             3           1          2 a       
-                0             2       <NULL>             3           3          4 1       
-                1             0       <NULL>             3           6          9 b=2     
-                1             1       <NULL>             3           6          7 b       
-                1             2       <NULL>             3           8          9 2       
+                0             0 <NULL>                   3           1          4     a=1 
+                0             1 <NULL>                   3           1          2       a 
+                0             2 <NULL>                   3           3          4       1 
+                1             0 <NULL>                   3           6          9     b=2 
+                1             1 <NULL>                   3           6          7       b 
+                1             2 <NULL>                   3           8          9       2 
 
   **See Also**
     :ref:`anonymize`, :ref:`char`, :ref:`charindex`, :ref:`decode`, :ref:`encode`, :ref:`endswith`, :ref:`extract`, :ref:`group_concat`, :ref:`group_spooky_hash_agg`, :ref:`gunzip`, :ref:`gzip`, :ref:`humanize_duration`, :ref:`humanize_file_size`, :ref:`humanize_id`, :ref:`instr`, :ref:`leftstr`, :ref:`length`, :ref:`logfmt2json`, :ref:`lower`, :ref:`ltrim`, :ref:`padc`, :ref:`padl`, :ref:`padr`, :ref:`parse_url`, :ref:`pretty_print`, :ref:`printf`, :ref:`proper`, :ref:`regexp_capture_into_json`, :ref:`regexp_match`, :ref:`regexp_replace`, :ref:`replace`, :ref:`replicate`, :ref:`reverse`, :ref:`rightstr`, :ref:`rtrim`, :ref:`sparkline`, :ref:`spooky_hash`, :ref:`startswith`, :ref:`strfilter`, :ref:`substr`, :ref:`timezone`, :ref:`trim`, :ref:`unicode`, :ref:`unparse_url`, :ref:`upper`, :ref:`xpath`
@@ -4230,7 +4230,7 @@ timeslice(*time*, *slice*)
 
       ;SELECT timeslice(log_time_msecs, 'before 4:30am') AS slice, count(1) FROM lnav_example_log GROUP BY slice
            slice       count(1)  
-      <NULL>                   1 
+               <NULL>          1 
       2017-02⋯:00.000          3 
 
   **See Also**

@@ -32,6 +32,7 @@
 #ifndef log_format_loader_hh
 #define log_format_loader_hh
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -39,8 +40,9 @@
 
 #include "base/intern_string.hh"
 #include "base/lnav.console.hh"
-#include <filesystem>
 #include "shlex.resolver.hh"
+#include "text_format.hh"
+#include "yajlpp/yajlpp_def.hh"
 
 class log_vtab_manager;
 
@@ -64,9 +66,10 @@ struct script_metadata {
     std::string sm_name;
     std::string sm_synopsis;
     std::string sm_description;
+    text_format_t sm_output_format{text_format_t::TF_UNKNOWN};
 };
 
-void extract_metadata_from_file(struct script_metadata& meta_inout);
+void extract_metadata_from_file(script_metadata& meta_inout);
 
 struct available_scripts {
     std::map<std::string, std::vector<script_metadata>> as_scripts;
@@ -75,7 +78,7 @@ struct available_scripts {
 void find_format_scripts(const std::vector<std::filesystem::path>& extra_paths,
                          available_scripts& scripts);
 
-extern const struct json_path_container format_handlers;
-extern const struct json_path_container root_format_handler;
+extern const json_path_container format_handlers;
+extern const json_path_container root_format_handler;
 
 #endif

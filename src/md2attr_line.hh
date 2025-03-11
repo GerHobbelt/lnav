@@ -30,8 +30,13 @@
 #ifndef lnav_md2attr_line_hh
 #define lnav_md2attr_line_hh
 
-#include "base/attr_line.hh"
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "base/attr_line.hh"
+#include "base/result.h"
 #include "md4cpp.hh"
 
 namespace pugi {
@@ -60,8 +65,17 @@ public:
 
 private:
     struct table_t {
+        struct cell_t {
+            cell_t(MD_ALIGN align, const attr_line_t& contents)
+                : c_align(align), c_contents(contents)
+            {
+            }
+
+            MD_ALIGN c_align;
+            attr_line_t c_contents;
+        };
         struct row_t {
-            std::vector<attr_line_t> r_columns;
+            std::vector<cell_t> r_columns;
         };
 
         std::vector<attr_line_t> t_headers;
@@ -69,10 +83,12 @@ private:
     };
 
     struct cell_lines {
-        cell_lines(std::vector<attr_line_t> lines) : cl_lines(std::move(lines))
+        cell_lines(MD_ALIGN align, std::vector<attr_line_t> lines)
+            : cl_align(align), cl_lines(std::move(lines))
         {
         }
 
+        MD_ALIGN cl_align;
         std::vector<attr_line_t> cl_lines;
     };
 

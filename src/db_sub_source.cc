@@ -34,14 +34,14 @@
 #include "base/itertools.hh"
 #include "base/time_util.hh"
 #include "config.h"
-#include "scn/scn.h"
+#include "scn/scan.h"
 #include "yajlpp/json_ptr.hh"
 
 const char db_label_source::NULL_STR[] = "<NULL>";
 
 constexpr size_t MAX_JSON_WIDTH = 16 * 1024;
 
-void
+line_info
 db_label_source::text_value_for_line(textview_curses& tc,
                                      int row,
                                      std::string& label_out,
@@ -55,7 +55,7 @@ db_label_source::text_value_for_line(textview_curses& tc,
     label_out.clear();
     this->dls_ansi_attrs.clear();
     if (row < 0_vl || row >= (int) this->dls_rows.size()) {
-        return;
+        return {};
     }
     for (int lpc = 0; lpc < (int) this->dls_rows[row].size(); lpc++) {
         auto actual_col_size = std::min(this->dls_max_column_width,
@@ -68,13 +68,14 @@ db_label_source::text_value_for_line(textview_curses& tc,
         auto cell_length
             = utf8_string_length(cell_str).unwrapOr(actual_col_size);
         auto padding = actual_col_size - cell_length;
+        auto rjust = this->dls_headers[lpc].hm_align == align_t::right;
         this->dls_cell_width[lpc] = cell_str.length() + padding;
-        if (this->dls_headers[lpc].hm_column_type != SQLITE3_TEXT) {
+        if (rjust) {
             label_out.append(padding, ' ');
         }
         shift_string_attrs(cell_attrs, 0, label_out.size());
         label_out.append(cell_str);
-        if (this->dls_headers[lpc].hm_column_type == SQLITE3_TEXT) {
+        if (!rjust) {
             label_out.append(padding, ' ');
         }
         label_out.append(1, ' ');
@@ -82,6 +83,8 @@ db_label_source::text_value_for_line(textview_curses& tc,
         this->dls_ansi_attrs.insert(
             this->dls_ansi_attrs.end(), cell_attrs.begin(), cell_attrs.end());
     }
+
+    return {};
 }
 
 void
@@ -89,8 +92,8 @@ db_label_source::text_attrs_for_line(textview_curses& tc,
                                      int row,
                                      string_attrs_t& sa)
 {
-    struct line_range lr(0, 0);
-    const struct line_range lr2(0, -1);
+    line_range lr(0, 0);
+    const line_range lr2(0, -1);
 
     if (row < 0_vl || row >= (int) this->dls_rows.size()) {
         return;
@@ -118,7 +121,7 @@ db_label_source::text_attrs_for_line(textview_curses& tc,
     }
     int cell_start = 0;
     for (size_t lpc = 0; lpc < this->dls_headers.size(); lpc++) {
-        auto row_view = scn::string_view{this->dls_rows[row][lpc]};
+        auto row_view = std::string_view{this->dls_rows[row][lpc]};
         const auto& hm = this->dls_headers[lpc];
 
         int left = cell_start;
@@ -130,7 +133,7 @@ db_label_source::text_attrs_for_line(textview_curses& tc,
                                                   left,
                                                   this->dls_cell_width[lpc],
                                                   hm.hm_name,
-                                                  num_scan_res.value(),
+                                                  num_scan_res->value(),
                                                   sa);
 
                 for (const auto& attr : sa) {
@@ -161,7 +164,7 @@ db_label_source::text_attrs_for_line(textview_curses& tc,
                             left,
                             this->dls_cell_width[lpc],
                             jpw_value.wt_ptr,
-                            num_scan_res.value(),
+                            num_scan_res->value(),
                             sa);
                         for (const auto& attr : sa) {
                             require_ge(attr.sa_range.lr_start, 0);
@@ -279,7 +282,7 @@ db_label_source::push_column(const scoped_value_t& sv)
                 auto num_scan_res = scn::scan_value<double>(jpw_value.wt_value);
                 if (num_scan_res) {
                     hm.hm_chart.add_value(jpw_value.wt_ptr,
-                                          num_scan_res.value());
+                                          num_scan_res->value());
                     hm.hm_chart.with_attrs_for_ident(
                         jpw_value.wt_ptr, vc.attrs_for_ident(jpw_value.wt_ptr));
                 }
@@ -411,7 +414,7 @@ db_overlay_source::list_value_for_overlay(const listview_curses& lv,
                     if (num_scan_res) {
                         auto attrs = vc.attrs_for_ident(jpw_value.wt_ptr);
 
-                        chart.add_value(jpw_value.wt_ptr, num_scan_res.value());
+                        chart.add_value(jpw_value.wt_ptr, num_scan_res->value());
                         chart.with_attrs_for_ident(jpw_value.wt_ptr, attrs);
                     }
                 }
@@ -438,7 +441,7 @@ db_overlay_source::list_value_for_overlay(const listview_curses& lv,
                                                 left,
                                                 width,
                                                 iter->wt_ptr,
-                                                num_scan_res.value(),
+                                                num_scan_res->value(),
                                                 sa);
                 }
             }
