@@ -28,6 +28,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/fmtlib \
 	-I$(top_srcdir)/src/third-party \
 	-I$(top_srcdir)/src/third-party/date/include \
+	-I$(top_srcdir)/src/third-party/notcurses/include \
 	-I$(top_srcdir)/src/third-party/scnlib/include \
 	$(CODE_COVERAGE_CPPFLAGS) \
 	$(LIBARCHIVE_CFLAGS) \
@@ -87,7 +88,6 @@ check_PROGRAMS = \
 	test_grep_proc2 \
 	test_line_buffer2 \
 	test_log_accel \
-	test_ncurses_unicode \
 	test_reltime \
 	test_text_anonymizer \
 	test_top_status
@@ -127,6 +127,7 @@ LDADD = \
     $(top_builddir)/src/pugixml/libpugixml.a \
     $(top_builddir)/src/third-party/base64/lib/libbase64.a \
     $(top_builddir)/src/third-party/date/src/libdatepp.a \
+	$(top_builddir)/src/third-party/notcurses/src/lib/liblnavnotcurses.a \
     $(top_builddir)/src/third-party/scnlib/src/libscnlib.a \
     $(READLINE_LIBS) \
     $(CURSES_LIB) \
@@ -134,7 +135,8 @@ LDADD = \
     $(SQLITE3_LIBS) \
     $(PCRE_LIBS) \
     $(LIBCURL) \
-    $(RUST_DEPS_LIBS)
+    $(RUST_DEPS_LIBS) \
+    -lunistring
 
 test_ansi_scrubber_SOURCES = test_ansi_scrubber.cc
 
@@ -159,8 +161,6 @@ test_top_status_SOURCES = test_top_status.cc
 test_abbrev_SOURCES = test_abbrev.cc
 
 test_reltime_SOURCES = test_reltime.cc
-
-test_ncurses_unicode_SOURCES = test_ncurses_unicode.cc
 
 lnav_doctests_SOURCES = lnav_doctests.cc
 
@@ -357,6 +357,7 @@ dist_noinst_DATA = \
 	logfile_json.json \
 	logfile_json2.json \
 	logfile_json3.json \
+	logfile_json_invalid.json \
 	logfile_json_subsec.json \
 	logfile_leveltest.0 \
 	logfile_logfmt.0 \
@@ -473,7 +474,10 @@ dist_noinst_DATA = \
     naughty_files.py \
 	remote-log-dir/logfile_access_log.0 \
 	remote-log-dir/logfile_access_log.1 \
+    tui-captures/tui_crumbs.0 \
     tui-captures/tui_echo.0 \
+    tui-captures/tui_filters.0 \
+    tui-captures/tui_filters.1 \
 	tui-captures/tui_help.0
 
 TESTS = \
@@ -501,6 +505,7 @@ TESTS = \
 	test_json_format.sh \
 	test_log_accel \
 	test_logfile.sh \
+    test_regex101.sh \
 	test_reltime \
 	test_scripts.sh \
 	test_sessions.sh \
@@ -520,21 +525,20 @@ TESTS = \
 	test_sql_yaml_func.sh \
 	test_text_anonymizer \
 	test_text_file.sh \
-	test_tui.sh \
 	test_pretty_print.sh \
-    test_view_colors.sh \
-	test_vt52_curses.sh
+    test_view_colors.sh
 
 if HAVE_CARGO
 TESTS += test_prql.sh
 endif
 
 DISABLED_TESTS = \
-    test_regex101.sh \
 	test_remote.sh \
 	test_top_status \
+	test_tui.sh \
 	test_line_buffer2 \
-    test_line_buffer.sh
+    test_line_buffer.sh \
+    test_vt52_curses.sh
 
 if HAVE_LIBCURL
 TESTS += \
@@ -576,6 +580,7 @@ DISTCLEANFILES = \
 	textfile_long_lines.0 \
 	not:a:remote:file \
 	rollover_in.0 \
+	syslog_log.sql \
 	test-logs.tgz \
 	test-logs-trunc.tgz \
 	test_pretty_in.* \
@@ -605,6 +610,7 @@ distclean-local:
 	$(RM_V)rm -rf regex101-home
 	$(RM_V)rm -rf events-home
 	$(RM_V)rm -rf support-dump
+	$(RM_V)rm -rf tui-home
 	$(RM_V)rm -rf ../installer-test-home
 
 expected:

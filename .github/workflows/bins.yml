@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v3
+      - name: list
+        run: find /fake.root
       - name: make
         run: /entrypoint.sh
       - name: Build musl package
@@ -119,7 +121,7 @@ jobs:
           asset_content_type: application/octet-stream
 
   build-macos:
-    runs-on: macos-12
+    runs-on: macos-13
     env:
       LNAV_BASENAME: lnav-${{ inputs.lnav_version_number }}
       LNAV_ZIPNAME: lnav-${{ inputs.lnav_version_number }}-x86_64-macos.zip

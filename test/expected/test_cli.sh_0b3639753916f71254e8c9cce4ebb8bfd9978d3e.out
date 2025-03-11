@@ -56,9 +56,9 @@
                     }
                 },
                 "Wayland": {
-                    "test": "test -n \"$WAYLAND_DISPLAY\"",
+                    "test": "test -n \"$WAYLAND_DISPLAY\" && command -v wl-copy",
                     "general": {
-                        "write": "wl-copy --foreground --type text/plain",
+                        "write": "wl-copy --type text/plain",
                         "read": "wl-paste --no-newline"
                     },
                     "find": {
@@ -112,6 +112,9 @@
                     "command": "xdg-open"
                 }
             }
+        },
+        "textfile": {
+            "max-unformatted-line-length": 1024
         },
         "url-scheme": {
             "docker": {

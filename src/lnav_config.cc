@@ -116,6 +116,9 @@ static auto annoc = injector::bind<lnav::log::annotate::config>::to_instance(
 static auto tssc = injector::bind<top_status_source_cfg>::to_instance(
     +[]() { return &lnav_config.lc_top_status_cfg; });
 
+static auto ltc = injector::bind<lnav::textfile::config>::to_instance(
+    +[]() { return &lnav_config.lc_textfile; });
+
 bool
 check_experimental(const char* feature_name)
 {
@@ -1227,7 +1230,8 @@ static const struct typed_json_path_container<lnav::piper::demux_def>
     demux_def_handlers = {
     yajlpp::property_handler("enabled")
         .with_description(
-            "Indicates whether this demuxer will be used at the demuxing stage")
+            "Indicates whether this demuxer will be used at the demuxing stage "
+            "(defaults to 'true')")
         .for_field(&lnav::piper::demux_def::dd_enabled),
         yajlpp::property_handler("pattern")
             .with_synopsis("<regex>")
@@ -1279,6 +1283,16 @@ static const struct json_path_container file_vtab_handlers = {
         .with_min_value(0)
         .for_field(&_lnav_config::lc_file_vtab,
                    &file_vtab::config::fvc_max_content_size),
+};
+
+static const struct json_path_container textfile_handlers = {
+    yajlpp::property_handler("max-unformatted-line-length")
+        .with_synopsis("<bytes>")
+        .with_description("The maximum allowed length for a line in a text "
+                          "file before formatting is automatically applied")
+        .with_min_value(0)
+        .for_field(&_lnav_config::lc_textfile,
+                   &lnav::textfile::config::c_max_unformatted_line_length),
 };
 
 static const struct json_path_container logfile_handlers = {
@@ -1598,6 +1612,9 @@ static const struct json_path_container tuning_handlers = {
     yajlpp::property_handler("external-opener")
         .with_description("Settings related to opening external files/URLs")
         .with_children(opener_handlers),
+    yajlpp::property_handler("textfile")
+        .with_description("Settings related to text file handling")
+        .with_children(textfile_handlers),
     yajlpp::property_handler("url-scheme")
         .with_description("Settings related to custom URL handling")
         .with_children(url_handlers),

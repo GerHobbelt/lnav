@@ -250,8 +250,7 @@ public:
         lr.lr_end = left = lr.lr_start + amount;
 
         if (!ci.ci_attrs.empty() && !lr.empty()) {
-            auto rev_attrs = ci.ci_attrs;
-            rev_attrs.ta_attrs |= A_REVERSE;
+            const auto rev_attrs = ci.ci_attrs | text_attrs::style::reverse;
             value_out.emplace_back(lr, VC_STYLE.value(rev_attrs));
         }
     }
@@ -378,9 +377,9 @@ public:
 
     void init();
 
-    void set_time_slice(int64_t slice) { this->hs_time_slice = slice; }
+    void set_time_slice(std::chrono::microseconds slice) { this->hs_time_slice = slice; }
 
-    int64_t get_time_slice() const { return this->hs_time_slice; }
+    std::chrono::microseconds get_time_slice() const { return this->hs_time_slice; }
 
     size_t text_line_count() override { return this->hs_line_count; }
 
@@ -391,7 +390,7 @@ public:
 
     void clear();
 
-    void add_value(time_t row, hist_type_t htype, double value = 1.0);
+    void add_value(std::chrono::microseconds row, hist_type_t htype, double value = 1.0);
 
     void end_of_row();
 
@@ -421,7 +420,7 @@ private:
     };
 
     struct bucket_t {
-        time_t b_time;
+        std::chrono::microseconds b_time;
         hist_value b_values[HT__MAX];
     };
 
@@ -439,10 +438,10 @@ private:
 
     bucket_t& find_bucket(int64_t index);
 
-    int64_t hs_time_slice{10 * 60};
+    std::chrono::microseconds hs_time_slice{10 * 60};
     int64_t hs_line_count;
     int64_t hs_last_bucket;
-    time_t hs_last_row;
+    std::chrono::microseconds hs_last_row;
     std::map<int64_t, struct bucket_block> hs_blocks;
     stacked_bar_chart<hist_type_t> hs_chart;
     bool hs_needs_flush{false};

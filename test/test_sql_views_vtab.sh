@@ -19,6 +19,14 @@ run_cap_test ${lnav_test} -n \
     -c ";UPDATE lnav_view_files SET visible=0 WHERE endswith(filepath, 'log.0')" \
     ${test_dir}/logfile_access_log.*
 
+run_cap_test ${lnav_test} -n \
+    -c ";INSERT INTO lnav_view_files VALUES ('log', '/abc/def', 1)" \
+    ${test_dir}/logfile_access_log.*
+
+run_cap_test ${lnav_test} -n \
+    -c ";DELETE FROM lnav_view_files" \
+    ${test_dir}/logfile_access_log.*
+
 run_test ${lnav_test} -n \
     -c ";DELETE FROM lnav_view_stack" \
     ${test_dir}/logfile_access_log.0
@@ -34,6 +42,9 @@ run_cap_test ${lnav_test} -n \
     -c ";INSERT INTO lnav_view_stack VALUES ('help')" \
     -c ";DELETE FROM lnav_view_stack WHERE name = 'log'" \
     ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -nN \
+    -c ";INSERT INTO lnav_view_filters VALUES ('log', 0, 1, 'out', 'bad', '')"
 
 run_cap_test ${lnav_test} -n \
     -c ";INSERT INTO lnav_view_filters VALUES ('log', 0, 1, 'out', 'regex', '')" \
@@ -93,6 +104,11 @@ run_cap_test ${lnav_test} -n \
 run_cap_test ${lnav_test} -n \
     -c ":filter-out vmk" \
     -c ";UPDATE lnav_view_filters SET pattern = 'vmkboot'" \
+    ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -n \
+    -c ":filter-out vmk" \
+    -c ";UPDATE lnav_view_filters SET enabled = 0" \
     ${test_dir}/logfile_access_log.0
 
 run_test ${lnav_test} -n \
@@ -190,5 +206,22 @@ run_cap_test ${lnav_test} -n -I ${test_dir} \
     ${test_dir}/logfile_bunyan.0
 
 run_cap_test ${lnav_test} -n \
+    -c ";UPDATE lnav_views SET options = json_object('row-time-offset', 'show') WHERE name = 'log'" \
+    ${test_dir}/logfile_w3c_big.0
+
+run_cap_test ${lnav_test} -n \
     -c ";UPDATE lnav_views SET top_meta = json_object('file', 'bad') WHERE name = 'text'" \
     ${test_dir}/textfile_ansi.0
+
+run_cap_test ${lnav_test} -n \
+    -c ";SELECT * FROM lnav_views" \
+    -c ":write-json-to -" \
+    ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -n \
+    -c ";INSERT INTO lnav_view_filters (view_name, language, pattern) VALUES ('text', 'sql', ':sc_bytes = 134')" \
+    ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -n \
+    -c ";INSERT INTO lnav_view_filters (view_name, language, pattern) VALUES ('log', 'sql', ':sc_bytes # 134')" \
+    ${test_dir}/logfile_access_log.0

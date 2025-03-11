@@ -174,7 +174,7 @@ struct lnav_data_t {
     sig_atomic_t ld_winched;
     sig_atomic_t ld_child_terminated;
     unsigned long ld_flags;
-    WINDOW* ld_window;
+    ncplane* ld_window;
     ln_mode_t ld_mode;
     ln_mode_t ld_last_config_mode{ln_mode_t::FILTER};
 
@@ -284,7 +284,7 @@ extern struct lnav_data_t lnav_data;
 extern verbosity_t verbosity;
 
 extern readline_context::command_map_t lnav_commands;
-extern const int ZOOM_LEVELS[];
+extern const std::chrono::microseconds ZOOM_LEVELS[];
 extern const ssize_t ZOOM_COUNT;
 
 #define HELP_MSG_CTRL(x, msg) "Press '" ANSI_BOLD("CTRL-" #x) "' " msg

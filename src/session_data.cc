@@ -574,7 +574,11 @@ load_time_bookmarks()
                     while (line_iter != lf->end()) {
                         const auto line_tv = line_iter->get_timeval();
 
-                        if (line_tv != log_tv) {
+                        // NB: only milliseconds were stored in the DB, but the
+                        // internal rep stores micros now.
+                        if (line_tv.tv_sec != log_tv.tv_sec
+                            || line_tv.tv_usec / 1000 != log_tv.tv_usec / 1000)
+                        {
                             if (format->lf_time_ordered) {
                                 break;
                             }
@@ -801,10 +805,11 @@ load_time_bookmarks()
                     auto line_iter
                         = lower_bound(lf->begin(), lf->end(), log_tv);
                     while (line_iter != lf->end()) {
-                        struct timeval line_tv = line_iter->get_timeval();
+                        auto line_tv = line_iter->get_timeval();
 
                         if ((line_tv.tv_sec != log_tv.tv_sec)
-                            || (line_tv.tv_usec != log_tv.tv_usec))
+                            || (line_tv.tv_usec / 1000
+                                != log_tv.tv_usec / 1000))
                         {
                             break;
                         }
@@ -1598,8 +1603,6 @@ save_session_with_id(const std::string& session_id)
 
                 for (int lpc = 0; lpc < LNV__MAX; lpc++) {
                     auto& tc = lnav_data.ld_views[lpc];
-                    unsigned long width;
-                    vis_line_t height;
 
                     top_view_map.gen(lnav_view_strings[lpc]);
 
@@ -1607,7 +1610,6 @@ save_session_with_id(const std::string& session_id)
 
                     view_map.gen("top_line");
 
-                    tc.get_dimensions(height, width);
                     if (tc.get_top() >= tc.get_top_for_last_row()) {
                         view_map.gen(-1LL);
                     } else {

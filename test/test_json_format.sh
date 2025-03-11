@@ -8,6 +8,10 @@ run_cap_test env TZ=UTC ${lnav_test} -n \
     -I ${test_dir} \
     ${test_dir}/logfile_journald.json
 
+cat ${test_dir}/logfile_journald.json | \
+    run_cap_test env TZ=UTC ${lnav_test} -n \
+    -c ':test-comment json format on stdin'
+
 # json log format is not working"
 run_cap_test ${lnav_test} -n \
     -I ${test_dir} \
@@ -161,3 +165,8 @@ run_cap_test ${lnav_test} -n \
 
 run_cap_test ${lnav_test} -n \
     ${test_dir}/gharchive_log.jsonl
+
+run_cap_test ${lnav_test} -n \
+    -I ${test_dir} \
+    -c ':goto 9' \
+    ${test_dir}/logfile_json_invalid.json

@@ -118,6 +118,11 @@ echo "Hello, World!" | run_cap_test \
     env TEST_COMMENT="piper crumbs" TZ=America/Los_Angeles \
     ${lnav_test} -nt
 
+echo "Hello, World!" | run_cap_test \
+    env TEST_COMMENT="piper time offset" TZ=America/Los_Angeles \
+    ${lnav_test} -n \
+    -c ";UPDATE lnav_views SET options = json_object('row-time-offset', 'show') WHERE name = 'text'"
+
 ${test_dir}/naughty_files.py
 run_cap_test ${lnav_test} -n naughty/file-with-hidden-text.txt
 
@@ -135,3 +140,9 @@ run_cap_test ${lnav_test} -n \
 
 run_cap_test ${lnav_test} -n \
     ${test_dir}/textfile_json_long.0
+
+run_cap_test ${lnav_test} -n \
+    -c ':switch-to-view help' \
+    -c ':next-section' \
+    -c ':next-section' \
+    -c ";SELECT top FROM lnav_views WHERE name = 'help'"

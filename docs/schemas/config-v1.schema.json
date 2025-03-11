@@ -249,6 +249,20 @@
                     },
                     "additionalProperties": false
                 },
+                "textfile": {
+                    "description": "Settings related to text file handling",
+                    "title": "/tuning/textfile",
+                    "type": "object",
+                    "properties": {
+                        "max-unformatted-line-length": {
+                            "title": "/tuning/textfile/max-unformatted-line-length",
+                            "description": "The maximum allowed length for a line in a text file before formatting is automatically applied",
+                            "type": "integer",
+                            "minimum": 0
+                        }
+                    },
+                    "additionalProperties": false
+                },
                 "url-scheme": {
                     "description": "Settings related to custom URL handling",
                     "title": "/tuning/url-scheme",
@@ -965,7 +979,7 @@
                             "properties": {
                                 "enabled": {
                                     "title": "/log/demux/<name>/enabled",
-                                    "description": "Indicates whether this demuxer will be used at the demuxing stage",
+                                    "description": "Indicates whether this demuxer will be used at the demuxing stage (defaults to 'true')",
                                     "type": "boolean"
                                 },
                                 "pattern": {

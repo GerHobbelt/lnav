@@ -333,10 +333,9 @@ logline_value::origin_in_full_msg(const char* msg, ssize_t len) const
     return retval;
 }
 
-logline_value::
-logline_value(logline_value_meta lvm,
-              shared_buffer_ref& sbr,
-              struct line_range origin)
+logline_value::logline_value(logline_value_meta lvm,
+                             shared_buffer_ref& sbr,
+                             struct line_range origin)
     : lv_meta(std::move(lvm)), lv_origin(origin)
 {
     if (sbr.get_data() == nullptr) {
@@ -777,7 +776,8 @@ log_format::check_for_new_year(std::vector<logline>& dst,
         return;
     }
 
-    time_t diff = dst.back().get_time() - log_tv.tv_sec;
+    time_t diff
+        = dst.back().get_time<std::chrono::seconds>().count() - log_tv.tv_sec;
     int off_year = 0, off_month = 0, off_day = 0, off_hour = 0;
     bool do_change = true;
 
@@ -806,7 +806,7 @@ log_format::check_for_new_year(std::vector<logline>& dst,
               off_day,
               off_hour);
     for (auto& ll : dst) {
-        time_t ot = ll.get_time();
+        time_t ot = ll.get_time<std::chrono::seconds>().count();
         struct tm otm;
 
         gmtime_r(&ot, &otm);
@@ -825,7 +825,9 @@ log_format::check_for_new_year(std::vector<logline>& dst,
             continue;
         }
         new_time -= (off_day * 24 * 60 * 60) + (off_hour * 60 * 60);
-        ll.set_time(new_time);
+        auto old_sub = ll.get_subsecond_time<std::chrono::microseconds>();
+        ll.set_time(std::chrono::seconds{new_time});
+        ll.set_subsecond_time(old_sub);
     }
 }
 
@@ -958,7 +960,8 @@ read_json_number(yajlpp_parse_context* ypc,
                 break;
         }
         jlu->jlu_exttm.et_flags |= ETF_SUB_NOT_IN_FORMAT;
-        jlu->jlu_base_line->set_millis(millis);
+        jlu->jlu_base_line->set_subsecond_time(
+            std::chrono::milliseconds(millis));
     } else if (jlu->jlu_format->elf_level_field == field_name) {
         if (jlu->jlu_format->elf_level_pairs.empty()) {
             jlu->jlu_base_line->set_level(jlu->jlu_format->convert_level(
@@ -1232,7 +1235,9 @@ external_log_format::scan(logfile& lf,
     }
 
     if (this->elf_type == elf_type_t::ELF_TYPE_JSON) {
-        logline ll(li.li_file_range.fr_offset, 0, 0, LEVEL_INFO);
+        logline ll(li.li_file_range.fr_offset,
+                   std::chrono::microseconds{0},
+                   LEVEL_INFO);
         auto line_frag = sbr.to_string_fragment();
 
         if (!line_frag.startswith("{")) {
@@ -1243,7 +1248,7 @@ external_log_format::scan(logfile& lf,
             ll.set_time(dst.back().get_timeval());
             ll.set_level(LEVEL_INVALID);
             dst.emplace_back(ll);
-            return log_format::scan_match{0};
+            return scan_match{0};
         }
 
         auto& ypc = *(this->jlf_parse_context);
@@ -1257,7 +1262,7 @@ external_log_format::scan(logfile& lf,
                 ll.set_level(LEVEL_INVALID);
                 dst.emplace_back(ll);
             }
-            return log_format::scan_incomplete{};
+            return scan_incomplete{};
         }
 
         const auto* line_data = (const unsigned char*) sbr.get_data();
@@ -1281,7 +1286,7 @@ external_log_format::scan(logfile& lf,
         if (yajl_parse(handle, line_data, sbr.length()) == yajl_status_ok
             && yajl_complete_parse(handle) == yajl_status_ok)
         {
-            if (ll.get_time() == 0) {
+            if (ll.get_time<std::chrono::microseconds>().count() == 0) {
                 if (this->lf_specialized) {
                     ll.set_ignore(true);
                     dst.emplace_back(ll);
@@ -1474,10 +1479,13 @@ external_log_format::scan(logfile& lf,
 
         if (!(this->lf_timestamp_flags
               & (ETF_MILLIS_SET | ETF_MICROS_SET | ETF_NANOS_SET))
-            && !dst.empty() && dst.back().get_time() == log_tv.tv_sec
-            && dst.back().get_millis() != 0)
+            && !dst.empty()
+            && dst.back().get_time<std::chrono::seconds>().count()
+                == log_tv.tv_sec
+            && dst.back().get_subsecond_time<std::chrono::milliseconds>().count() != 0)
         {
-            auto log_ms = std::chrono::milliseconds(dst.back().get_millis());
+            auto log_ms
+                = dst.back().get_subsecond_time<std::chrono::microseconds>();
 
             log_time_tm.et_nsec
                 = std::chrono::duration_cast<std::chrono::nanoseconds>(log_ms)
@@ -1658,21 +1666,21 @@ external_log_format::scan(logfile& lf,
             }
             this->lf_pattern_locks.emplace_back(lock_line, curr_fmt);
         }
-        return log_format::scan_match{1000};
+        return scan_match{1000};
     }
 
     if (this->lf_specialized && !this->lf_multiline) {
-        auto& last_line = dst.back();
+        const auto& last_line = dst.back();
 
         log_debug("invalid line %d %d", dst.size(), li.li_file_range.fr_offset);
         dst.emplace_back(li.li_file_range.fr_offset,
                          last_line.get_timeval(),
                          log_level_t::LEVEL_INVALID);
 
-        return log_format::scan_match{0};
+        return scan_match{0};
     }
 
-    return log_format::scan_no_match{"no patterns matched"};
+    return scan_no_match{"no patterns matched"};
 }
 
 uint8_t
@@ -2407,7 +2415,7 @@ external_log_format::get_subline(const logline& ll,
                             struct exttm et;
 
                             ll.to_exttm(et);
-                            et.et_nsec += jlu.jlu_exttm.et_nsec % 1000000;
+                            et.et_nsec += jlu.jlu_exttm.et_nsec % 1000;
                             et.et_gmtoff = jlu.jlu_exttm.et_gmtoff;
                             et.et_flags |= jlu.jlu_exttm.et_flags;
                             if (!jfe.jfe_prefix.empty()) {
@@ -2758,10 +2766,12 @@ detect_mime_type(const std::filesystem::path& filename)
 void
 external_log_format::build(std::vector<lnav::console::user_message>& errors)
 {
+    auto& vc = view_colors::singleton();
+
     if (!this->lf_timestamp_field.empty()) {
         auto& vd = this->elf_value_defs[this->lf_timestamp_field];
         if (vd.get() == nullptr) {
-            vd = std::make_shared<external_log_format::value_def>(
+            vd = std::make_shared<value_def>(
                 this->lf_timestamp_field,
                 value_kind_t::VALUE_TEXT,
                 logline_value_meta::internal_column{},
@@ -2782,7 +2792,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
     {
         auto& vd = this->elf_value_defs[this->elf_level_field];
         if (vd.get() == nullptr) {
-            vd = std::make_shared<external_log_format::value_def>(
+            vd = std::make_shared<value_def>(
                 this->elf_level_field,
                 value_kind_t::VALUE_TEXT,
                 logline_value_meta::internal_column{},
@@ -2796,7 +2806,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
     if (!this->elf_body_field.empty()) {
         auto& vd = this->elf_value_defs[this->elf_body_field];
         if (vd.get() == nullptr) {
-            vd = std::make_shared<external_log_format::value_def>(
+            vd = std::make_shared<value_def>(
                 this->elf_body_field,
                 value_kind_t::VALUE_TEXT,
                 logline_value_meta::internal_column{},
@@ -3749,53 +3759,53 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
     }
 
     for (auto& hd_pair : this->elf_highlighter_patterns) {
-        external_log_format::highlighter_def& hd = hd_pair.second;
-        auto fg = styling::color_unit::make_empty();
-        auto bg = styling::color_unit::make_empty();
+        auto& hd = hd_pair.second;
         text_attrs attrs;
 
         if (!hd.hd_color.pp_value.empty()) {
-            fg = styling::color_unit::from_str(hd.hd_color.pp_value)
-                     .unwrapOrElse([&](const auto& msg) {
-                         errors.emplace_back(
-                             lnav::console::user_message::error(
-                                 attr_line_t()
-                                     .append_quoted(hd.hd_color.pp_value)
-                                     .append(" is not a valid color value for "
-                                             "property ")
-                                     .append_quoted(lnav::roles::symbol(
-                                         hd.hd_color.pp_path.to_string())))
-                                 .with_reason(msg)
-                                 .with_snippet(hd.hd_color.to_snippet()));
-                         return styling::color_unit::make_empty();
-                     });
+            attrs.ta_fg_color = vc.match_color(
+                styling::color_unit::from_str(hd.hd_color.pp_value)
+                    .unwrapOrElse([&](const auto& msg) {
+                        errors.emplace_back(
+                            lnav::console::user_message::error(
+                                attr_line_t()
+                                    .append_quoted(hd.hd_color.pp_value)
+                                    .append(" is not a valid color value for "
+                                            "property ")
+                                    .append_quoted(lnav::roles::symbol(
+                                        hd.hd_color.pp_path.to_string())))
+                                .with_reason(msg)
+                                .with_snippet(hd.hd_color.to_snippet()));
+                        return styling::color_unit::make_empty();
+                    }));
         }
 
         if (!hd.hd_background_color.pp_value.empty()) {
-            bg = styling::color_unit::from_str(hd.hd_background_color.pp_value)
-                     .unwrapOrElse([&](const auto& msg) {
-                         errors.emplace_back(
-                             lnav::console::user_message::error(
-                                 attr_line_t()
-                                     .append_quoted(
-                                         hd.hd_background_color.pp_value)
-                                     .append(" is not a valid color value for "
-                                             "property ")
-                                     .append_quoted(lnav::roles::symbol(
-                                         hd.hd_background_color.pp_path
-                                             .to_string())))
-                                 .with_reason(msg)
-                                 .with_snippet(
-                                     hd.hd_background_color.to_snippet()));
-                         return styling::color_unit::make_empty();
-                     });
+            attrs.ta_bg_color = vc.match_color(
+                styling::color_unit::from_str(hd.hd_background_color.pp_value)
+                    .unwrapOrElse([&](const auto& msg) {
+                        errors.emplace_back(
+                            lnav::console::user_message::error(
+                                attr_line_t()
+                                    .append_quoted(
+                                        hd.hd_background_color.pp_value)
+                                    .append(" is not a valid color value for "
+                                            "property ")
+                                    .append_quoted(lnav::roles::symbol(
+                                        hd.hd_background_color.pp_path
+                                            .to_string())))
+                                .with_reason(msg)
+                                .with_snippet(
+                                    hd.hd_background_color.to_snippet()));
+                        return styling::color_unit::make_empty();
+                    }));
         }
 
         if (hd.hd_underline) {
-            attrs.ta_attrs |= A_UNDERLINE;
+            attrs |= text_attrs::style::underline;
         }
         if (hd.hd_blink) {
-            attrs.ta_attrs |= A_BLINK;
+            attrs |= text_attrs::style::blink;
         }
 
         if (hd.hd_pattern.pp_value != nullptr) {
@@ -3803,7 +3813,6 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
             this->lf_highlighters.back()
                 .with_name(hd_pair.first.to_string())
                 .with_format_name(this->elf_name)
-                .with_color(fg, bg)
                 .with_attrs(attrs);
         }
     }
@@ -4308,8 +4317,8 @@ log_format::find_root_format(const char* name)
     return nullptr;
 }
 
-log_format::pattern_for_lines::
-pattern_for_lines(uint32_t pfl_line, uint32_t pfl_pat_index)
+log_format::pattern_for_lines::pattern_for_lines(uint32_t pfl_line,
+                                                 uint32_t pfl_pat_index)
     : pfl_line(pfl_line), pfl_pat_index(pfl_pat_index)
 {
 }

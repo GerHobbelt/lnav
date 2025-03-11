@@ -1,3 +1,15 @@
+## lnav v0.12.4
+
+Features:
+* Log message timestamps are now represented with microsecond
+  precision internally instead of just millisecond.
+
+Bug Fixes:
+* Improved startup time.
+
+Maintenance:
+* Replaced ncurses with notcurses.
+
 ## lnav v0.12.3
 
 Features:
@@ -26,9 +38,12 @@ Features:
 * Added a `:set-text-view-mode` command that controls whether
   file contents, such as markdown, are rendered or shown in
   their raw state.
-* Text files with lines longer than 240 characters will be
+* Text files with lines longer than 1024 characters will be
   automatically pretty-printed.  You can revert to the raw view
-  using the `:set-text-view-mode` command.
+  using the `:set-text-view-mode` command.  The character limit
+  can be adjusted with the
+  `/tuning/textfile/max-unformatted-line-length` configuration
+  setting.
 * Added a `pretty_print()` SQL function that provides the same
   functionality as the PRETTY view.
 * Keymap definitions can now bind to a function key using an
@@ -36,6 +51,7 @@ Features:
   function key.
 * Added log formats for the `env_logger` and `simple_logger` Rust
   crates.
+* Timestamp formats can now use `%j` to capture day-of-year values.
 
 Interface Changes:
 * The "Gantt Chart" view has been renamed to "timeline."

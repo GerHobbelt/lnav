@@ -146,8 +146,7 @@ pretty_pipe_callback(exec_context& ec, const std::string& cmdline, auto_fd& fd)
     return retval;
 }
 
-logfile_sub_source::
-logfile_sub_source()
+logfile_sub_source::logfile_sub_source()
     : text_sub_source(1), lss_meta_grepper(*this), lss_location_history(*this)
 {
     this->tss_supports_filtering = true;
@@ -158,13 +157,12 @@ logfile_sub_source()
 std::shared_ptr<logfile>
 logfile_sub_source::find(const char* fn, content_line_t& line_base)
 {
-    iterator iter;
     std::shared_ptr<logfile> retval = nullptr;
 
     line_base = content_line_t(0);
-    for (iter = this->lss_files.begin();
+    for (auto iter = this->lss_files.begin();
          iter != this->lss_files.end() && retval == nullptr;
-         iter++)
+         ++iter)
     {
         auto& ld = *(*iter);
         auto* lf = ld.get_file_ptr();
@@ -350,10 +348,8 @@ logfile_sub_source::text_value_for_line(textview_curses& tc,
                 || !(format->lf_timestamp_flags & ETF_MONTH_SET))
             {
                 adjusted_time = this->lss_token_line->get_timeval();
-                if (format->lf_timestamp_flags
-                    & (ETF_MICROS_SET | ETF_NANOS_SET))
-                {
-                    fmt = "%Y-%m-%d %H:%M:%S.%f";
+                if (format->lf_timestamp_flags & ETF_NANOS_SET) {
+                    fmt = "%Y-%m-%d %H:%M:%S.%N";
                     struct timeval actual_tv;
                     struct exttm tm;
                     if (format->lf_date_time.scan(
@@ -366,6 +362,8 @@ logfile_sub_source::text_value_for_line(textview_curses& tc,
                     {
                         adjusted_time.tv_usec = actual_tv.tv_usec;
                     }
+                } else if (format->lf_timestamp_flags & ETF_MICROS_SET) {
+                    fmt = "%Y-%m-%d %H:%M:%S.%f";
                 } else if (format->lf_timestamp_flags & ETF_MILLIS_SET) {
                     fmt = "%Y-%m-%d %H:%M:%S.%L";
                 } else {
@@ -463,10 +461,11 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
     }
 
     if (next_line != nullptr
-        && (day_num(next_line->get_time())
-            > day_num(this->lss_token_line->get_time())))
+        && (day_num(next_line->get_time<std::chrono::seconds>().count())
+            > day_num(this->lss_token_line->get_time<std::chrono::seconds>()
+                          .count())))
     {
-        attrs.ta_attrs |= A_UNDERLINE;
+        attrs.ta_attrs |= NCSTYLE_UNDERLINE;
     }
 
     const auto& line_values = this->lss_token_values;
@@ -534,20 +533,20 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
             = binary_search(bv.begin(), bv.end(), vis_line_t(row));
         bool is_last_for_file
             = binary_search(bv.begin(), bv.end(), vis_line_t(row + 1));
-        chtype graph = ACS_VLINE;
+        auto graph = NCACS_VLINE;
         if (is_first_for_file) {
             if (is_last_for_file) {
-                graph = ACS_HLINE;
+                graph = NCACS_HLINE;
             } else {
-                graph = ACS_ULCORNER;
+                graph = NCACS_ULCORNER;
             }
         } else if (is_last_for_file) {
-            graph = ACS_LLCORNER;
+            graph = NCACS_LLCORNER;
         }
         value_out.emplace_back(lr, VC_GRAPHIC.value(graph));
 
         if (!(this->lss_token_flags & RF_FULL)) {
-            auto& bv_search = bm[&textview_curses::BM_SEARCH];
+            const auto& bv_search = bm[&textview_curses::BM_SEARCH];
 
             if (binary_search(std::begin(bv_search),
                               std::end(bv_search),
@@ -555,8 +554,8 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
             {
                 lr.lr_start = 0;
                 lr.lr_end = 1;
-                value_out.emplace_back(lr,
-                                       VC_STYLE.value(text_attrs{A_REVERSE}));
+                value_out.emplace_back(
+                    lr, VC_STYLE.value(text_attrs::with_reverse()));
             }
         }
     }
@@ -587,17 +586,18 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
         shift_string_attrs(value_out, 0, time_offset_end);
 
         value_out.emplace_back(lr, VC_ROLE.value(role_t::VCR_OFFSET_TIME));
-        value_out.emplace_back(line_range(12, 13), VC_GRAPHIC.value(ACS_VLINE));
+        value_out.emplace_back(line_range(12, 13),
+                               VC_GRAPHIC.value(NCACS_VLINE));
 
         role_t bar_role = role_t::VCR_NONE;
 
         switch (this->get_line_accel_direction(vis_line_t(row))) {
-            case log_accel::A_STEADY:
+            case log_accel::direction_t::A_STEADY:
                 break;
-            case log_accel::A_DECEL:
+            case log_accel::direction_t::A_DECEL:
                 bar_role = role_t::VCR_DIFF_DELETE;
                 break;
-            case log_accel::A_ACCEL:
+            case log_accel::direction_t::A_ACCEL:
                 bar_role = role_t::VCR_DIFF_ADD;
                 break;
         }
@@ -656,13 +656,14 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
 
     if (!this->lss_token_line->is_continued()) {
         if (this->lss_preview_filter_stmt != nullptr) {
-            int color;
+            auto color = styling::color_unit::make_empty();
             auto eval_res
                 = this->eval_sql_filter(this->lss_preview_filter_stmt.in(),
                                         this->lss_token_file_data,
                                         this->lss_token_line);
             if (eval_res.isErr()) {
-                color = COLOR_YELLOW;
+                color = palette_color{
+                    lnav::enums::to_underlying(ansi_color::yellow)};
                 value_out.emplace_back(
                     line_range{0, -1},
                     SA_ERROR.value(
@@ -671,11 +672,14 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
                 auto matched = eval_res.unwrap();
 
                 if (matched) {
-                    color = COLOR_GREEN;
+                    color = palette_color{
+                        lnav::enums::to_underlying(ansi_color::green)};
                 } else {
-                    color = COLOR_RED;
-                    value_out.emplace_back(line_range{0, 1},
-                                           VC_STYLE.value(text_attrs{A_BLINK}));
+                    color = palette_color{
+                        lnav::enums::to_underlying(ansi_color::red)};
+                    value_out.emplace_back(
+                        line_range{0, 1},
+                        VC_STYLE.value(text_attrs::with_blink()));
                 }
             }
             value_out.emplace_back(line_range{0, 1},
@@ -693,10 +697,11 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
                     FMT_STRING(
                         "filter expression evaluation failed with -- {}"),
                     eval_res.unwrapErr().to_attr_line().get_string());
-                auto color = COLOR_YELLOW;
                 value_out.emplace_back(line_range{0, -1}, SA_ERROR.value(msg));
-                value_out.emplace_back(line_range{0, 1},
-                                       VC_BACKGROUND.value(color));
+                value_out.emplace_back(
+                    line_range{0, 1},
+                    VC_BACKGROUND.value(palette_color{
+                        lnav::enums::to_underlying(ansi_color::yellow)}));
             }
         }
     }
@@ -732,12 +737,14 @@ struct logline_cmp {
         }
 #endif
 
+#if 0
     bool operator()(const content_line_t& lhs, const time_t& rhs) const
     {
         logline* ll_lhs = this->llss_controller.find_line(lhs);
 
         return *ll_lhs < rhs;
     }
+#endif
 
     bool operator()(const content_line_t& lhs, const struct timeval& rhs) const
     {
@@ -850,11 +857,15 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
                                     lf->get_filename().c_str(),
                                     ld.ld_lines_indexed,
                                     last_indexed_line,
-                                    new_file_line.get_time_in_millis(),
+                                    new_file_line
+                                        .get_time<std::chrono::microseconds>()
+                                        .count(),
                                     last_indexed_line == nullptr
                                         ? (uint64_t) -1
                                         : last_indexed_line
-                                              ->get_time_in_millis());
+                                              ->get_time<
+                                                  std::chrono::microseconds>()
+                                              .count());
                                 if (retval
                                     <= rebuild_result::rr_partial_rebuild)
                                 {
@@ -1384,9 +1395,10 @@ logfile_sub_source::text_filters_changed()
 }
 
 bool
-logfile_sub_source::list_input_handle_key(listview_curses& lv, int ch)
+logfile_sub_source::list_input_handle_key(listview_curses& lv,
+                                          const ncinput& ch)
 {
-    switch (ch) {
+    switch (ch.eff_text[0]) {
         case ' ': {
             auto ov_vl = lv.get_overlay_selection();
             if (ov_vl) {
@@ -1451,8 +1463,7 @@ logfile_sub_source::list_input_handle_key(listview_curses& lv, int ch)
         }
         case 'h':
         case 'H':
-        case KEY_SLEFT:
-        case KEY_LEFT:
+        case NCKEY_LEFT:
             if (lv.get_left() == 0) {
                 this->increase_line_context();
                 lv.set_needs_update();
@@ -1461,8 +1472,7 @@ logfile_sub_source::list_input_handle_key(listview_curses& lv, int ch)
             break;
         case 'l':
         case 'L':
-        case KEY_SRIGHT:
-        case KEY_RIGHT:
+        case NCKEY_RIGHT:
             if (this->decrease_line_context()) {
                 lv.set_needs_update();
                 return true;
@@ -1529,9 +1539,6 @@ logfile_sub_source::insert_file(const std::shared_ptr<logfile>& lf)
 Result<void, lnav::console::user_message>
 logfile_sub_source::set_sql_filter(std::string stmt_str, sqlite3_stmt* stmt)
 {
-    for (auto& filt : this->tss_filters) {
-        log_debug("set filt %p %d", filt.get(), filt->lf_deleted);
-    }
     if (stmt != nullptr && !this->lss_filtered_index.empty()) {
         auto top_cl = this->at(0_vl);
         auto ld = this->find_data(top_cl);
@@ -1553,7 +1560,6 @@ logfile_sub_source::set_sql_filter(std::string stmt_str, sqlite3_stmt* stmt)
         auto new_filter
             = std::make_shared<sql_filter>(*this, std::move(stmt_str), stmt);
 
-        log_debug("fstack %p new %p", &this->tss_filters, new_filter.get());
         if (old_filter) {
             auto existing_iter = std::find(this->tss_filters.begin(),
                                            this->tss_filters.end(),
@@ -1603,7 +1609,14 @@ logfile_sub_source::set_sql_marker(std::string stmt_str, sqlite3_stmt* stmt)
     {
         auto cl = this->at(row);
         auto ld = this->find_data(cl);
+
+        if (!(*ld)->is_visible()) {
+            continue;
+        }
         auto ll = (*ld)->get_file()->begin() + cl;
+        if (ll->is_continued() || ll->is_ignored()) {
+            continue;
+        }
         auto eval_res
             = this->eval_sql_filter(this->lss_marker_stmt.in(), ld, ll);
 
@@ -1702,7 +1715,10 @@ logfile_sub_source::eval_sql_filter(sqlite3_stmt* stmt,
             continue;
         }
         if (strcmp(name, ":log_time_msecs") == 0) {
-            sqlite3_bind_int64(stmt, lpc + 1, ll->get_time_in_millis());
+            sqlite3_bind_int64(
+                stmt,
+                lpc + 1,
+                ll->get_time<std::chrono::milliseconds>().count());
             continue;
         }
         if (strcmp(name, ":log_mark") == 0) {
@@ -2303,8 +2319,7 @@ logline_window::end()
     return {this->lw_source, vl};
 }
 
-logline_window::logmsg_info::
-logmsg_info(logfile_sub_source& lss, vis_line_t vl)
+logline_window::logmsg_info::logmsg_info(logfile_sub_source& lss, vis_line_t vl)
     : li_source(lss), li_line(vl)
 {
     if (this->li_line < vis_line_t(this->li_source.text_line_count())) {
@@ -2395,8 +2410,7 @@ logline_window::logmsg_info::get_metadata() const
     return &bm_iter->second;
 }
 
-logline_window::logmsg_info::metadata_edit_guard::~
-metadata_edit_guard()
+logline_window::logmsg_info::metadata_edit_guard::~metadata_edit_guard()
 {
     auto line_number = std::distance(this->meg_logmsg_info.li_file->begin(),
                                      this->meg_logmsg_info.li_logline);
@@ -2663,7 +2677,6 @@ logfile_sub_source::text_crumbs_for_line(int line,
     if (sbr.get_metadata().m_has_ansi) {
         // bleh
         scrub_ansi_string(al.get_string(), &al.al_attrs);
-        sbr.erase_ansi();
     }
     format->annotate(lf.get(), file_line_number, al.get_attrs(), values);
 
@@ -2701,7 +2714,7 @@ logfile_sub_source::text_crumbs_for_line(int line,
             });
     }
 
-    auto sf = sbr.to_string_fragment();
+    auto sf = string_fragment::from_str(al.get_string());
     auto body_opt = get_string_attr(al.get_attrs(), SA_BODY);
     auto nl_pos_opt = sf.find('\n');
     auto msg_line_number = std::distance(msg_start_iter, line_pair.second);
@@ -2710,8 +2723,12 @@ logfile_sub_source::text_crumbs_for_line(int line,
         if (this->lss_token_meta_line != file_line_number
             || this->lss_token_meta_size != sf.length())
         {
-            this->lss_token_meta = lnav::document::discover_structure(
-                al, body_opt.value().saw_string_attr->sa_range);
+            if (body_opt->saw_string_attr->sa_range.length() < 128 * 1024) {
+                this->lss_token_meta = lnav::document::discover_structure(
+                    al, body_opt.value().saw_string_attr->sa_range);
+            } else {
+                this->lss_token_meta = lnav::document::metadata{};
+            }
             this->lss_token_meta_line = file_line_number;
             this->lss_token_meta_size = sf.length();
         }
@@ -3172,9 +3189,9 @@ logfile_sub_source::text_handle_mouse(
 {
     if (tc.get_overlay_selection()) {
         if (me.is_click_in(mouse_button_t::BUTTON_LEFT, 2, 4)) {
-            this->list_input_handle_key(tc, ' ');
+            this->list_input_handle_key(tc, {' '});
         } else if (me.is_click_in(mouse_button_t::BUTTON_LEFT, 5, 6)) {
-            this->list_input_handle_key(tc, '#');
+            this->list_input_handle_key(tc, {'#'});
         }
     }
     return true;

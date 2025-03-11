@@ -9,6 +9,14 @@ unset XDG_CONFIG_HOME
 run_cap_test ${lnav_test} -nN \
     -c ";SELECT 1 = ?"
 
+# XXX The timestamp on the file is used to determine the year for syslog files.
+touch -t 200711030923 ${test_dir}/logfile_syslog.0
+run_cap_test ${lnav_test} -n \
+    -c ";.dump syslog_log.sql syslog_log" \
+    ${test_dir}/logfile_syslog.0
+
+run_cap_test cat syslog_log.sql
+
 run_cap_test ${lnav_test} -n \
     -c ";.read nonexistent-file" \
     ${test_dir}/logfile_empty.0
@@ -377,8 +385,6 @@ run_cap_test ${lnav_test} -n \
     -c ':write-csv-to -' \
     ${test_dir}/logfile_access_log.0
 
-# XXX The timestamp on the file is used to determine the year for syslog files.
-touch -t 200711030923 ${test_dir}/logfile_syslog.0
 run_cap_test ${lnav_test} -n \
     -c ";select * from syslog_log" \
     -c ':write-csv-to -' \
@@ -590,11 +596,11 @@ CREATE VIRTUAL TABLE regexp_capture USING regexp_capture_impl();
 CREATE VIRTUAL TABLE regexp_capture_into_json USING regexp_capture_into_json_impl();
 CREATE VIRTUAL TABLE xpath USING xpath_impl();
 CREATE VIRTUAL TABLE fstat USING fstat_impl();
-CREATE TABLE lnav_events (
+CREATE TABLE [1m[35mlnav_events[0m (
    ts TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%f', 'now')),
    content TEXT
 );
-CREATE TABLE http_status_codes
+CREATE TABLE [1m[35mhttp_status_codes[0m
 EOF
 
 
@@ -625,6 +631,21 @@ log_line,log_part,log_time
 21,end,2015-04-07 07:31:56.000
 22,end,2015-04-07 07:32:56.000
 EOF
+
+run_cap_test ${lnav_test} -n \
+    -c ":goto 1" \
+    -c ":partition-name middle" \
+    -c ":goto 21" \
+    -c ":partition-name end" \
+    -c ":goto 0" \
+    -c ":next-section" \
+    -c ";SELECT log_top_line()" \
+    -c ":write-csv-to -" \
+    -c ":switch-to-view log" \
+    -c ":next-section" \
+    -c ";SELECT log_top_line()" \
+    -c ":write-csv-to -" \
+    ${test_dir}/logfile_pretty.0
 
 run_test ${lnav_test} -n \
     -c ":goto 1" \

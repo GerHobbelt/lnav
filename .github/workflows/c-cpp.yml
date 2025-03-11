@@ -12,23 +12,23 @@ on:
 
 jobs:
   coverage:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-#    - name: Update apt
-#      run: sudo apt-get update
-#    - name: Install packages
-#      run: sudo apt-get install libncursesw5-dev libpcre++-dev libsqlite3-dev libbz2-dev libcurl4-openssl-dev libreadline-dev zlib1g-dev lcov
-#    - name: install cpp-coveralls
-#      run: pip install --user cpp-coveralls
+    - name: Update apt
+      run: sudo apt-get update
+    - name: Install packages
+      run: sudo apt-get install libncursesw5-dev libsqlite3-dev libbz2-dev libcurl4-openssl-dev libreadline-dev zlib1g-dev lcov libunistring-dev
+    - name: install cpp-coveralls
+      run: pip install --user cpp-coveralls
     - name: autogen
       run: ./autogen.sh
     - name: configure
-      run: ./configure --disable-static --enable-code-coverage --enable-debug CFLAGS=-g3 CXXFLAGS=-g3
+      run: ./configure --disable-static --enable-code-coverage --enable-debug --prefix=/usr/local CFLAGS=-g3 CXXFLAGS=-g3
     - name: make
       run: make -j3
     - name: make check
-      run: make check
+      run: env TEST_GIT_INSTALL=1 make check || (test -e src/tailer/test-suite.log && cat src/tailer/test-suite.log && false) || (test -e test/test-suite.log && cat test/test-suite.log && false)
     - name: upload cover
       env:
         COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
@@ -44,9 +44,14 @@ jobs:
         --exclude src/base/result.h
         --exclude src/safe
         --exclude src/spookyhash
+        --exclude src/tailer/drive_tailer.cc
         --exclude src/third-party
         --exclude src/ww898
         --exclude src/yajl
+        --exclude src/yajlpp/drive_json_op.cc
+        --exclude src/yajlpp/drive_json_ptr_walk.cc
+        --exclude src/yajlpp/test_yajlpp.cc
+        --exclude src/yajlpp/test_json_ptr.cc
         --exclude test
         --exclude src/data_scanner_re.cc
         --gcov-options '\-lp'
@@ -70,6 +75,7 @@ jobs:
           libbz2-dev
           libcurl4-openssl-dev
           libreadline-dev
+          libunistring-dev
           pipx
           tshark
           zlib1g-dev

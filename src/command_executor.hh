@@ -53,6 +53,7 @@ struct logline_value_vector;
 
 using sql_callback_t = int (*)(exec_context&, sqlite3_stmt*);
 int sql_callback(exec_context& ec, sqlite3_stmt* stmt);
+int internal_sql_callback(exec_context& ec, sqlite3_stmt* stmt);
 
 using pipe_callback_t
     = std::future<std::string> (*)(exec_context&, const std::string&, auto_fd&);
@@ -191,17 +192,32 @@ struct exec_context {
         exec_context& sg_context;
     };
 
+    struct sql_callback_guard {
+        sql_callback_guard(exec_context& context, sql_callback_t cb);
+
+        sql_callback_guard(const sql_callback_guard&) = delete;
+
+        sql_callback_guard(sql_callback_guard&& other);
+
+        ~sql_callback_guard();
+
+        exec_context& scg_context;
+        sql_callback_t scg_old_callback;
+    };
+
+    sql_callback_guard push_callback(sql_callback_t cb);
+
     source_guard enter_source(intern_string_t path,
                               int line_number,
                               const std::string& content);
 
     struct db_source_guard {
-        db_source_guard(exec_context* context) : dsg_context(context) {}
+        explicit db_source_guard(exec_context* context) : dsg_context(context) {}
 
-        db_source_guard(const source_guard&) = delete;
+        db_source_guard(const db_source_guard&) = delete;
 
-        db_source_guard(source_guard&& other)
-            : dsg_context(std::exchange(other.sg_context, nullptr))
+        db_source_guard(db_source_guard&& other) noexcept
+            : dsg_context(std::exchange(other.dsg_context, nullptr))
         {
         }
 
@@ -223,10 +239,11 @@ struct exec_context {
     }
 
     struct error_cb_guard {
-        error_cb_guard(exec_context* context) : sg_context(context) {}
+        explicit error_cb_guard(exec_context* context) : sg_context(context) {}
 
         error_cb_guard(const error_cb_guard&) = delete;
-        error_cb_guard(error_cb_guard&& other) : sg_context(other.sg_context)
+        error_cb_guard(error_cb_guard&& other) noexcept
+            : sg_context(other.sg_context)
         {
             other.sg_context = nullptr;
         }
@@ -244,7 +261,7 @@ struct exec_context {
     error_cb_guard add_error_callback(error_callback_t cb)
     {
         this->ec_error_callback_stack.emplace_back(std::move(cb));
-        return {this};
+        return error_cb_guard{this};
     }
 
     scoped_resolver create_resolver()
@@ -318,6 +335,13 @@ struct exec_context {
     pipe_callback_t ec_pipe_callback;
     std::vector<error_callback_t> ec_error_callback_stack;
     std::vector<db_label_source*> ec_label_source_stack;
+
+    struct ui_callbacks {
+        std::function<void()> uc_pre_stdout_write;
+        std::function<void()> uc_post_stdout_write;
+        std::function<void()> uc_redraw;
+    };
+    ui_callbacks ec_ui_callbacks;
 };
 
 Result<std::string, lnav::console::user_message> execute_command(

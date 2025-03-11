@@ -48,48 +48,6 @@
 
 using namespace lnav::roles::literals;
 
-static int
-key_sql_callback(exec_context& ec, sqlite3_stmt* stmt)
-{
-    if (!sqlite3_stmt_busy(stmt)) {
-        return 0;
-    }
-
-    int ncols = sqlite3_column_count(stmt);
-
-    auto& vars = ec.ec_local_vars.top();
-
-    for (int lpc = 0; lpc < ncols; lpc++) {
-        const char* column_name = sqlite3_column_name(stmt, lpc);
-
-        if (sql_ident_needs_quote(column_name)) {
-            continue;
-        }
-
-        auto* raw_value = sqlite3_column_value(stmt, lpc);
-        auto value_type = sqlite3_column_type(stmt, lpc);
-        scoped_value_t value;
-        switch (value_type) {
-            case SQLITE_INTEGER:
-                value = (int64_t) sqlite3_value_int64(raw_value);
-                break;
-            case SQLITE_FLOAT:
-                value = sqlite3_value_double(raw_value);
-                break;
-            case SQLITE_NULL:
-                value = null_value_t{};
-                break;
-            default:
-                value = std::string((const char*) sqlite3_value_text(raw_value),
-                                    sqlite3_value_bytes(raw_value));
-                break;
-        }
-        vars[column_name] = value;
-    }
-
-    return 0;
-}
-
 bool
 handle_keyseq(const char* keyseq)
 {
@@ -100,13 +58,14 @@ handle_keyseq(const char* keyseq)
     }
 
     logline_value_vector values;
-    exec_context ec(&values, key_sql_callback, pipe_callback);
+    exec_context ec(&values, internal_sql_callback, pipe_callback);
     auto& var_stack = ec.ec_local_vars;
 
     ec.ec_label_source_stack.push_back(&lnav_data.ld_db_row_source);
     ec.ec_global_vars = lnav_data.ld_exec_context.ec_global_vars;
     ec.ec_error_callback_stack
         = lnav_data.ld_exec_context.ec_error_callback_stack;
+    ec.ec_ui_callbacks = lnav_data.ld_exec_context.ec_ui_callbacks;
     var_stack.push(std::map<std::string, scoped_value_t>());
     // XXX push another so it doesn't look like interactive use
     var_stack.push(std::map<std::string, scoped_value_t>());
@@ -146,16 +105,16 @@ handle_keyseq(const char* keyseq)
 }
 
 bool
-handle_paging_key(int ch, const char* keyseq)
+handle_paging_key(notcurses* nc, const ncinput& ch, const char* keyseq)
 {
     if (lnav_data.ld_view_stack.empty()) {
         return false;
     }
 
     textview_curses* tc = *lnav_data.ld_view_stack.top();
-    exec_context& ec = lnav_data.ld_exec_context;
-    text_sub_source* tc_tss = tc->get_sub_source();
-    bookmarks<vis_line_t>::type& bm = tc->get_bookmarks();
+    auto& ec = lnav_data.ld_exec_context;
+    auto* tc_tss = tc->get_sub_source();
+    auto& bm = tc->get_bookmarks();
 
     if (tc->get_overlay_selection()) {
         if (tc->handle_key(ch)) {
@@ -175,9 +134,9 @@ handle_paging_key(int ch, const char* keyseq)
     auto text_accel_p = dynamic_cast<text_accel_source*>(tc->get_sub_source());
 
     /* process the command keystroke */
-    switch (ch) {
+    switch (ch.eff_text[0]) {
         case 0x7f:
-        case KEY_BACKSPACE:
+        case NCKEY_BACKSPACE:
             break;
 
         case 'a':
@@ -214,34 +173,29 @@ handle_paging_key(int ch, const char* keyseq)
             }
             break;
 
-        case KEY_F(2):
-            if (xterm_mouse::is_available()) {
-                auto& mouse_i = injector::get<xterm_mouse&>();
-                mouse_i.set_enabled(!mouse_i.is_enabled());
+        case NCKEY_F02: {
+            auto& mouse_i = injector::get<xterm_mouse&>();
+            mouse_i.set_enabled(nc, !mouse_i.is_enabled());
 
-                auto al = attr_line_t("mouse mode -- ")
-                              .append(mouse_i.is_enabled() ? "enabled"_symbol
-                                                           : "disabled"_symbol)
-                              .move();
-                if (mouse_i.is_enabled()
-                    && lnav_config.lc_mouse_mode == lnav_mouse_mode::disabled)
-                {
-                    al.append(" -- enable permanently with ")
-                        .append(":config /ui/mouse/mode enabled"_quoted_code);
+            auto al = attr_line_t("mouse mode -- ")
+                          .append(mouse_i.is_enabled() ? "enabled"_symbol
+                                                       : "disabled"_symbol)
+                          .move();
+            if (mouse_i.is_enabled()
+                && lnav_config.lc_mouse_mode == lnav_mouse_mode::disabled)
+            {
+                al.append(" -- enable permanently with ")
+                    .append(":config /ui/mouse/mode enabled"_quoted_code);
 
-                    auto clear_note = prepare_stmt(lnav_data.ld_db, R"(
+                auto clear_note = prepare_stmt(lnav_data.ld_db, R"(
 DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
 )");
-                    clear_note.unwrap().execute();
-                }
-                auto um = lnav::console::user_message::ok(al);
-                lnav_data.ld_rl_view->set_attr_value(um.to_attr_line());
-            } else {
-                lnav_data.ld_rl_view->set_value(
-                    "error: mouse support is not available, make sure your "
-                    "TERM is set to xterm or xterm-256color");
+                clear_note.unwrap().execute();
             }
+            auto um = lnav::console::user_message::ok(al);
+            lnav_data.ld_rl_view->set_attr_value(um.to_attr_line());
             break;
+        }
 
         case 'C':
             if (lss) {
@@ -477,7 +431,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
                              ->is_message())
                     {
                     } else if (text_accel_p->get_line_accel_direction(next_top)
-                               == log_accel::A_DECEL)
+                               == log_accel::direction_t::A_DECEL)
                     {
                         if (!tc->is_selectable()) {
                             --next_top;
@@ -508,7 +462,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
                              ->is_message())
                     {
                     } else if (text_accel_p->get_line_accel_direction(next_top)
-                               == log_accel::A_DECEL)
+                               == log_accel::direction_t::A_DECEL)
                     {
                         if (!tc->is_selectable()) {
                             --next_top;
@@ -573,7 +527,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
             } else if (lss) {
                 lss->time_for_row(tc->get_selection()) |
                     [lss, ch, tc](auto first_ri) {
-                        int step = ch == 'D' ? (24 * 60 * 60) : (60 * 60);
+                        int step = ch.id == 'D' ? (24 * 60 * 60) : (60 * 60);
                         time_t top_time = first_ri.ri_time.tv_sec;
                         lss->find_from_time(top_time - step) | [tc](auto line) {
                             if (line != 0_vl) {
@@ -591,7 +545,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
             if (lss) {
                 lss->time_for_row(tc->get_selection()) |
                     [ch, lss, tc](auto first_ri) {
-                        int step = ch == 'd' ? (24 * 60 * 60) : (60 * 60);
+                        int step = ch.id == 'd' ? (24 * 60 * 60) : (60 * 60);
                         lss->find_from_time(first_ri.ri_time.tv_sec + step) |
                             [tc](auto line) { tc->set_selection(line); };
                     };
@@ -602,7 +556,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
 
         case 'o':
         case 'O':
-            if (lss != nullptr) {
+            if (lss != nullptr && lss->text_line_count() > 0) {
                 auto start_win = lss->window_at(tc->get_selection());
                 auto start_win_iter = start_win.begin();
                 const auto& opid_opt
@@ -623,7 +577,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
                     bool found = false;
 
                     while (true) {
-                        if (ch == 'o') {
+                        if (ch.id == 'o') {
                             ++next_win_iter;
                             if (next_win_iter == next_win.end()) {
                                 break;
@@ -799,13 +753,12 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
             }
         } break;
 
-        case '\t':
-        case KEY_BTAB:
+        case NCKEY_TAB:
             if (tc == &lnav_data.ld_views[LNV_DB]) {
             } else if (tc == &lnav_data.ld_views[LNV_SPECTRO]) {
-                lnav_data.ld_mode = ln_mode_t::SPECTRO_DETAILS;
+                set_view_mode(ln_mode_t::SPECTRO_DETAILS);
             } else if (tc_tss != nullptr && tc_tss->tss_supports_filtering) {
-                lnav_data.ld_mode = lnav_data.ld_last_config_mode;
+                set_view_mode(lnav_data.ld_last_config_mode);
                 lnav_data.ld_filter_view.reload_data();
                 lnav_data.ld_files_view.reload_data();
                 if (tc->get_inner_height() > 0_vl) {
@@ -813,7 +766,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
 
                     tc->get_data_source()->listview_value_for_rows(
                         *tc, tc->get_top(), rows);
-                    string_attrs_t& sa = rows[0].get_attrs();
+                    auto& sa = rows[0].get_attrs();
                     auto line_attr_opt = get_string_attr(sa, logline::L_FILE);
                     if (line_attr_opt) {
                         const auto& fc = lnav_data.ld_active_files;
@@ -851,11 +804,11 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
                     struct exttm tm;
                     bool done = false;
 
-                    if (ch == 'r') {
+                    if (ch.id == 'r') {
                         if (rt.is_negative()) {
                             rt.negate();
                         }
-                    } else if (ch == 'R') {
+                    } else if (ch.id == 'R') {
                         if (!rt.is_negative()) {
                             rt.negate();
                         }
