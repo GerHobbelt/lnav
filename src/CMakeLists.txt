@@ -3,6 +3,8 @@ include(CheckIncludeFile)
 include(CheckLibraryExists)
 include(CheckFunctionExists)
 
+add_compile_definitions(_GNU_SOURCE)
+
 check_type_size(off_t SIZEOF_OFF_T)
 
 check_include_file("pty.h" HAVE_PTY_H)
@@ -445,6 +447,11 @@ add_library(
         bookmarks.cc
         bottom_status_source.cc
         breadcrumb_curses.cc
+        cmd.parser.cc
+        cmds.bookmarks.cc
+        cmds.display.cc
+        cmds.filtering.cc
+        cmds.io.cc
         collation-functions.cc
         column_namer.cc
         command_executor.cc
@@ -480,6 +487,7 @@ add_library(
         lnav.events.cc
         lnav.indexing.cc
         lnav.management_cli.cc
+        lnav.prompt.cc
         lnav_commands.cc
         lnav_config.cc
         lnav_util.cc
@@ -507,7 +515,6 @@ add_library(
         pretty_printer.cc
         pugixml/pugixml.cpp
         readline_callbacks.cc
-        readline_curses.cc
         readline_highlighters.cc
         readline_possibilities.cc
         regexp_vtab.cc
@@ -525,6 +532,7 @@ add_library(
         sysclip.cc
         spectro_impls.cc
         spectro_source.cc
+        sql.formatter.cc
         sql_commands.cc
         sql_util.cc
         sqlitepp.cc
@@ -535,6 +543,7 @@ add_library(
         text_format.cc
         text_overlay_menu.cc
         textinput_curses.cc
+        textinput.history.cc
         textfile_highlighters.cc
         textfile_sub_source.cc
         textview_curses.cc
@@ -547,7 +556,6 @@ add_library(
         view_curses.cc
         view_helpers.cc
         views_vtab.cc
-        vt52_curses.cc
         vtab_module.cc
         log_vtab_impl.cc
         xml_util.cc
@@ -570,6 +578,7 @@ add_library(
         breadcrumb.hh
         breadcrumb_curses.hh
         byte_array.hh
+        cmd.parser.cc
         command_executor.hh
         column_namer.hh
         crashd.client.hh
@@ -588,6 +597,7 @@ add_library(
         filter_observer.hh
         filter_status_source.hh
         filter_sub_source.hh
+        format.scripts.hh
         fstat_vtab.hh
         fts_fuzzy_match.hh
         grep_highlighter.hh
@@ -649,10 +659,10 @@ add_library(
         session.export.hh
         sequence_sink.hh
         shlex.hh
-        simdutf8check.h
         spectro_impls.hh
         spectro_source.hh
         sqlitepp.hh
+        sql.formatter.hh
         sql_execute.hh
         sql_help.hh
         sql_util.hh
@@ -666,6 +676,7 @@ add_library(
         text_format.hh
         text_overlay_menu.hh
         textinput_curses.hh
+        textinput.history.hh
         textfile_highlighters.hh
         textfile_sub_source.hh
         textfile_sub_source.cfg.hh

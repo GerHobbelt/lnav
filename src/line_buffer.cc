@@ -44,10 +44,6 @@
 #include <algorithm>
 #include <set>
 
-#ifdef HAVE_X86INTRIN_H
-#    include "simdutf8check.h"
-#endif
-
 #include "base/auto_pid.hh"
 #include "base/fs_util.hh"
 #include "base/injector.bind.hh"
@@ -1131,6 +1127,9 @@ line_buffer::load_next_line(file_range prev_line)
         /* ... look for the end-of-line or end-of-file. */
         ssize_t utf8_end = -1;
 
+        if (!retval.li_utf8_scan_result.is_valid()) {
+            retval.li_utf8_scan_result = {};
+        }
         bool found_in_cache = false;
         if (!this->lb_line_starts.empty()) {
             auto buffer_offset = offset - this->lb_file_offset;
@@ -1144,6 +1143,7 @@ line_buffer::load_next_line(file_range prev_line)
                     found_in_cache = true;
                     lf = line_start + utf8_end;
 
+                    // log_debug("hit cache");
                     this->lb_next_buffer_offset = *next_line_iter;
                     this->lb_next_line_start_index += 1;
                 } else {
@@ -1184,6 +1184,10 @@ line_buffer::load_next_line(file_range prev_line)
                 lf -= 1;
             }
             retval.li_utf8_scan_result = scan_res;
+            if (!scan_res.is_valid()) {
+                log_warning("line is not utf8 -- %lld",
+                            retval.li_file_range.fr_offset);
+            }
         }
 
         auto got_new_data = old_retval_size != retval.li_file_range.fr_size;

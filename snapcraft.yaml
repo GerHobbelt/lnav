@@ -51,13 +51,23 @@ parts:
       - scriptlets/selective-checkout
     prime:
       - -*
+  rustup:
+    after:
+      - selective-checkout
+    plugin: rust
+    rust-channel: stable
+    source: .
+    override-build: ""
+    override-prime: ""
   lnav:
     after:
       - selective-checkout
+      - rustup
     plugin: autotools
     autotools-configure-parameters:
       - CFLAGS="-O2"
       - CXXFLAGS="-O2"
+      - PATH="${HOME}/.cargo/bin:${PATH}"
     source: https://github.com/tstack/lnav.git
     source-depth: 500
     override-pull: |
@@ -66,18 +76,16 @@ parts:
       "$SNAPCRAFT_STAGE"/scriptlets/selective-checkout --debug --force-snapshot
     build-packages:
       - build-essential
-      - cargo
       - libarchive-dev
       - libcurl4-gnutls-dev
       - libpcre2-dev
       - libsqlite3-dev
       - libncursesw6
-      - libreadline-dev
+      - libncurses-dev
       - libunistring-dev
       - zlib1g-dev
       - libbz2-dev
       - libgpm-dev
-      - rustc
     stage-packages:
       - zlib1g
       - git-core

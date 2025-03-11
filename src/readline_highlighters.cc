@@ -39,6 +39,7 @@
 #include "shlex.hh"
 #include "sql_help.hh"
 #include "sql_util.hh"
+#include "textfile_highlighters.hh"
 #include "view_curses.hh"
 
 static bool
@@ -149,17 +150,29 @@ readline_regex_highlighter(attr_line_t& al, std::optional<int> x)
         al, x, line_range{1, (int) al.get_string().size()});
 }
 
+static highlight_map_t
+get_hl_map()
+{
+    highlight_map_t retval;
+
+    setup_highlights(retval);
+    return retval;
+}
+
 void
 readline_command_highlighter_int(attr_line_t& al,
                                  std::optional<int> x,
                                  line_range sub)
 {
+    static const auto TEXT_HIGHLIGHTERS = get_hl_map();
     static const auto RE_PREFIXES = lnav::pcre2pp::code::from_const(
         R"(^:(filter-in|filter-out|delete-filter|enable-filter|disable-filter|highlight|clear-highlight|create-search-table\s+[^\s]+\s+))");
     static const auto SH_PREFIXES = lnav::pcre2pp::code::from_const(
         "^:(eval|open|append-to|write-to|write-csv-to|write-json-to)");
     static const auto SQL_PREFIXES
         = lnav::pcre2pp::code::from_const("^:(filter-expr|mark-expr)");
+    static const auto MD_PREFIXES
+        = lnav::pcre2pp::code::from_const("^:comment");
     static const auto IDENT_PREFIXES
         = lnav::pcre2pp::code::from_const("^:(tag|untag|delete-tags)");
     static const auto COLOR_PREFIXES
@@ -236,6 +249,15 @@ readline_command_highlighter_int(attr_line_t& al,
             start = last;
         } while (start < sub.length());
     }
+    if (MD_PREFIXES.find_in(in_frag).ignore_error()) {
+        for (const auto& [src, hl] : TEXT_HIGHLIGHTERS) {
+            if (!hl.applies_to_format(text_format_t::TF_MARKDOWN)) {
+                continue;
+            }
+
+            hl.annotate(al, sub.lr_start + command.length());
+        }
+    }
 }
 
 void
@@ -275,10 +297,11 @@ readline_sqlite_highlighter_int(attr_line_t& al,
         {
             alb.overlay_attr(lr, VC_ROLE.value(role_t::VCR_KEYWORD));
         } else if (attr.sa_type == &SQL_IDENTIFIER_ATTR
-                   || attr.sa_type == &lnav::sql::PRQL_IDENTIFIER_ATTR)
+                   || attr.sa_type == &lnav::sql::PRQL_FQID_ATTR)
         {
-            if (x && !attr.sa_range.contains(x.value())
-                && attr.sa_range.lr_end != x.value())
+            if (!x
+                || (x && !attr.sa_range.contains(x.value())
+                    && attr.sa_range.lr_end != x.value()))
             {
                 alb.overlay_attr(lr, VC_ROLE.value(role_t::VCR_IDENTIFIER));
             }
@@ -522,19 +545,23 @@ readline_lnav_highlighter(attr_line_t& al, std::optional<int> x)
 }
 
 void
-highlight_syntax(text_format_t tf, attr_line_t& al)
+highlight_syntax(text_format_t tf, attr_line_t& al, std::optional<int> x)
 {
-     switch (tf) {
+    switch (tf) {
         case text_format_t::TF_SQL: {
-            readline_sqlite_highlighter(al, std::nullopt);
+            readline_sqlite_highlighter(al, x);
             break;
         }
-         case text_format_t::TF_SHELL_SCRIPT: {
-            readline_shlex_highlighter(al, std::nullopt);
+        case text_format_t::TF_PCRE: {
+            readline_regex_highlighter(al, x);
             break;
         }
-         case text_format_t::TF_LNAV_SCRIPT: {
-            readline_lnav_highlighter(al, std::nullopt);
+        case text_format_t::TF_SHELL_SCRIPT: {
+            readline_shlex_highlighter(al, x);
+            break;
+        }
+        case text_format_t::TF_LNAV_SCRIPT: {
+            readline_lnav_highlighter(al, x);
             break;
         }
         default:

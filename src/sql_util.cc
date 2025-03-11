@@ -322,7 +322,7 @@ handle_table_list(void* ptr, int ncols, char** colvalues, char** colnames)
 }
 
 int
-walk_sqlite_metadata(sqlite3* db, struct sqlite_metadata_callbacks& smc)
+walk_sqlite_metadata(sqlite3* db, sqlite_metadata_callbacks& smc)
 {
     auto_mem<char, sqlite3_free> errmsg;
     int retval;
@@ -572,6 +572,13 @@ sql_ident_needs_quote(const char* ident)
     }
 
     return false;
+}
+
+std::string
+sql_quote_text(const std::string& str)
+{
+    auto quoted_token = lnav::sql::mprintf("%Q", str.c_str());
+    return {quoted_token};
 }
 
 auto_mem<char, sqlite3_free>
@@ -1131,13 +1138,13 @@ annotate_sql_statement(attr_line_t& al)
             if (piter == sa.end()) {
                 func_range.lr_end = line.length();
             } else {
-                func_range.lr_end = piter->sa_range.lr_end - 1;
+                func_range.lr_end = piter->sa_range.lr_end;
             }
             sa.emplace_back(func_range, SQL_FUNCTION_ATTR.value());
         }
     }
 
-    remove_string_attr(sa, &SQL_PAREN_ATTR);
+    // remove_string_attr(sa, &SQL_PAREN_ATTR);
     stable_sort(sa.begin(), sa.end());
 }
 
@@ -1365,7 +1372,8 @@ constexpr string_attr_type<void> PRQL_STRING_ATTR("prql_string");
 constexpr string_attr_type<void> PRQL_NUMBER_ATTR("prql_number");
 constexpr string_attr_type<void> PRQL_OPERATOR_ATTR("prql_oper");
 constexpr string_attr_type<void> PRQL_PAREN_ATTR("prql_paren");
-constexpr string_attr_type<void> PRQL_UNTERMINATED_PAREN_ATTR("prql_unterminated_paren");
+constexpr string_attr_type<void> PRQL_UNTERMINATED_PAREN_ATTR(
+    "prql_unterminated_paren");
 constexpr string_attr_type<void> PRQL_GARBAGE_ATTR("prql_garbage");
 constexpr string_attr_type<void> PRQL_COMMENT_ATTR("prql_comment");
 
@@ -1423,7 +1431,7 @@ annotate_prql_statement(attr_line_t& al)
             &PRQL_OPERATOR_ATTR,
         },
         {
-            lnav::pcre2pp::code::from_const(R"(\A\|)"),
+            lnav::pcre2pp::code::from_const(R"(\A(?:\||\n))"),
             &PRQL_PIPE_ATTR,
         },
         {
@@ -1436,7 +1444,8 @@ annotate_prql_statement(attr_line_t& al)
         },
     };
 
-    static const auto ws_pattern = lnav::pcre2pp::code::from_const(R"(\A\s+)");
+    static const auto ws_pattern
+        = lnav::pcre2pp::code::from_const(R"(\A[ \t\r]+)");
 
     const auto& line = al.get_string();
     auto& sa = al.get_attrs();
@@ -1452,6 +1461,11 @@ annotate_prql_statement(attr_line_t& al)
             if (pat_find_res) {
                 sa.emplace_back(to_line_range(pat_find_res->f_all),
                                 pat.type->value());
+                if (sa.back().sa_type == &PRQL_PIPE_ATTR
+                    && pat_find_res->f_all == "\n"_frag)
+                {
+                    sa.back().sa_range.lr_start += 1;
+                }
                 remaining = pat_find_res->f_remaining;
                 break;
             }
@@ -1462,11 +1476,15 @@ annotate_prql_statement(attr_line_t& al)
     std::vector<std::pair<char, int>> groups;
     std::vector<line_range> fqids;
     std::optional<line_range> id_start;
+    const string_attr_type_base* last_attr_type = nullptr;
     bool saw_id_dot = false;
     for (const auto& attr : sa) {
-        if (groups.empty() && attr.sa_type == &PRQL_PIPE_ATTR) {
+        if (groups.empty() && attr.sa_type == &PRQL_PIPE_ATTR
+            && last_attr_type != &PRQL_PIPE_ATTR)
+        {
             stages.push_back(attr.sa_range.lr_start);
         }
+        last_attr_type = attr.sa_type;
         if (!id_start) {
             if (attr.sa_type == &PRQL_IDENTIFIER_ATTR) {
                 id_start = attr.sa_range;
@@ -1538,6 +1556,8 @@ annotate_prql_statement(attr_line_t& al)
     for (const auto& fqid_range : fqids) {
         sa.emplace_back(fqid_range, PRQL_FQID_ATTR.value());
     }
+    remove_string_attr(sa, &PRQL_IDENTIFIER_ATTR);
+    remove_string_attr(sa, &PRQL_DOT_ATTR);
 
     stable_sort(sa.begin(), sa.end());
 }

@@ -38,6 +38,7 @@
 
 #include "base/attr_line.hh"
 #include "base/intern_string.hh"
+#include "base/string_attr_type.hh"
 #include "help_text.hh"
 
 extern const string_attr_type<void> SQL_COMMAND_ATTR;
@@ -48,6 +49,7 @@ extern const string_attr_type<void> SQL_STRING_ATTR;
 extern const string_attr_type<void> SQL_NUMBER_ATTR;
 extern const string_attr_type<void> SQL_OPERATOR_ATTR;
 extern const string_attr_type<void> SQL_PAREN_ATTR;
+extern const string_attr_type<void> SQL_COMMA_ATTR;
 extern const string_attr_type<void> SQL_GARBAGE_ATTR;
 extern const string_attr_type<void> SQL_COMMENT_ATTR;
 

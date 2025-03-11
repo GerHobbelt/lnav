@@ -1,3 +1,21 @@
+## lnav v0.12.5
+
+Interface changes:
+* The prompt is now a custom implementation instead of readline.
+* Pressing `F1` in the prompt will show the help text for the
+  prompt itself.
+  The size of the prompt panel is expanded for readability.
+
+Features:
+* The `:comment` command will now switch the prompt to multi-line
+  mode and does syntax highlighting for Markdown directives in the
+  comment.
+* In the DB prompt, pressing `CTRL+L` will reformat the query and
+  switch the prompt to multi-line mode.
+* Added a `fuzzy_match()` SQL function that compares a pattern to
+  a string and returns a score.
+  The algorithm used is the same as in lnav itself.
+
 ## lnav v0.12.4
 
 Features:
@@ -79,6 +97,12 @@ Interface changes:
   the value of the column.
   Pressing space while focused on a column in the overlay will
   hide/show it.
+* If the terminal supports less than 256 colors, a help message
+  will be displayed to try setting `TERM` to `xterm-256color`.
+* Added `F1` as a hotkey to open the help view.
+* Fixed some issues with scrolling in the main view when:
+  word-wrap was enabled; log messages had tags/comments; or
+  if the parser details overlay was open.
 
 Breaking changes:
 * The `parse_url()` SQL function no longer raises an error for an
@@ -102,6 +126,7 @@ Bug Fixes:
 
 Maintenance:
 * Replaced ncurses with notcurses.
+* Added arm64 builds for Linux/macOS
 
 ## lnav v0.12.3
 
@@ -187,7 +212,7 @@ Features:
     row and dragging will scroll the view as needed;
   - shift + clicking/dragging in the main view will highlight
     lines and then toggle their bookmark status on release;
-  - double-clicking in the main view will select the underlying 
+  - double-clicking in the main view will select the underlying
     text and drag-selecting within a line will select the given
     text;
   - when double-clicking text: if the mouse pointer is inside
@@ -224,7 +249,7 @@ Features:
   - clicking in a prompt will move the cursor to the location;
   - clicking on a column in the spectrogram view will select it.
 
-  (Note that this is new work, so there are likely to be some 
+  (Note that this is new work, so there are likely to be some
   glitches.)
 * Added a `journald://` URL handler that will call `journalctl`
   and pass any query parameters as options.  For example, the

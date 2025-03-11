@@ -37,6 +37,7 @@
 #include <cmath>
 #include <string>
 
+#include <curses.h>
 #include <zlib.h>
 
 #include "base/ansi_scrubber.hh"
@@ -194,25 +195,26 @@ view_curses::handle_mouse(mouse_event& me)
     return false;
 }
 
-bool
-view_curses::contains(int x, int y) const
+std::optional<view_curses*>
+view_curses::contains(int x, int y)
 {
     if (!this->vc_visible) {
-        return false;
+        return std::nullopt;
     }
 
     for (auto* child : this->vc_children) {
-        if (child->contains(x, y)) {
-            return true;
+        auto contains_res = child->contains(x, y);
+        if (contains_res) {
+            return contains_res;
         }
     }
     if (this->vc_x <= x
         && (this->vc_width < 0 || x < this->vc_x + this->vc_width)
         && this->vc_y == y)
     {
-        return true;
+        return this;
     }
-    return false;
+    return std::nullopt;
 }
 
 void
@@ -501,33 +503,15 @@ view_curses::mvwattrline(ncplane* window,
                 for (auto lpc = attr_range.lr_start; lpc < attr_range.lr_end;
                      ++lpc)
                 {
+                    auto clear_rev = attrs.has_style(text_attrs::style::reverse)
+                        && resolved_line_attrs[lpc].has_style(
+                            text_attrs::style::reverse);
                     resolved_line_attrs[lpc] = attrs | resolved_line_attrs[lpc];
-                }
-#if 0
-                for (int lpc = attr_range.lr_start;
-                     lpc < attr_range.lr_end && lpc < line_width_chars;
-                     lpc++)
-                {
-                    bool clear_rev = false;
-
-                    if (graphic) {
-                        row_ch[lpc].chars[0] = graphic.value();
-                        row_ch[lpc].attr |= A_ALTCHARSET;
-                    }
-                    if (block_elem) {
-                        row_ch[lpc].chars[0] = block_elem.value();
-                    }
-                    if (row_ch[lpc].attr & A_REVERSE
-                        && attrs.ta_attrs & A_REVERSE)
-                    {
-                        clear_rev = true;
-                    }
-                    row_ch[lpc].attr |= attrs.ta_attrs;
                     if (clear_rev) {
-                        row_ch[lpc].attr &= ~A_REVERSE;
+                        resolved_line_attrs[lpc].clear_style(
+                            text_attrs::style::reverse);
                     }
                 }
-#endif
             }
         }
     }
@@ -710,7 +694,11 @@ view_colors::to_channels(const text_attrs& ta)
             ncchannels_set_fg_alpha(&retval, NCALPHA_TRANSPARENT);
         },
         [&retval](const palette_color& pc) {
-            ncchannels_set_fg_palindex(&retval, pc);
+            if (pc == COLOR_WHITE) {
+                ncchannels_set_fg_default(&retval);
+            } else {
+                ncchannels_set_fg_palindex(&retval, pc);
+            }
         },
         [&retval](const rgb_color& rc) {
             ncchannels_set_fg_rgb8(&retval, rc.rc_r, rc.rc_g, rc.rc_b);
@@ -723,15 +711,15 @@ view_colors::to_channels(const text_attrs& ta)
             ncchannels_set_bg_alpha(&retval, NCALPHA_TRANSPARENT);
         },
         [&retval](const palette_color& pc) {
-            ncchannels_set_bg_palindex(&retval, pc);
+            if (pc == COLOR_BLACK) {
+                ncchannels_set_bg_default(&retval);
+            } else {
+                ncchannels_set_bg_palindex(&retval, pc);
+            }
         },
         [&retval](const rgb_color& rc) {
             ncchannels_set_bg_rgb8(&retval, rc.rc_r, rc.rc_g, rc.rc_b);
         });
-
-    if (ta.has_style(text_attrs::style::reverse)) {
-        retval = ncchannels_reverse(retval);
-    }
 
     return retval;
 }
@@ -1138,6 +1126,8 @@ view_colors::init_roles(const lnav_theme& lt,
 
     this->get_role_attrs(role_t::VCR_POPUP)
         = this->to_attrs(lt, lt.lt_style_popup, reporter);
+    this->get_role_attrs(role_t::VCR_POPUP_BORDER)
+        = this->to_attrs(lt, lt.lt_style_popup_border, reporter);
     this->get_role_attrs(role_t::VCR_FOCUSED)
         = this->to_attrs(lt, lt.lt_style_focused, reporter);
     this->get_role_attrs(role_t::VCR_DISABLED_FOCUSED)
@@ -1336,8 +1326,9 @@ screen_curses::create(const notcurses_options& options)
         check_experimental("mouse")
             || lnav_config.lc_mouse_mode == lnav_mouse_mode::enabled);
 
-    log_info("notcurses detected terminal: %s",
-             notcurses_detected_terminal(nc));
+    auto_mem<char> term_name;
+    term_name = notcurses_detected_terminal(nc);
+    log_info("notcurses detected terminal: %s", term_name.in());
 
     return Ok(screen_curses(nc));
 }

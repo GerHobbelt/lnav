@@ -142,7 +142,6 @@ endif
 AM_LDFLAGS = \
 	$(STATIC_LDFLAGS) \
 	$(LIBARCHIVE_LDFLAGS) \
-	$(READLINE_LDFLAGS) \
 	$(SQLITE3_LDFLAGS) \
 	$(PCRE_LDFLAGS)
 
@@ -160,7 +159,6 @@ AM_CPPFLAGS = \
 	-Wall \
 	$(CODE_COVERAGE_CPPFLAGS) \
 	$(LIBARCHIVE_CFLAGS) \
-	$(READLINE_CFLAGS) \
 	$(SQLITE3_CFLAGS) \
 	$(PCRE_CFLAGS) \
 	$(LIBCURL_CPPFLAGS) \
@@ -184,7 +182,6 @@ LDADD = \
 	third-party/base64/lib/libbase64.a \
 	third-party/notcurses/src/lib/liblnavnotcurses.a \
     $(RUST_DEPS_LIBS) \
-	$(READLINE_LIBS) \
 	$(CURSES_LIB) \
 	$(SQLITE3_LIBS) \
 	$(LIBARCHIVE_LIBS) \
@@ -229,6 +226,7 @@ noinst_HEADERS = \
 	breadcrumb.hh \
 	breadcrumb_curses.hh \
 	byte_array.hh \
+	cmd.parser.hh \
 	column_namer.hh \
 	command_executor.hh \
 	crashd.client.hh \
@@ -254,6 +252,7 @@ noinst_HEADERS = \
 	filter_observer.hh \
 	filter_status_source.hh \
 	filter_sub_source.hh \
+	format.scripts.hh \
 	fstat_vtab.hh \
 	fts_fuzzy_match.hh \
 	grep_highlighter.hh \
@@ -277,6 +276,7 @@ noinst_HEADERS = \
 	lnav.events.hh \
 	lnav.indexing.hh \
 	lnav.management_cli.hh \
+    lnav.prompt.hh \
 	lnav_commands.hh \
 	lnav_config.hh \
 	lnav_config_fwd.hh \
@@ -319,7 +319,6 @@ noinst_HEADERS = \
 	ptimec.hh \
 	readline_callbacks.hh \
 	readline_context.hh \
-	readline_curses.hh \
 	readline_highlighters.hh \
 	readline_possibilities.hh \
 	regex101.client.hh \
@@ -336,11 +335,11 @@ noinst_HEADERS = \
 	session_data.hh \
 	shared_buffer.hh \
 	shlex.hh \
-	simdutf8check.h \
 	spectro_impls.hh \
 	spectro_source.hh \
 	sqlitepp.hh \
 	sqlitepp.client.hh \
+	sql.formatter.hh \
 	sql_execute.hh \
 	sql_help.hh \
 	sql_util.hh \
@@ -357,6 +356,7 @@ noinst_HEADERS = \
 	text_format.hh \
 	text_overlay_menu.hh \
 	textinput_curses.hh \
+	textinput.history.hh \
 	textfile_highlighters.hh \
 	textfile_sub_source.hh \
 	textfile_sub_source.cfg.hh \
@@ -378,7 +378,6 @@ noinst_HEADERS = \
 	view_helpers.hist.hh \
 	views_vtab.hh \
 	vis_line.hh \
-	vt52_curses.hh \
 	vtab_module.hh \
 	vtab_module_json.hh \
 	log_vtab_impl.hh \
@@ -432,6 +431,11 @@ libdiag_a_SOURCES = \
 	bookmarks.cc \
 	bottom_status_source.cc \
 	breadcrumb_curses.cc \
+	cmd.parser.cc \
+	cmds.bookmarks.cc \
+	cmds.display.cc \
+	cmds.filtering.cc \
+	cmds.io.cc \
 	collation-functions.cc \
 	column_namer.cc \
 	command_executor.cc \
@@ -466,6 +470,7 @@ libdiag_a_SOURCES = \
 	json-extension-functions.cc \
 	line_buffer.cc \
 	listview_curses.cc \
+	lnav.prompt.cc \
 	lnav_commands.cc \
 	lnav_config.cc \
 	lnav_util.cc \
@@ -494,7 +499,6 @@ libdiag_a_SOURCES = \
 	pretty_printer.cc \
 	ptimec_rt.cc \
 	readline_callbacks.cc \
-	readline_curses.cc \
 	readline_highlighters.cc \
 	readline_possibilities.cc \
 	regex101.client.cc \
@@ -519,11 +523,13 @@ libdiag_a_SOURCES = \
 	text_overlay_menu.cc \
 	textfile_sub_source.cc \
 	timer.cc \
+	sql.formatter.cc \
 	sql_commands.cc \
 	sql_util.cc \
 	state-extension-functions.cc \
 	sysclip.cc \
 	textinput_curses.cc \
+	textinput.history.cc \
 	textfile_highlighters.cc \
 	textview_curses.cc \
 	time-extension-functions.cc \
@@ -533,7 +539,6 @@ libdiag_a_SOURCES = \
 	view_curses.cc \
 	view_helpers.cc \
 	views_vtab.cc \
-	vt52_curses.cc \
 	vtab_module.cc \
 	log_vtab_impl.cc \
 	xml_util.cc \

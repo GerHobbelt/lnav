@@ -29,6 +29,7 @@
  * @file lnav_config.cc
  */
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <regex>
@@ -78,8 +79,6 @@ static struct _lnav_config lnav_default_config;
 
 std::map<intern_string_t, source_location> lnav_config_locations;
 
-lnav_config_listener* lnav_config_listener::LISTENER_LIST;
-
 static auto a = injector::bind<archive_manager::config>::to_instance(
     +[]() { return &lnav_config.lc_archive_manager; });
 
@@ -118,6 +117,14 @@ static auto tssc = injector::bind<top_status_source_cfg>::to_instance(
 
 static auto ltc = injector::bind<lnav::textfile::config>::to_instance(
     +[]() { return &lnav_config.lc_textfile; });
+
+lnav_config_listener::~lnav_config_listener()
+{
+    auto iter = std::find(listener_list().begin(), listener_list().end(), this);
+    if (iter != listener_list().end()) {
+        listener_list().erase(iter);
+    }
+}
 
 bool
 check_experimental(const char* feature_name)
@@ -721,6 +728,10 @@ static const struct json_path_container theme_styles_handlers = {
     yajlpp::property_handler("popup")
         .with_description("Styling for popup windows")
         .for_child(&lnav_theme::lt_style_popup)
+        .with_children(style_config_handlers),
+    yajlpp::property_handler("popup-border")
+        .with_description("Styling for the borders of a popup window")
+        .for_child(&lnav_theme::lt_style_popup_border)
         .with_children(style_config_handlers),
     yajlpp::property_handler("focused")
         .with_description("Styling for a focused row in a list view")
@@ -2078,9 +2089,7 @@ save_config()
 void
 reload_config(std::vector<lnav::console::user_message>& errors)
 {
-    auto* curr = lnav_config_listener::LISTENER_LIST;
-
-    while (curr != nullptr) {
+    for (auto* curr : lnav_config_listener::listener_list()) {
         auto reporter = [&errors](const void* cfg_value,
                                   const lnav::console::user_message& errmsg) {
             log_error("configuration error: %s",
@@ -2127,6 +2136,5 @@ reload_config(std::vector<lnav::console::user_message>& errors)
         };
 
         curr->reload_config(reporter);
-        curr = curr->lcl_next;
     }
 }

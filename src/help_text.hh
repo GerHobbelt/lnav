@@ -30,6 +30,7 @@
 #ifndef LNAV_HELP_TEXT_HH
 #define LNAV_HELP_TEXT_HH
 
+#include <array>
 #include <map>
 #include <string>
 #include <vector>
@@ -62,11 +63,25 @@ enum class help_nargs_t {
 
 enum class help_parameter_format_t {
     HPF_STRING,
+    HPF_TEXT,
+    HPF_MULTILINE_TEXT,
     HPF_REGEX,
+    HPF_SQL,
     HPF_INTEGER,
     HPF_NUMBER,
     HPF_DATETIME,
     HPF_ENUM,
+    HPF_FILENAME,
+    HPF_LOADED_FILE,
+    HPF_FORMAT_FIELD,
+    HPF_NUMERIC_FIELD,
+    HPF_DIRECTORY,
+    HPF_TIME_FILTER_POINT,
+    HPF_TIMEZONE,
+    HPF_CONFIG_PATH,
+    HPF_CONFIG_VALUE,
+    HPF_TAG,
+    HPF_LINE_TAG,
 };
 
 struct help_example {
@@ -229,8 +244,39 @@ struct help_text {
         return *this;
     }
 
+    bool is_trailing_arg() const
+    {
+        switch (this->ht_format) {
+            case help_parameter_format_t::HPF_TEXT:
+            case help_parameter_format_t::HPF_TIME_FILTER_POINT:
+            case help_parameter_format_t::HPF_MULTILINE_TEXT:
+            case help_parameter_format_t::HPF_REGEX:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     help_text& with_enum_values(
         const std::initializer_list<const char*>& enum_values) noexcept;
+
+    template<std::size_t N>
+    help_text& with_enum_values(
+        const std::array<const char*, N>& enum_values) noexcept
+    {
+        this->ht_enum_values.reserve(N);
+        for (const auto* val : enum_values) {
+            this->ht_enum_values.emplace_back(val);
+        }
+
+        return *this;
+    }
+
+    help_text& with_enum_values(const std::vector<const char*>& ev)
+    {
+        this->ht_enum_values = ev;
+        return *this;
+    }
 
     help_text& with_tags(
         const std::initializer_list<const char*>& tags) noexcept;

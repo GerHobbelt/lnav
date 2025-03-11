@@ -51,6 +51,6 @@ void readline_shlex_highlighter(attr_line_t& line, std::optional<int> x);
 
 void readline_lnav_highlighter(attr_line_t& line, std::optional<int> x);
 
-void highlight_syntax(text_format_t tf, attr_line_t& al);
+void highlight_syntax(text_format_t tf, attr_line_t& al, std::optional<int> x);
 
 #endif

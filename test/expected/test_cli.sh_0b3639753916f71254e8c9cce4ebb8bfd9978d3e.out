@@ -199,7 +199,7 @@
                         "strike": false
                     },
                     "error": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "",
                         "underline": false,
                         "bold": true,
@@ -215,7 +215,7 @@
                         "strike": false
                     },
                     "info": {
-                        "color": "Maroon",
+                        "color": "Silver",
                         "background-color": "",
                         "underline": false,
                         "bold": true,
@@ -223,7 +223,7 @@
                         "strike": false
                     },
                     "warning": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": true,
@@ -231,7 +231,7 @@
                         "strike": false
                     },
                     "hidden": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": true,
@@ -240,7 +240,7 @@
                     },
                     "cursor-line": {
                         "color": "Cyan1",
-                        "background-color": "Red",
+                        "background-color": "Maroon",
                         "underline": true,
                         "bold": true,
                         "italic": false,
@@ -263,7 +263,7 @@
                         "strike": false
                     },
                     "skewed-time": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -287,7 +287,7 @@
                         "strike": false
                     },
                     "invalid-msg": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -297,6 +297,14 @@
                     "popup": {
                         "color": "Silver",
                         "background-color": "Teal",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "popup-border": {
+                        "color": "",
+                        "background-color": "",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -391,7 +399,7 @@
                         "strike": false
                     },
                     "list-glyph": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -439,7 +447,7 @@
                         "strike": false
                     },
                     "footnote-border": {
-                        "color": "Blue",
+                        "color": "Navy",
                         "background-color": "#444",
                         "underline": false,
                         "bold": false,
@@ -473,7 +481,7 @@
                 },
                 "syntax-styles": {
                     "inline-code": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "#121212",
                         "underline": false,
                         "bold": false,
@@ -537,7 +545,7 @@
                         "strike": false
                     },
                     "symbol": {
-                        "color": "Blue",
+                        "color": "Navy",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -561,7 +569,7 @@
                         "strike": false
                     },
                     "non-ascii": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -577,7 +585,7 @@
                         "strike": false
                     },
                     "type": {
-                        "color": "Blue",
+                        "color": "Navy",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -609,7 +617,7 @@
                         "strike": false
                     },
                     "re-repeat": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -617,7 +625,7 @@
                         "strike": false
                     },
                     "diff-delete": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -650,7 +658,7 @@
                     },
                     "spectrogram-medium": {
                         "color": "",
-                        "background-color": "Yellow",
+                        "background-color": "Olive",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -658,14 +666,14 @@
                     },
                     "spectrogram-high": {
                         "color": "",
-                        "background-color": "Red",
+                        "background-color": "Maroon",
                         "underline": false,
                         "bold": false,
                         "italic": false,
                         "strike": false
                     },
                     "file": {
-                        "color": "Blue",
+                        "color": "Navy",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -683,7 +691,7 @@
                         "strike": false
                     },
                     "warn": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "Silver",
                         "underline": false,
                         "bold": false,
@@ -691,7 +699,7 @@
                         "strike": false
                     },
                     "alert": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "Silver",
                         "underline": false,
                         "bold": false,
@@ -707,7 +715,7 @@
                         "strike": false
                     },
                     "inactive-alert": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "Grey37",
                         "underline": false,
                         "bold": false,
@@ -724,7 +732,7 @@
                     },
                     "title-hotkey": {
                         "color": "Teal",
-                        "background-color": "Blue",
+                        "background-color": "Navy",
                         "underline": true,
                         "bold": false,
                         "italic": false,
@@ -732,7 +740,7 @@
                     },
                     "title": {
                         "color": "Silver",
-                        "background-color": "Blue",
+                        "background-color": "Navy",
                         "underline": false,
                         "bold": true,
                         "italic": false,
@@ -853,7 +861,7 @@
                         "strike": false
                     },
                     "warning": {
-                        "color": "Yellow",
+                        "color": "Olive",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -861,7 +869,7 @@
                         "strike": false
                     },
                     "error": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -869,7 +877,7 @@
                         "strike": false
                     },
                     "critical": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -877,7 +885,7 @@
                         "strike": false
                     },
                     "fatal": {
-                        "color": "Red",
+                        "color": "Maroon",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -1104,6 +1112,14 @@
                     "popup": {
                         "color": "$black",
                         "background-color": "$cyan",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "popup-border": {
+                        "color": "",
+                        "background-color": "",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -1871,6 +1887,14 @@
                         "italic": false,
                         "strike": false
                     },
+                    "popup-border": {
+                        "color": "",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
                     "focused": {
                         "color": "$black",
                         "background-color": "$white",
@@ -2632,6 +2656,14 @@
                         "italic": false,
                         "strike": false
                     },
+                    "popup-border": {
+                        "color": "",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
                     "focused": {
                         "color": "$black",
                         "background-color": "$plaintext",
@@ -3387,8 +3419,16 @@
                         "strike": false
                     },
                     "popup": {
-                        "color": "$white",
-                        "background-color": "$cyan",
+                        "color": "#ccc",
+                        "background-color": "#333",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "popup-border": {
+                        "color": "#ff5fd7",
+                        "background-color": "#333",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -4150,6 +4190,14 @@
                     "popup": {
                         "color": "$base00",
                         "background-color": "$base3",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "popup-border": {
+                        "color": "",
+                        "background-color": "",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -4925,6 +4973,14 @@
                         "italic": false,
                         "strike": false
                     },
+                    "popup-border": {
+                        "color": "",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
                     "focused": {
                         "color": "$base03",
                         "background-color": "$base01",
@@ -5695,6 +5751,14 @@
                         "italic": false,
                         "strike": false
                     },
+                    "popup-border": {
+                        "color": "",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
                     "focused": {
                         "color": "$base03",
                         "background-color": "$base01",
@@ -6371,6 +6435,11 @@
                 }
             },
             "default": {
+                "f1": {
+                    "id": "",
+                    "command": ":help",
+                    "alt-msg": ""
+                },
                 "x04": {
                     "id": "",
                     "command": ";UPDATE lnav_top_view SET top = top + (height / 2), selection = (CASE movement WHEN 'top' THEN selection ELSE top + (height / 2) + (selection - top) END)",

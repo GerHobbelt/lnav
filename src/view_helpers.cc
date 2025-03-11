@@ -43,6 +43,7 @@
 #include "intervaltree/IntervalTree.h"
 #include "lnav.hh"
 #include "lnav.indexing.hh"
+#include "lnav.prompt.hh"
 #include "md2attr_line.hh"
 #include "md4cpp.hh"
 #include "pretty_printer.hh"
@@ -50,6 +51,8 @@
 #include "sql_help.hh"
 #include "sql_util.hh"
 #include "static_file_vtab.hh"
+#include "textinput.history.hh"
+#include "textinput_curses.hh"
 #include "timeline_source.hh"
 #include "view_helpers.crumbs.hh"
 #include "view_helpers.examples.hh"
@@ -59,7 +62,7 @@
 using namespace std::chrono_literals;
 using namespace lnav::roles::literals;
 
-const char* const lnav_view_strings[LNV__MAX + 1] = {
+constexpr std::array<const char*, LNV__MAX> lnav_view_strings = {
     "log",
     "text",
     "help",
@@ -69,8 +72,6 @@ const char* const lnav_view_strings[LNV__MAX + 1] = {
     "pretty",
     "spectro",
     "timeline",
-
-    nullptr,
 };
 
 const char* const lnav_view_titles[LNV__MAX] = {
@@ -124,7 +125,7 @@ view_from_string(const char* name)
         return std::nullopt;
     }
 
-    return lnav_view_t(view_name_iter - lnav_view_strings);
+    return lnav_view_t(view_name_iter - std::begin(lnav_view_strings));
 }
 
 static void
@@ -640,8 +641,6 @@ build_all_help_text()
 bool
 handle_winch(screen_curses* sc)
 {
-    static auto* filter_source = injector::get<filter_sub_source*>();
-
     if (!lnav_data.ld_winched) {
         return false;
     }
@@ -653,18 +652,12 @@ handle_winch(screen_curses* sc)
     }
 
     lnav_data.ld_winched = false;
-    if (lnav_data.ld_rl_view != nullptr) {
-        lnav_data.ld_rl_view->do_update();
-        lnav_data.ld_rl_view->window_change();
-    }
-    filter_source->fss_editor->window_change();
     for (auto& stat : lnav_data.ld_status) {
         stat.window_change();
     }
     lnav_data.ld_view_stack.set_needs_update();
     lnav_data.ld_doc_view.set_needs_update();
     lnav_data.ld_example_view.set_needs_update();
-    lnav_data.ld_match_view.set_needs_update();
     lnav_data.ld_filter_view.set_needs_update();
     lnav_data.ld_files_view.set_needs_update();
     lnav_data.ld_file_details_view.set_needs_update();
@@ -682,6 +675,8 @@ layout_views()
     static constexpr auto FILES_BLURRED_WIDTH = 20U;
 
     static auto* breadcrumb_view = injector::get<breadcrumb_curses*>();
+    static auto* filter_source = injector::get<filter_sub_source*>();
+    static auto& prompt = lnav::prompt::get();
 
     unsigned int width, height;
     ncplane_dim_yx(lnav_data.ld_window, &height, &width);
@@ -736,10 +731,6 @@ layout_views()
         preview_height1 = 6;  // XXX extra height for db overlay
     }
 
-    int match_rows = lnav_data.ld_match_source.text_line_count();
-    int match_height = std::min(match_rows, (int) (height - 4) / 2);
-    lnav_data.ld_match_view.set_height(vis_line_t(match_height));
-
     int um_rows = lnav_data.ld_user_message_source.text_line_count();
     if (um_rows > 0
         && std::chrono::steady_clock::now()
@@ -784,16 +775,17 @@ layout_views()
     auto bottom_min = std::min(2U + 3U, height);
     auto bottom = clamped<int>::from(height, bottom_min, height);
 
-    lnav_data.ld_rl_view->set_y(height - 1);
-    bottom -= lnav_data.ld_rl_view->get_height();
-    lnav_data.ld_rl_view->set_width(width);
+    auto prompt_height = prompt.p_editor.vc_enabled ? prompt.p_editor.tc_height
+                                                    : 1;
+
+    bottom -= prompt_height;
+    prompt.p_editor.set_y(bottom);
+    prompt.p_editor.set_width(width);
+    prompt.p_editor.ensure_cursor_visible();
 
     breadcrumb_view->set_width(width);
 
     bool vis;
-    vis = bottom.try_consume(lnav_data.ld_match_view.get_height());
-    lnav_data.ld_match_view.set_y(bottom);
-    lnav_data.ld_match_view.set_visible(vis);
 
     vis = bottom.try_consume(um_height);
     lnav_data.ld_user_message_view.set_y(bottom);
@@ -879,6 +871,7 @@ layout_views()
     lnav_data.ld_filter_view.set_y(bottom + 2);
     lnav_data.ld_filter_view.set_width(width);
     lnav_data.ld_filter_view.set_visible(filters_open && vis);
+    filter_source->fss_editor->set_width(width - 26);
 
     lnav_data.ld_files_view.set_height(vis_line_t(filter_height));
     lnav_data.ld_files_view.set_y(bottom + 2);
@@ -1183,10 +1176,8 @@ toggle_view(textview_curses* toggle_tc)
             rebuild_hist();
         } else if (toggle_tc == &lnav_data.ld_views[LNV_HELP]) {
             build_all_help_text();
-            if (lnav_data.ld_rl_view != nullptr) {
-                lnav_data.ld_rl_view->set_alt_value(
-                    HELP_MSG_1(q, "to return to the previous view"));
-            }
+            lnav::prompt::get().p_editor.set_alt_value(
+                HELP_MSG_1(q, "to return to the previous view"));
         }
         lnav_data.ld_last_view = nullptr;
         lnav_data.ld_view_stack.push_back(toggle_tc);
@@ -1513,6 +1504,14 @@ set_view_mode(ln_mode_t mode)
                 = role_t::VCR_DISABLED_CURSOR_LINE;
             break;
         }
+        case ln_mode_t::FILTER: {
+            static auto* filter_source = injector::get<filter_sub_source*>();
+
+            if (filter_source->fss_editing) {
+                filter_source->fss_editor->abort();
+            }
+            break;
+        }
         default:
             break;
     }
@@ -1548,20 +1547,20 @@ all_views()
     std::vector<view_curses*> retval;
 
     retval.push_back(breadcrumb_view);
-    for (auto& sc : lnav_data.ld_status) {
-        retval.push_back(&sc);
-    }
+    retval.push_back(&lnav::prompt::get().p_editor);
+    retval.push_back(&lnav_data.ld_filter_view);
     retval.push_back(&lnav_data.ld_doc_view);
     retval.push_back(&lnav_data.ld_example_view);
     retval.push_back(&lnav_data.ld_preview_view[0]);
     retval.push_back(&lnav_data.ld_preview_view[1]);
     retval.push_back(&lnav_data.ld_file_details_view);
     retval.push_back(&lnav_data.ld_files_view);
-    retval.push_back(&lnav_data.ld_filter_view);
     retval.push_back(&lnav_data.ld_user_message_view);
     retval.push_back(&lnav_data.ld_spectro_details_view);
     retval.push_back(&lnav_data.ld_timeline_details_view);
-    retval.push_back(lnav_data.ld_rl_view);
+    for (auto& sc : lnav_data.ld_status) {
+        retval.push_back(&sc);
+    }
 
     return retval;
 }
@@ -1633,38 +1632,40 @@ lnav_behavior::mouse_event(
                 if (breadcrumb_view->contains(me.me_x, me.me_y)) {
                     this->lb_last_view = breadcrumb_view;
                     break;
-                } else {
-                    set_view_mode(ln_mode_t::PAGING);
-                    lnav_data.ld_view_stack.set_needs_update();
                 }
+                set_view_mode(ln_mode_t::PAGING);
+                lnav_data.ld_view_stack.set_needs_update();
             }
 
-            auto* tc = *(lnav_data.ld_view_stack.top());
-            if (tc->contains(me.me_x, me.me_y)) {
-                me.me_press_y = me.me_y - tc->get_y();
-                me.me_press_x = me.me_x - tc->get_x();
-                this->lb_last_view = tc;
-
-                switch (lnav_data.ld_mode) {
-                    case ln_mode_t::PAGING:
-                        break;
-                    case ln_mode_t::FILES:
-                    case ln_mode_t::FILE_DETAILS:
-                    case ln_mode_t::FILTER:
-                        // Clicking on the main view when the config panels are
-                        // open should return us to paging.
-                        set_view_mode(ln_mode_t::PAGING);
-                        break;
-                    default:
-                        break;
+            this->lb_last_view = nullptr;
+            for (auto* vc : VIEWS) {
+                auto contained_by = vc->contains(me.me_x, me.me_y);
+                if (contained_by) {
+                    this->lb_last_view = contained_by.value();
+                    me.me_press_y = me.me_y - this->lb_last_view->get_y();
+                    me.me_press_x = me.me_x - this->lb_last_view->get_x();
+                    break;
                 }
-            } else {
-                for (auto* vc : VIEWS) {
-                    if (vc->contains(me.me_x, me.me_y)) {
-                        this->lb_last_view = vc;
-                        me.me_press_y = me.me_y - vc->get_y();
-                        me.me_press_x = me.me_x - vc->get_x();
-                        break;
+            }
+            if (this->lb_last_view == nullptr) {
+                auto* tc = *(lnav_data.ld_view_stack.top());
+                if (tc->contains(me.me_x, me.me_y)) {
+                    me.me_press_y = me.me_y - tc->get_y();
+                    me.me_press_x = me.me_x - tc->get_x();
+                    this->lb_last_view = tc;
+
+                    switch (lnav_data.ld_mode) {
+                        case ln_mode_t::PAGING:
+                            break;
+                        case ln_mode_t::FILES:
+                        case ln_mode_t::FILE_DETAILS:
+                        case ln_mode_t::FILTER:
+                            // Clicking on the main view when the config panels
+                            // are open should return us to paging.
+                            set_view_mode(ln_mode_t::PAGING);
+                            break;
+                        default:
+                            break;
                     }
                 }
             }

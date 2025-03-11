@@ -155,7 +155,8 @@ class list_input_delegate {
 public:
     virtual ~list_input_delegate() = default;
 
-    virtual bool list_input_handle_key(listview_curses& lv, const ncinput& ch) = 0;
+    virtual bool list_input_handle_key(listview_curses& lv, const ncinput& ch)
+        = 0;
 
     virtual void list_input_handle_scroll_out(listview_curses& lv) {}
 };
@@ -264,6 +265,8 @@ public:
         return this->lv_top;
     }
 
+    void set_show_details_in_overlay(bool val);
+
     std::optional<vis_line_t> get_overlay_selection() const
     {
         if (this->lv_overlay_focused) {
@@ -308,9 +311,21 @@ public:
 
     vis_line_t rows_available(vis_line_t line, row_direction_t dir) const;
 
+    struct layout_result_t {
+        vis_line_t lr_desired_row{0_vl};
+        std::vector<vis_line_t> lr_above_line_heights;
+        vis_line_t lr_desired_row_height{0_vl};
+        std::vector<vis_line_t> lr_below_line_heights;
+    };
+
+    layout_result_t layout_for_row(vis_line_t row) const;
+    vis_line_t height_for_row(vis_line_t row,
+                              vis_line_t height,
+                              unsigned long width) const;
+
     template<typename F>
-    auto map_top_row(F func) const ->
-        typename std::invoke_result<F, const attr_line_t&>::type
+    auto map_top_row(F func) const
+        -> std::invoke_result_t<F, const attr_line_t&>
     {
         if (this->lv_top >= this->get_inner_height()) {
             return std::nullopt;
@@ -471,7 +486,7 @@ public:
 
     bool handle_mouse(mouse_event& me) override;
 
-    bool contains(int x, int y) const override;
+    std::optional<view_curses*> contains(int x, int y) override;
 
     listview_curses& set_tail_space(vis_line_t space)
     {
@@ -520,6 +535,10 @@ public:
                                                          overlay_content,
                                                          empty_space>;
 
+    int get_y_for_selection() const;
+
+    std::optional<role_t> lv_border_left_role;
+
 protected:
     void delegate_scroll_out()
     {
@@ -531,7 +550,7 @@ protected:
     void update_top_from_selection();
 
     vis_line_t get_overlay_top(vis_line_t row, size_t count, size_t total);
-    size_t get_overlay_height(size_t total, vis_line_t view_height);
+    size_t get_overlay_height(size_t total, vis_line_t view_height) const;
 
     enum class lv_mode_t {
         NONE,
@@ -564,15 +583,14 @@ protected:
     vis_line_t lv_selection{0};
     bool lv_sync_selection_and_top{false};
 
-    timeval lv_mouse_time {
-        0, 0
-    };
+    timeval lv_mouse_time{0, 0};
     int lv_scroll_accel{1};
     int lv_scroll_velo{0};
     int lv_mouse_y{-1};
     lv_mode_t lv_mouse_mode{lv_mode_t::NONE};
     vis_line_t lv_tail_space{1};
 
+    vis_line_t lv_display_lines_row{0_vl};
     std::vector<display_line_content_t> lv_display_lines;
     unsigned int lv_scroll_top{0};
     unsigned int lv_scroll_bottom{0};

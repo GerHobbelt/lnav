@@ -41,7 +41,6 @@
 #include "base/intern_string.hh"
 #include "base/lnav.console.hh"
 #include "base/lnav.resolver.hh"
-#include "text_format.hh"
 #include "yajlpp/yajlpp_def.hh"
 
 class log_vtab_manager;
@@ -60,23 +59,6 @@ void load_format_extra(sqlite3* db,
                        const std::map<std::string, scoped_value_t>& global_vars,
                        const std::vector<std::filesystem::path>& extra_paths,
                        std::vector<lnav::console::user_message>& errors);
-
-struct script_metadata {
-    std::filesystem::path sm_path;
-    std::string sm_name;
-    std::string sm_synopsis;
-    std::string sm_description;
-    text_format_t sm_output_format{text_format_t::TF_UNKNOWN};
-};
-
-void extract_metadata_from_file(script_metadata& meta_inout);
-
-struct available_scripts {
-    std::map<std::string, std::vector<script_metadata>> as_scripts;
-};
-
-void find_format_scripts(const std::vector<std::filesystem::path>& extra_paths,
-                         available_scripts& scripts);
 
 extern const json_path_container format_handlers;
 extern const json_path_container root_format_handler;

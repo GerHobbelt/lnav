@@ -35,6 +35,7 @@
 #include <functional>
 #include <string>
 
+#include "base/intern_string.hh"
 #include "base/lnav.console.hh"
 
 class lnav_config_listener {
@@ -42,20 +43,21 @@ public:
     using error_reporter = const std::function<void(
         const void*, const lnav::console::user_message& msg)>;
 
+    static std::vector<lnav_config_listener*>& listener_list()
+    {
+        static std::vector<lnav_config_listener*> retval;
+
+        return retval;
+    }
+
     template<typename T, std::size_t N>
     lnav_config_listener(const T (&src_file)[N])
         : lcl_name(string_fragment::from_const(src_file))
     {
-        auto** curr = &LISTENER_LIST;
-
-        while (*curr != nullptr && (*curr)->lcl_name < this->lcl_name) {
-            curr = &(*curr)->lcl_next;
-        }
-        this->lcl_next = *curr;
-        *curr = this;
+        listener_list().emplace_back(this);
     }
 
-    virtual ~lnav_config_listener() = default;
+    virtual ~lnav_config_listener();
 
     virtual void reload_config(error_reporter& reporter) {}
 
@@ -63,16 +65,11 @@ public:
 
     static void unload_all()
     {
-        auto* lcl = LISTENER_LIST;
-        while (lcl != nullptr) {
+        for (auto* lcl : listener_list()) {
             lcl->unload_config();
-            lcl = lcl->lcl_next;
         }
     }
 
-    static lnav_config_listener* LISTENER_LIST;
-
-    lnav_config_listener* lcl_next;
     string_fragment lcl_name;
 };
 

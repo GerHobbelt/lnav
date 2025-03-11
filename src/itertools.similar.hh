@@ -43,7 +43,7 @@ namespace details {
 template<typename F>
 struct similar_to {
     std::optional<F> st_mapper;
-    std::string st_pattern;
+    const std::string st_pattern;
     size_t st_count{5};
 };
 
@@ -98,6 +98,7 @@ operator|(const T& in, const lnav::itertools::details::similar_to<F>& st)
     }
 
     std::priority_queue<score_pair, std::vector<score_pair>, score_cmp> pq;
+    auto exact_match = false;
 
     for (const auto& elem : in) {
         int score = 0;
@@ -117,9 +118,12 @@ operator|(const T& in, const lnav::itertools::details::similar_to<F>& st)
         if (score <= 0) {
             continue;
         }
+        if (st.st_pattern == estr) {
+            exact_match = true;
+        }
         pq.push(std::make_pair(score, elem));
 
-        if (pq.size() > st.st_count) {
+        if (!st.st_pattern.empty() && pq.size() > st.st_count) {
             pq.pop();
         }
     }
@@ -129,6 +133,10 @@ operator|(const T& in, const lnav::itertools::details::similar_to<F>& st)
         pq.pop();
     }
     std::reverse(retval.begin(), retval.end());
+
+    if (retval.size() == 1 && exact_match) {
+        retval.pop_back();
+    }
 
     return retval;
 }

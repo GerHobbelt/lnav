@@ -38,6 +38,8 @@ dist_noinst_DATA = \
     test_cli.sh_f2e41555f1a5f40f54ce241207af602ed1503a2b.out \
     test_cli.sh_ff7da172f4350a2adb74b8764575823d798ed8b6.err \
     test_cli.sh_ff7da172f4350a2adb74b8764575823d798ed8b6.out \
+    test_cmds.sh_00cd8ab61b32b4cd9749aa92f486aa9a3e17552b.err \
+    test_cmds.sh_00cd8ab61b32b4cd9749aa92f486aa9a3e17552b.out \
     test_cmds.sh_015ffe79a08f4c9f0cd1cb84c6afa4398f879fc7.err \
     test_cmds.sh_015ffe79a08f4c9f0cd1cb84c6afa4398f879fc7.out \
     test_cmds.sh_017b495b95218b7c083951e2dba331cfec6e90be.err \
@@ -134,6 +136,8 @@ dist_noinst_DATA = \
     test_cmds.sh_661ec61acdd8f6fa6ec1e3c2cf5f896eef431351.out \
     test_cmds.sh_68c774418bac897bd4d4fe9dbbf08454886b2e15.err \
     test_cmds.sh_68c774418bac897bd4d4fe9dbbf08454886b2e15.out \
+    test_cmds.sh_69bd25462cab0136f3c8195008568598f6f0e48c.err \
+    test_cmds.sh_69bd25462cab0136f3c8195008568598f6f0e48c.out \
     test_cmds.sh_6a6031113aca32fabc5a3da64b7be46f5ce5a312.err \
     test_cmds.sh_6a6031113aca32fabc5a3da64b7be46f5ce5a312.out \
     test_cmds.sh_6e016c0ed61fc652be1a79b864875ffede64f281.err \
@@ -824,6 +828,8 @@ dist_noinst_DATA = \
     test_sql_anno.sh_331a152080d2e278b7cc0a37728eca1ded36ed72.out \
     test_sql_anno.sh_4ca92f0da538c2f9d524211a021b306af0d2740d.err \
     test_sql_anno.sh_4ca92f0da538c2f9d524211a021b306af0d2740d.out \
+    test_sql_anno.sh_61bb63e4ed637486f3c3e0b858605ffb54a3d7cd.err \
+    test_sql_anno.sh_61bb63e4ed637486f3c3e0b858605ffb54a3d7cd.out \
     test_sql_anno.sh_73814eca259e469b57bf7469787b91e8e8569b17.err \
     test_sql_anno.sh_73814eca259e469b57bf7469787b91e8e8569b17.out \
     test_sql_anno.sh_74bc5fb90a0c94a1a37d30a8e9254ea02c192a75.err \
@@ -848,8 +854,6 @@ dist_noinst_DATA = \
     test_sql_anno.sh_de46094b6e005285dc0921ef9979e36240c5042d.out \
     test_sql_anno.sh_e02dc902e91f99da7c7682e8d9ce3a40dd05b908.err \
     test_sql_anno.sh_e02dc902e91f99da7c7682e8d9ce3a40dd05b908.out \
-    test_sql_anno.sh_e7dae4ba18c42c416ed03afd8819200f63e89ac8.err \
-    test_sql_anno.sh_e7dae4ba18c42c416ed03afd8819200f63e89ac8.out \
     test_sql_anno.sh_f3c64191d6016767a5857fbb1bad26548586bb96.err \
     test_sql_anno.sh_f3c64191d6016767a5857fbb1bad26548586bb96.out \
     test_sql_coll_func.sh_077cab6e271c914daf5b221cc512853077891f35.err \

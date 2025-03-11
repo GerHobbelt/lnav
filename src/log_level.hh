@@ -32,11 +32,13 @@
 #ifndef log_level_hh
 #define log_level_hh
 
+#include <array>
+
 #include <sys/types.h>
 
 #include "base/log_level_enum.hh"
 
-extern const char* const level_names[LEVEL__MAX + 1];
+extern const std::array<const char*, LEVEL__MAX> level_names;
 
 constexpr size_t MAX_LEVEL_NAME_LEN = 8;
 

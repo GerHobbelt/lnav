@@ -46,6 +46,7 @@
 #include "help_text_formatter.hh"
 #include "lnav.hh"
 #include "lnav.indexing.hh"
+#include "lnav.prompt.hh"
 #include "lnav_config.hh"
 #include "lnav_util.hh"
 #include "log_format_loader.hh"
@@ -272,6 +273,8 @@ execute_search(const std::string& search_cmd)
 Result<std::string, lnav::console::user_message>
 execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
 {
+    static auto& prompt = lnav::prompt::get();
+
     auto_mem<sqlite3_stmt> stmt(sqlite3_finalize);
     timeval start_tv, end_tv;
     std::string stmt_str = trim(sql);
@@ -478,9 +481,7 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
         curr_stmt = tail;
     }
 
-    if (lnav_data.ld_rl_view != nullptr) {
-        lnav_data.ld_rl_view->clear_value();
-    }
+    prompt.p_editor.clear_inactive_value();
 
     if (last_is_readonly && !ec.ec_label_source_stack.empty()) {
         auto& dls = *ec.ec_label_source_stack.back();
@@ -689,7 +690,6 @@ execute_file(exec_context& ec, const std::string& path_and_args)
 {
     static const intern_string_t SRC = intern_string::lookup("cmdline");
 
-    available_scripts scripts;
     std::string retval, msg;
     shlex lexer(path_and_args);
 
@@ -712,7 +712,7 @@ execute_file(exec_context& ec, const std::string& path_and_args)
         return ec.make_error("no script specified");
     }
 
-    ec.ec_local_vars.push({});
+    ec.ec_local_vars.emplace();
 
     auto script_name = split_args[0].se_value;
     auto& vars = ec.ec_local_vars.top();
@@ -734,7 +734,7 @@ execute_file(exec_context& ec, const std::string& path_and_args)
 
     std::vector<script_metadata> paths_to_exec;
 
-    find_format_scripts(lnav_data.ld_config_paths, scripts);
+    auto scripts = find_format_scripts(lnav_data.ld_config_paths);
     auto iter = scripts.as_scripts.find(script_name);
     if (iter != scripts.as_scripts.end()) {
         paths_to_exec = iter->second;
@@ -1166,6 +1166,7 @@ internal_sql_callback(exec_context& ec, sqlite3_stmt* stmt)
 std::future<std::string>
 pipe_callback(exec_context& ec, const std::string& cmdline, auto_fd& fd)
 {
+    static auto& prompt = lnav::prompt::get();
     auto out = ec.get_output();
 
     if (out) {
@@ -1218,9 +1219,7 @@ pipe_callback(exec_context& ec, const std::string& cmdline, auto_fd& fd)
         .with_detect_format(false)
         .with_init_location(0_vl);
     lnav_data.ld_files_to_front.emplace_back(desc, 0_vl);
-    if (lnav_data.ld_rl_view != nullptr) {
-        lnav_data.ld_rl_view->set_alt_value(HELP_MSG_1(X, "to close the file"));
-    }
+    prompt.p_editor.set_alt_value(HELP_MSG_1(X, "to close the file"));
 
     return lnav::futures::make_ready_future(std::string());
 }
@@ -1285,31 +1284,20 @@ exec_context::exec_context(logline_value_vector* line_values,
 Result<std::string, lnav::console::user_message>
 exec_context::execute(const std::string& cmdline)
 {
-    if (this->get_provenance<mouse_input>()
-        && !lnav_data.ld_rl_view->is_active())
-    {
-        int context = 0;
-        switch (cmdline[0]) {
-            case '/':
-                context = lnav::enums::to_underlying(ln_mode_t::SEARCH);
-                break;
-            case ':':
-                context = lnav::enums::to_underlying(ln_mode_t::COMMAND);
-                break;
-            case ';':
-                context = lnav::enums::to_underlying(ln_mode_t::SQL);
-                break;
-            case '|':
-                context = lnav::enums::to_underlying(ln_mode_t::EXEC);
-                break;
-        }
+    static auto& prompt = lnav::prompt::get();
+    lnav::textinput::history::op_guard hist_guard;
 
-        lnav_data.ld_rl_view->append_to_history(context, cmdline.substr(1));
+    if (this->get_provenance<mouse_input>() && !prompt.p_editor.vc_enabled) {
+        auto& hist = prompt.get_history_for(cmdline[0]);
+        hist_guard = hist.start_operation(cmdline.substr(1));
     }
 
     auto exec_res = execute_any(*this, cmdline);
-    if (exec_res.isErr() && !this->ec_msg_callback_stack.empty()) {
-        this->ec_msg_callback_stack.back()(exec_res.unwrapErr());
+    if (exec_res.isErr()) {
+        hist_guard.og_status = log_level_t::LEVEL_ERROR;
+        if (!this->ec_msg_callback_stack.empty()) {
+            this->ec_msg_callback_stack.back()(exec_res.unwrapErr());
+        }
     }
 
     return exec_res;

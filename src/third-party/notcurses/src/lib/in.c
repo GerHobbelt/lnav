@@ -878,7 +878,7 @@ kitty_cb(inputctx* ictx){
   return 2;
 }
 
-static int 
+static int
 kitty_cb_atxtn(inputctx* ictx, int n, int with_event){
   uint32_t txt[5]={0};
   unsigned val = amata_next_numeric(&ictx->amata, "\x1b[", ';');
@@ -1868,7 +1868,7 @@ build_cflow_automaton(inputctx* ictx){
     { "[?1;2S", NULL, }, // negative cregs XTSMGRAPHICS
     { "[?1;3S", NULL, }, // negative cregs XTSMGRAPHICS
     { "[?1;3;S", NULL, }, // iterm2 negative cregs XTSMGRAPHICS
-    { "[?1;3;0S", NULL, }, // negative cregs XTSMGRAPHICS
+    { "[?1;3;\\NS", NULL, }, // negative cregs XTSMGRAPHICS
     { "[?2;1S", NULL, }, // negative pixels XTSMGRAPHICS
     { "[?2;2S", NULL, }, // negative pixels XTSMGRAPHICS
     { "[?2;3S", NULL, }, // negative pixels XTSMGRAPHICS
@@ -1878,6 +1878,7 @@ build_cflow_automaton(inputctx* ictx){
     { "[?7c", da1_cb, },   // CSI ? 7 c ("VT131")
     { "[?1;0c", da1_cb, }, // CSI ? 1 ; 0 c ("VT101 with No Options")
     { "[?1;2c", da1_cb, }, // CSI ? 1 ; 2 c ("VT100 with Advanced Video Option")
+    { "[?1;2;\\Dc", da1_attrs_cb, },
     { "[?4;6c", da1_cb, }, // CSI ? 4 ; 6 c ("VT132 with Advanced Video and Graphics")
     // CSI ? 1 2 ; Ps c ("VT125")
     // CSI ? 6 0 ; Ps c (kmscon)
@@ -3056,10 +3057,19 @@ int notcurses_linesigs_enable(notcurses* n){
 
 struct initial_responses* inputlayer_get_responses(inputctx* ictx){
   struct initial_responses* iresp;
+      struct timeval wait_start_tv, curr_tv, diff_tv;
       loginfo("inputlayer_get_resp wait");
+      gettimeofday(&wait_start_tv, NULL);
+      struct timespec ts = {wait_start_tv.tv_sec + 1, 0};
   pthread_mutex_lock(&ictx->ilock);
   while(ictx->initdata || !ictx->initdata_complete){
-    pthread_cond_wait(&ictx->icond, &ictx->ilock);
+    pthread_cond_timedwait(&ictx->icond, &ictx->ilock, &ts);
+      gettimeofday(&curr_tv, NULL);
+      timersub(&curr_tv, &wait_start_tv, &diff_tv);
+      if (diff_tv.tv_sec > 1) {
+          logpanic("timedout waiting for initial response");
+          return NULL;
+      }
   }
   iresp = ictx->initdata_complete;
   ictx->initdata_complete = NULL;

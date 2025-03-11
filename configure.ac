@@ -119,22 +119,6 @@ AS_CASE(["$host_os"],
 
 AC_CHECK_HEADERS(execinfo.h pty.h util.h zlib.h bzlib.h libutil.h sys/ttydefaults.h libproc.h)
 
-dnl Experimental SIMD features.
-AC_ARG_ENABLE([simd],
-    AS_HELP_STRING([--enable-simd], [Try and enable simd optimizations]),
-    [
-     AS_CASE(["$enable_simd"],
-             [no], [enable_simd="no"],
-             [yes | ""],[enable_simd="yes"])
-     ],
-     []
-)
-
-AS_IF([test "x$enable_simd" = "xyes"], [
-       AC_CHECK_HEADERS(x86intrin.h)
-])
-
-
 AC_ARG_WITH([system_doctest],
     AS_HELP_STRING(
         [--with-system-doctest],
@@ -164,7 +148,6 @@ AS_VAR_IF([ax_cv_curses],[yes],[],
 
 AX_PATH_LIB_ARCHIVE
 AX_CHECK_PCRE2([8], [], [AC_MSG_ERROR([pcre2 is required to build])])
-AX_PATH_LIB_READLINE
 
 AX_CODE_COVERAGE
 
@@ -210,10 +193,10 @@ dnl esac
 
 AC_DEFINE([_XOPEN_SOURCE_EXTENDED], [1], [Wide character support for ncurses])
 
-AS_VAR_SET(ALL_LDFLAGS, "$SQLITE3_LDFLAGS $READLINE_LDFLAGS $LIBARCHIVE_LDFLAGS $LIBCURL $LDFLAGS")
+AS_VAR_SET(ALL_LDFLAGS, "$SQLITE3_LDFLAGS $LIBARCHIVE_LDFLAGS $LIBCURL $LDFLAGS")
 
 AS_VAR_SET(static_lib_list,
-           ["libncurses.a libncursesw.a libreadline.a libsqlite3.a libz.a libtinfo.a libtinfow.a"])
+           ["libncurses.a libncursesw.a libsqlite3.a libz.a libtinfo.a libtinfow.a"])
 AS_VAR_SET(static_lib_list,
            ["$static_lib_list libpcre2-8.a libncursesw.a libbz2.a"])
 AS_VAR_SET(static_lib_list,

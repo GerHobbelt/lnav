@@ -524,6 +524,11 @@ run_cap_test ${lnav_test} -n \
     ${test_dir}/logfile_syslog.0
 
 run_cap_test ${lnav_test} -n \
+    -c ":mark" \
+    -c "/vmw" \
+    ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -n \
     -c ":zoom-to bad" \
     ${test_dir}/logfile_access_log.0
 
@@ -533,6 +538,9 @@ run_cap_test ${lnav_test} -n \
 
 printf "Hello, World!" | run_cap_test env TEST_COMMENT="text view" ${lnav_test} -n \
   -c ":switch-to-view text"
+
+run_cap_test ${lnav_test} -Nnv \
+    -c ":hide-lines-before badbadbad"
 
 run_cap_test ${lnav_test} -Nnv \
     -c ":hide-lines-before 2009-07-20T22:59:29" \

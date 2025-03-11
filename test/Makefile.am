@@ -34,7 +34,6 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/third-party/scnlib/include \
 	$(CODE_COVERAGE_CPPFLAGS) \
 	$(LIBARCHIVE_CFLAGS) \
-	$(READLINE_CFLAGS) \
 	$(PCRE_CFLAGS) \
 	$(SQLITE3_CFLAGS) \
     $(RUST_DEPS_CPPFLAGS)
@@ -59,12 +58,14 @@ noinst_LIBRARIES = \
 	libtestdummy.a
 
 libtestdummy_a_SOURCES = \
+    ../src/lnav.prompt.cc \
 	test_stubs.cc
 
 DUMMY_OBJS = \
 	test_stubs.$(OBJEXT)
 
 check_PROGRAMS = \
+    document.sections.tests \
 	drive_data_scanner \
 	drive_doc_discovery \
 	drive_line_buffer \
@@ -77,8 +78,6 @@ check_PROGRAMS = \
 	drive_sql_anno \
 	drive_textinput \
 	drive_view_colors \
-	drive_vt52_curses \
-	drive_readline_curses \
 	lnav_doctests \
 	slicer \
 	scripty \
@@ -99,7 +98,6 @@ AM_LDFLAGS = \
     $(LIBARCHIVE_LDFLAGS) \
 	$(STATIC_LDFLAGS) \
 	$(SQLITE3_LDFLAGS) \
-	$(READLINE_LDFLAGS) \
 	$(CURSES_LIB)
 
 CONFIG_OBJS = \
@@ -132,7 +130,6 @@ LDADD = \
     $(top_builddir)/src/third-party/date/src/libdatepp.a \
 	$(top_builddir)/src/third-party/notcurses/src/lib/liblnavnotcurses.a \
     $(top_builddir)/src/third-party/scnlib/src/libscnlib.a \
-    $(READLINE_LIBS) \
     $(CURSES_LIB) \
     $(LIBARCHIVE_LIBS) \
     $(SQLITE3_LIBS) \
@@ -167,6 +164,8 @@ test_reltime_SOURCES = test_reltime.cc
 
 lnav_doctests_SOURCES = lnav_doctests.cc
 
+document_sections_tests_SOURCES = document.sections.tests.cc
+
 drive_line_buffer_SOURCES = drive_line_buffer.cc
 
 drive_grep_proc_SOURCES = drive_grep_proc.cc
@@ -186,10 +185,6 @@ drive_doc_discovery_SOURCES = \
 drive_mvwattrline_SOURCES = drive_mvwattrline.cc
 
 drive_view_colors_SOURCES = drive_view_colors.cc
-
-drive_vt52_curses_SOURCES = drive_vt52_curses.cc
-
-drive_readline_curses_SOURCES = drive_readline_curses.cc
 
 drive_sql_SOURCES = drive_sql.cc
 
@@ -242,7 +237,6 @@ dist_noinst_SCRIPTS = \
 	test_text_file.sh \
 	test_tui.sh \
 	test_view_colors.sh \
-	test_vt52_curses.sh \
 	test_pretty_print.sh
 
 dist_noinst_DATA = \
@@ -425,10 +419,6 @@ dist_noinst_DATA = \
 	toplevel.lnav \
 	UTF-8-test.txt \
 	view_colors_output.0 \
-	vt52_curses_input.0 \
-	vt52_curses_input.1 \
-	vt52_curses_output.0 \
-	vt52_curses_output.1 \
 	xpath_tui.0 \
 	configs/installed/anno-test.json \
 	configs/installed/anno-test.sh \
@@ -530,7 +520,6 @@ TESTS = \
 	test_sql_yaml_func.sh \
 	test_text_anonymizer \
 	test_text_file.sh \
-	test_tui.sh \
 	test_pretty_print.sh \
     test_view_colors.sh
 
@@ -544,7 +533,7 @@ DISABLED_TESTS = \
 	test_top_status \
 	test_line_buffer2 \
     test_line_buffer.sh \
-    test_vt52_curses.sh
+    test_tui.sh
 
 if HAVE_LIBCURL
 TESTS += \

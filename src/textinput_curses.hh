@@ -30,6 +30,7 @@
 #ifndef textinput_curses_hh
 #define textinput_curses_hh
 
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -118,6 +119,16 @@ public:
     struct input_point {
         int x{0};
         int y{0};
+
+        static input_point home() { return input_point{}; }
+
+        static input_point end()
+        {
+            return {
+                std::numeric_limits<int>::max(),
+                std::numeric_limits<int>::max(),
+            };
+        }
 
         input_point copy_with_x(int x) { return {x, this->y}; }
 
@@ -261,9 +272,13 @@ public:
 
     textinput_curses();
 
+    textinput_curses(const textinput_curses&) = delete;
+
     void set_content(const attr_line_t& al);
 
-    bool contains(int x, int y) const override;
+    void set_height(int height);
+
+    std::optional<view_curses*> contains(int x, int y) override;
 
     bool handle_mouse(mouse_event& me) override;
 
@@ -280,6 +295,8 @@ public:
     void focus();
 
     void blur();
+
+    void abort();
 
     std::string get_content(bool trim = false) const;
 
@@ -301,11 +318,15 @@ public:
 
     void apply_highlights();
 
+    std::string replace_selection_no_change(string_fragment sf);
+
     void replace_selection(string_fragment sf);
 
     void move_cursor_by(movement move);
 
     void move_cursor_to(input_point ip);
+
+    void move_cursor_to_offset(int offset);
 
     void clamp_point(input_point& ip) const
     {
@@ -327,43 +348,122 @@ public:
 
     void move_cursor_to_prev_search_hit();
 
+    void tick(ui_clock::time_point now);
+
+    int get_cursor_offset() const;
+
+    void clear_inactive_value()
+    {
+        this->tc_inactive_value.clear();
+        this->set_needs_update();
+    }
+
+    void set_inactive_value(const std::string& str)
+    {
+        this->tc_inactive_value.with_ansi_string(str);
+        this->set_needs_update();
+    }
+
+    void set_inactive_value(const attr_line_t& al)
+    {
+        this->tc_inactive_value = al;
+        this->set_needs_update();
+    }
+
+    void clear_alt_value()
+    {
+        this->tc_alt_value.clear();
+        this->set_needs_update();
+    }
+
+    void set_alt_value(const std::string& str)
+    {
+        this->tc_alt_value.with_ansi_string(str);
+        this->set_needs_update();
+    }
+
     enum class mode_t {
         editing,
         searching,
         show_help,
     };
 
+    struct change_entry {
+        change_entry(selected_range range, std::string content)
+            : ce_range(range), ce_content(content)
+        {
+        }
+        selected_range ce_range;
+        std::string ce_content;
+    };
+
     ncplane* tc_window{nullptr};
     size_t tc_max_popup_height{5};
     int tc_left{0};
-    size_t tc_top{0};
+    int tc_top{0};
     int tc_height{0};
     input_point tc_cursor;
     int tc_max_cursor_x{0};
     mode_t tc_mode{mode_t::editing};
-    bool tc_unhandled_input{false};
+
+    enum class notice_t {
+        unhandled_input,
+        no_changes,
+    };
+
+    std::optional<notice_t> tc_notice;
+    attr_line_t tc_inactive_value;
+    attr_line_t tc_alt_value;
+
     std::string tc_search;
     std::shared_ptr<lnav::pcre2pp::code> tc_search_code;
     std::optional<bool> tc_search_found;
     input_point tc_search_start_point;
+
     text_format_t tc_text_format{text_format_t::TF_UNKNOWN};
     std::vector<attr_line_t> tc_lines;
     lnav::document::metadata tc_doc_meta;
     highlight_map_t tc_highlights;
+    attr_line_t tc_prefix;
+
+    std::string tc_suggestion;
+
     input_point tc_cursor_anchor;
     std::optional<selected_range> tc_drag_selection;
     std::optional<selected_range> tc_selection;
+
     input_point tc_cut_location;
     std::deque<std::string> tc_clipboard;
     std::optional<selected_range> tc_complete_range;
     textview_curses tc_popup;
     plain_text_source tc_popup_source;
+
+    std::vector<change_entry> tc_change_log;
+
     textview_curses tc_help_view;
     plain_text_source tc_help_source;
+
+    enum class popup_type_t {
+        none,
+        completion,
+        history,
+    };
+
+    popup_type_t tc_popup_type{popup_type_t::none};
+
+    std::optional<ui_clock::time_point> tc_last_tick_after_input;
+    bool tc_timeout_fired{false};
+
+    std::function<void(textinput_curses&)> tc_on_help;
+    std::function<void(textinput_curses&)> tc_on_focus;
+    std::function<void(textinput_curses&)> tc_on_blur;
     std::function<void(textinput_curses&)> tc_on_abort;
     std::function<void(textinput_curses&)> tc_on_change;
+    std::function<void(textinput_curses&)> tc_on_completion_request;
     std::function<void(textinput_curses&)> tc_on_completion;
     std::function<void(textinput_curses&)> tc_on_history;
+    std::function<void(textinput_curses&)> tc_on_timeout;
+    std::function<void(textinput_curses&)> tc_on_reformat;
     std::function<void(textinput_curses&)> tc_on_perform;
 };
 
