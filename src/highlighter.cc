@@ -33,24 +33,6 @@
 #include "pcrepp/pcre2pp.hh"
 #include "view_curses.hh"
 
-highlighter&
-highlighter::operator=(const highlighter& other)
-{
-    if (this == &other) {
-        return *this;
-    }
-
-    this->h_name = other.h_name;
-    this->h_role = other.h_role;
-    this->h_regex = other.h_regex;
-    this->h_format_name = other.h_format_name;
-    this->h_attrs = other.h_attrs;
-    this->h_text_formats = other.h_text_formats;
-    this->h_nestable = other.h_nestable;
-
-    return *this;
-}
-
 void
 highlighter::annotate_capture(attr_line_t& al, const line_range& lr) const
 {
@@ -101,11 +83,7 @@ highlighter::annotate(attr_line_t& al, int start) const
         return;
     }
 
-    timeval tstart, tend, tdiff;
-
-    gettimeofday(&tstart, nullptr);
-
-    this->h_regex->capture_from(sf).for_each(
+    this->h_regex->capture_from(sf).for_each<PCRE2_NO_UTF_CHECK>(
         [&](lnav::pcre2pp::match_data& md) {
             if (md.get_count() == 1) {
                 this->annotate_capture(al, to_line_range(md[0].value()));
@@ -134,10 +112,4 @@ highlighter::annotate(attr_line_t& al, int start) const
                 }
             }
         });
-    gettimeofday(&tend, nullptr);
-    timersub(&tend, &tstart, &tdiff);
-    if (tdiff.tv_usec > 10000) {
-        log_debug("slow highlight %s %s", this->h_name.c_str(),
-            this->h_regex->get_pattern().c_str());
-    }
 }

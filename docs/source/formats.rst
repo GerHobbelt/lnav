@@ -248,11 +248,13 @@ object with the following fields:
     will not be added.
 
 :timestamp-field: The name of the field that contains the log message
-  timestamp.  Defaults to "timestamp".
+  timestamp.
+  Internally, timestamps are stored with microsecond precision.
+  Defaults to "timestamp".
 
 :timestamp-format: An array of timestamp formats using a subset of the
   strftime conversion specification.  The following conversions are
-  supported: %a, %b, %L, %M, %H, %I, %d, %e, %k, %l, %m, %p, %y, %Y, %S, %s,
+  supported: %a, %b, %L, %M, %H, %I, %d, %e, %j, %k, %l, %m, %p, %y, %Y, %S, %s,
   %Z, %z.  In addition, you can also use the following:
 
   :%L: Milliseconds as a decimal number (range 000 to 999).
@@ -449,6 +451,8 @@ Example format:
         }
     }
 
+.. _patch_format:
+
 Patching an Existing Format
 ---------------------------
 
@@ -490,87 +494,15 @@ error detection regex to **not** match the :code:`errors=` string.
     }
   }
 
+.. _installing_format_files:
 
-.. _scripts:
-
-Scripts
--------
-
-Format directories may also contain :file:`.sql` and :file:`.lnav` files to help automate
-log file analysis.  The SQL files are executed on startup to create any helper
-tables or views and the '.lnav' script files can be executed using the pipe
-hotkey :kbd:`|`.  For example, **lnav** includes a "partition-by-boot" script that
-partitions the log view based on boot messages from the Linux kernel.  A script
-can have a mix of SQL and **lnav** commands, as well as include other scripts.
-The type of statement to execute is determined by the leading character on a
-line: a semi-colon begins a SQL statement; a colon starts an **lnav** command;
-and a pipe :code:`|` denotes another script to be executed.  Lines beginning with a
-hash are treated as comments.  The following variables are defined in a script:
-
-.. envvar:: #
-
-   The number of arguments passed to the script.
-
-.. envvar:: __all__
-
-   A string containing all the arguments joined by a single space.
-
-.. envvar:: 0
-
-   The path to the script being executed.
-
-.. envvar:: 1-N
-
-   The arguments passed to the script.
-
-.. envvar:: LNAV_HOME_DIR
-
-   The path to the directory where the user's **lnav** configuration is stored.
-
-.. envvar:: LNAV_WORK_DIR
-
-   The path to the directory where **lnav** caches files, like archives that
-   have been unpacked or piper captures.
-
-Remember that you need to use the :ref:`:eval<eval>` command when referencing
-variables in most **lnav** commands.  Scripts can provide help text to be
-displayed during interactive usage by adding the following tags in a comment
-header:
-
-  :@synopsis: The synopsis should contain the name of the script and any
-    parameters to be passed.  For example::
-
-    # @synopsis: hello-world <name1> [<name2> ... <nameN>]
-
-  :@description: A one-line description of what the script does.  For example::
-
-    # @description: Say hello to the given names.
-
-
-
-.. tip::
-
-   The :ref:`:eval<eval>` command can be used to do variable substitution for
-   commands that do not natively support it.  For example, to substitute the
-   variable, :code:`pattern`, in a :ref:`:filter-out<filter_out>` command:
-
-   .. code-block:: lnav
-
-      :eval :filter-out ${pattern}
-
-VSCode Extension
-----------------
-
-The `lnav VSCode Extension <https://marketplace.visualstudio.com/items?itemName=lnav.lnav>`_
-can be installed to add syntax highlighting to lnav scripts.
-
-Installing Formats
-------------------
+Installing Format Files
+-----------------------
 
 File formats are loaded from subdirectories in :file:`/etc/lnav/formats` and
 :file:`~/.lnav/formats/`.  You can manually create these subdirectories and
-copy the format files into there.  Or, you can pass the '-i' option to **lnav**
-to automatically install formats from the command-line.  For example:
+copy the format files into there.  Or, you can pass the :option:`-i` option to
+**lnav** to automatically install formats from the command-line.  For example:
 
 .. code-block:: bash
 
@@ -579,6 +511,11 @@ to automatically install formats from the command-line.  For example:
 
 Format files installed using this method will be placed in the :file:`installed`
 subdirectory and named based on the first format name found in the file.
+
+The :option:`-i` option can also be used to install :file:`.sql` and
+:file:`.lnav` script files.  The SQL files are executed on startup to
+create any helper tables or views and the '.lnav' script files can be executed
+using the pipe hotkey :kbd:`|`.
 
 You can also install formats from git repositories by passing the repository's
 clone URL.  A standard set of repositories is maintained at

@@ -27,11 +27,12 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <string>
+#include <memory>
 
 #include "textfile_highlighters.hh"
 
 #include "config.h"
+#include "pcrepp/pcre2pp.hh"
 
 template<typename T, std::size_t N>
 static std::shared_ptr<lnav::pcre2pp::code>
@@ -41,9 +42,11 @@ xpcre_compile(const T (&pattern)[N], int options = 0)
         .to_shared();
 }
 
-void
-setup_highlights(highlight_map_t& hm)
+highlight_map_t
+setup_highlights_int()
 {
+    highlight_map_t hm;
+
     hm[{highlight_source_t::INTERNAL, "python"}]
         = highlighter(xpcre_compile("(?:"
                                     "\\bFalse\\b|"
@@ -257,6 +260,7 @@ setup_highlights(highlight_map_t& hm)
     hm[{highlight_source_t::INTERNAL, "sql.0.comment"}]
         = highlighter(xpcre_compile("(?:(?<=[\\s;])|^)--.*"))
               .with_text_format(text_format_t::TF_SQL)
+              .with_text_format(text_format_t::TF_LNAV_SCRIPT)
               .with_role(role_t::VCR_COMMENT);
     hm[{highlight_source_t::INTERNAL, "sql.9.keyword"}]
         = highlighter(xpcre_compile("(?:"
@@ -394,6 +398,7 @@ setup_highlights(highlight_map_t& hm)
                                     PCRE2_CASELESS))
               .with_nestable(false)
               .with_text_format(text_format_t::TF_SQL)
+              .with_text_format(text_format_t::TF_LNAV_SCRIPT)
               .with_role(role_t::VCR_KEYWORD);
 
     hm[{highlight_source_t::INTERNAL, "srcfile"}]
@@ -414,6 +419,7 @@ setup_highlights(highlight_map_t& hm)
               .with_text_format(text_format_t::TF_MARKDOWN)
               .with_text_format(text_format_t::TF_PYTHON)
               .with_text_format(text_format_t::TF_SQL)
+              .with_text_format(text_format_t::TF_LNAV_SCRIPT)
               .with_text_format(text_format_t::TF_XML)
               .with_text_format(text_format_t::TF_YAML)
               .with_text_format(text_format_t::TF_TOML)
@@ -423,12 +429,16 @@ setup_highlights(highlight_map_t& hm)
               .with_nestable(false)
               .with_role(role_t::VCR_STRING);
     hm[{highlight_source_t::INTERNAL, "diffp"}]
-        = highlighter(xpcre_compile("^\\+.*")).with_role(role_t::VCR_DIFF_ADD);
+        = highlighter(xpcre_compile("^\\+.*"))
+              .with_text_format(text_format_t::TF_DIFF)
+              .with_role(role_t::VCR_DIFF_ADD);
     hm[{highlight_source_t::INTERNAL, "diffm"}]
         = highlighter(xpcre_compile("^(?:--- .*|-$|-[^-].*)"))
+              .with_text_format(text_format_t::TF_DIFF)
               .with_role(role_t::VCR_DIFF_DELETE);
     hm[{highlight_source_t::INTERNAL, "diffs"}]
         = highlighter(xpcre_compile("^\\@@ .*"))
+              .with_text_format(text_format_t::TF_DIFF)
               .with_role(role_t::VCR_DIFF_SECTION);
     hm[{highlight_source_t::INTERNAL, "0.comment"}]
         = highlighter(xpcre_compile(R"((?<=[\s;]|^)//.*|/\*.*\*/|\(\*.*\*\))"))
@@ -447,6 +457,7 @@ setup_highlights(highlight_map_t& hm)
               .with_text_format(text_format_t::TF_MAKEFILE)
               .with_text_format(text_format_t::TF_YAML)
               .with_text_format(text_format_t::TF_TOML)
+              .with_text_format(text_format_t::TF_LNAV_SCRIPT)
               .with_role(role_t::VCR_COMMENT);
     hm[{highlight_source_t::INTERNAL, "javadoc"}]
         = highlighter(
@@ -552,6 +563,7 @@ setup_highlights(highlight_map_t& hm)
               .with_text_format(text_format_t::TF_PYTHON)
               .with_text_format(text_format_t::TF_RUST)
               .with_text_format(text_format_t::TF_SQL)
+              .with_text_format(text_format_t::TF_LNAV_SCRIPT)
               .with_role(role_t::VCR_FUNCTION);
     hm[{highlight_source_t::INTERNAL, "sep"}]
         = highlighter(xpcre_compile(R"(\.|\s+&(?=\w)|(?<=\w)&\s+|::|\%\b)"))
@@ -561,6 +573,7 @@ setup_highlights(highlight_map_t& hm)
               .with_text_format(text_format_t::TF_PYTHON)
               .with_text_format(text_format_t::TF_RUST)
               .with_text_format(text_format_t::TF_SQL)
+              .with_text_format(text_format_t::TF_LNAV_SCRIPT)
               .with_role(role_t::VCR_SEP_REF_ACC);
     hm[{highlight_source_t::INTERNAL, "type"}]
         = highlighter(
@@ -572,5 +585,66 @@ setup_highlights(highlight_map_t& hm)
               .with_text_format(text_format_t::TF_PYTHON)
               .with_text_format(text_format_t::TF_RUST)
               .with_text_format(text_format_t::TF_SQL)
+              .with_text_format(text_format_t::TF_LNAV_SCRIPT)
               .with_role(role_t::VCR_TYPE);
+    hm[{highlight_source_t::INTERNAL, "md.h1"}]
+        = highlighter(xpcre_compile(R"(^(#\s+.*))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_H1);
+    hm[{highlight_source_t::INTERNAL, "md.h2"}]
+        = highlighter(xpcre_compile(R"(^(##\s+.*))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_H2);
+    hm[{highlight_source_t::INTERNAL, "md.h3"}]
+        = highlighter(xpcre_compile(R"(^(###\s+.*))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_H3);
+    hm[{highlight_source_t::INTERNAL, "md.h4"}]
+        = highlighter(xpcre_compile(R"(^(####\s+.*))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_H4);
+    hm[{highlight_source_t::INTERNAL, "md.bold"}]
+        = highlighter(xpcre_compile(R"((?:^|\s+|\pP)(\*\*[^\*]+\*\*)(?:$|\s+|\pP))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_attrs(text_attrs::with_bold());
+    hm[{highlight_source_t::INTERNAL, "md.italic"}]
+        = highlighter(xpcre_compile(R"((?:^|\s+|[^\PP\*])(\*[^\*]+\*)(?:$|\s+|[^\PP\*]))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_attrs(text_attrs::with_italic());
+    hm[{highlight_source_t::INTERNAL, "md.ul"}]
+        = highlighter(xpcre_compile(R"((?:^|\s+|\pP)(_.*_)(?:$|\s+|\pP))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_attrs(text_attrs::with_underline());
+    hm[{highlight_source_t::INTERNAL, "md.li"}]
+        = highlighter(xpcre_compile(R"(^\s*(-|\d+\.)\s+)"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_LIST_GLYPH);
+    hm[{highlight_source_t::INTERNAL, "md.blockquote"}]
+        = highlighter(xpcre_compile(R"(^\s*(>\s+.*))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_QUOTED_TEXT);
+    hm[{highlight_source_t::INTERNAL, "md.strikethrough"}]
+        = highlighter(xpcre_compile(R"((?:^|\s+|\pP)(~[^~]+~)(?:$|\s+|\pP))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_attrs(text_attrs::with_struck());
+
+    return hm;
+}
+
+void
+setup_highlights(highlight_map_t& hm)
+{
+    static const auto default_highlighters = setup_highlights_int();
+
+    hm.insert(default_highlighters.begin(), default_highlighters.end());
 }

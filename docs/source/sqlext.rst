@@ -68,15 +68,39 @@ switch between the DB view and the log
 
    Screenshot of the SQL results view.
 
+DB View
+-------
+
 The DB view has the following display features:
 
 * Column headers stick to the top of the view when scrolling.
-* A stacked bar chart of the numeric column values is displayed underneath the
-  rows.  Pressing :kbd:`TAB` will cycle through displaying no columns, each
-  individual column, or all columns.
-* JSON columns in the top row can be pretty-printed by pressing :kbd:`p`.
-  The display will show the value and JSON-Pointer path that can be passed to
-  the `jget`_ function.
+* Numeric columns contain a bar chart of the values.
+* Pressing :kbd:`p` opens an overlay with the columns and the values from the
+  focused row in a vertical orientation for easier reading.  Columns with
+  JSON objects/arrays are pretty-printed with bar-charts for numeric values
+  as well. The display will show the value and JSON-Pointer path that can be
+  passed to the `jget`_ function.
+* With the overlay open, pressing :kbd:`CTRL-]` will focus into it.  Then,
+  you can select a column and copy its contents by pressing :kbd:`c` or
+  hide/show it by pressing the space bar.  You can also hide/show a column
+  by clicking on the diamond on the left side.
+* Table cells can be styled by adding a :code:`__lnav_style__` column to the
+  query. This column must be a JSON object with the key `columns` that contains
+  the the column names to be styled and the :ref:`style
+  configuration<theme_style>`. For example, to apply semantic coloring to the
+  :code:`cs_uri_stem` column you would use the following JSON:
+
+  .. code-block:: json
+
+      {
+          "columns": {
+              "cs_uri_stem": {
+                 "color": "semantic()"
+              }
+          }
+      }
+
+  .. jsonschema:: ../schemas/config-v1.schema.json#/definitions/style
 
 
 PRQL Support (v0.12.1+)
@@ -132,16 +156,17 @@ command in the SQL prompt to examine a dump of the current database schema.
 The following columns are builtin and included in a :code:`SELECT *`:
 
   :log_line: The line number for the message in the log view.
-  :log_part: The partition the message is in.  This column can be changed by
-    an :code:`UPDATE` or the :ref:`:parition-name<partition_name>` command.
   :log_time: The adjusted timestamp for the log message.  This time can differ
     from the log message's time stamp if it arrived out-of-order and the log
     format expects log files to be time-ordered.
+  :log_level: The log message level.
+  :log_part: The partition the message is in.  This column can be changed by
+    an :code:`UPDATE` or the :ref:`:parition-name<partition_name>` command.
   :log_actual_time: The log messages original timestamp in the file.
   :log_idle_msecs: The difference in time between this messages and the
     previous.  The unit of time is milliseconds.
-  :log_level: The log message level.
-  :log_mark: True if the log message was marked by the user.
+  :log_mark: True if the log message was marked by the user.  This column can
+    be changed by an :code:`UPDATE`.
   :log_comment: The comment for the message.  This column can be changed by
     an :code:`UPDATE` or the :ref:`:comment<comment>` command.
   :log_tags: A JSON list of tags for the message.  This column can be changed
@@ -153,6 +178,9 @@ The following columns are builtin and included in a :code:`SELECT *`:
 The following columns are builtin and are hidden, so they will *not* be
 included in a :code:`SELECT *`:
 
+  :log_opid: The OP ID as captured from the log message or as set by an
+    :code:`UPDATE`.  Setting the OP ID allows operations to be visualized
+    in the :ref:`timeline<timeline>` view.
   :log_time_msecs: The adjusted timestamp for the log message as the number of
     milliseconds from the epoch.  This column can be more efficient to use for
     time-related operations, like :ref:`timeslice()<timeslice>`.

@@ -34,6 +34,7 @@
 #include "base/ansi_scrubber.hh"
 #include "base/ansi_vars.hh"
 #include "base/fs_util.hh"
+#include "base/humanize.hh"
 #include "base/injector.hh"
 #include "base/itertools.hh"
 #include "base/paths.hh"
@@ -212,7 +213,7 @@ bind_sql_parameters(exec_context& ec, sqlite3_stmt* stmt)
                 retval[name] = global_var->second;
             } else if ((env_value = getenv(&name[1])) != nullptr) {
                 sqlite3_bind_text(stmt, lpc + 1, env_value, -1, SQLITE_STATIC);
-                retval[name] = env_value;
+                retval[name] = string_fragment::from_c_str(env_value);
             }
         } else if (name[0] == ':' && ec.ec_line_values != nullptr) {
             for (auto& lv : ec.ec_line_values->lvv_values) {
@@ -234,7 +235,8 @@ bind_sql_parameters(exec_context& ec, sqlite3_stmt* stmt)
                         break;
                     case value_kind_t::VALUE_NULL:
                         sqlite3_bind_null(stmt, lpc + 1);
-                        retval[name] = db_label_source::NULL_STR;
+                        retval[name] = string_fragment::from_c_str(
+                            db_label_source::NULL_STR);
                         break;
                     default:
                         sqlite3_bind_text(stmt,
@@ -249,7 +251,8 @@ bind_sql_parameters(exec_context& ec, sqlite3_stmt* stmt)
         } else {
             sqlite3_bind_null(stmt, lpc + 1);
             log_warning("Could not bind variable: %s", name);
-            retval[name] = db_label_source::NULL_STR;
+            retval[name]
+                = string_fragment::from_c_str(db_label_source::NULL_STR);
         }
     }
 
@@ -412,7 +415,9 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
         bool done = false;
 
         auto bound_values = TRY(bind_sql_parameters(ec, stmt.in()));
-        ec.ec_sql_callback(ec, stmt.in());
+        if (last_is_readonly) {
+            ec.ec_sql_callback(ec, stmt.in());
+        }
         while (!done) {
             retcode = sqlite3_step(stmt.in());
 
@@ -443,6 +448,7 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
                                 [](const string_fragment&) {
                                     return SQLITE_TEXT;
                                 },
+                                [](bool) { return SQLITE_INTEGER; },
                                 [](int64_t) { return SQLITE_INTEGER; },
                                 [](null_value_t) { return SQLITE_NULL; },
                                 [](double) { return SQLITE_FLOAT; });
@@ -476,6 +482,28 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
         lnav_data.ld_rl_view->clear_value();
     }
 
+    if (last_is_readonly && !ec.ec_label_source_stack.empty()) {
+        auto& dls = *ec.ec_label_source_stack.back();
+        dls.dls_query_end = std::chrono::steady_clock::now();
+
+        size_t memory_usage = 0, total_size = 0, cached_chunks = 0;
+        for (auto cc = dls.dls_cell_container.cc_first.get(); cc != nullptr;
+             cc = cc->cc_next.get())
+        {
+            total_size += cc->cc_capacity;
+            if (cc->cc_data) {
+                cached_chunks += 1;
+                memory_usage += cc->cc_capacity;
+            } else {
+                memory_usage += cc->cc_compressed_size;
+            }
+        }
+        log_debug(
+            "cell memory footprint: total=%zu; actual=%zu; cached-chunks=%zu",
+            total_size,
+            memory_usage,
+            cached_chunks);
+    }
     gettimeofday(&end_tv, nullptr);
     if (retcode == SQLITE_DONE) {
         if (lnav_data.ld_log_source.is_line_meta_changed()) {
@@ -492,7 +520,7 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
         } else {
             auto& dls = *(ec.ec_label_source_stack.back());
             dls.dls_generation += 1;
-            if (!dls.dls_rows.empty()) {
+            if (!dls.dls_row_cursors.empty()) {
                 lnav_data.ld_views[LNV_DB].reload_data();
                 lnav_data.ld_views[LNV_DB].set_left(0);
                 if (lnav_data.ld_flags & LNF_HEADLESS) {
@@ -502,25 +530,10 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
 
                     retval = "";
                     alt_msg = "";
-                } else if (dls.dls_rows.size() == 1) {
-                    auto& row = dls.dls_rows[0];
-
-                    if (dls.dls_headers.size() == 1) {
-                        retval = row[0];
-                    } else {
-                        for (unsigned int lpc = 0; lpc < dls.dls_headers.size();
-                             lpc++)
-                        {
-                            if (lpc > 0) {
-                                retval.append("; ");
-                            }
-                            retval.append(dls.dls_headers[lpc].hm_name);
-                            retval.push_back('=');
-                            retval.append(row[lpc]);
-                        }
-                    }
+                } else if (dls.dls_row_cursors.size() == 1) {
+                    retval = dls.get_row_as_string(0_vl);
                 } else {
-                    int row_count = dls.dls_rows.size();
+                    int row_count = dls.dls_row_cursors.size();
                     char row_count_buf[128];
                     timeval diff_tv;
 
@@ -999,9 +1012,8 @@ execute_init_commands(
 int
 sql_callback(exec_context& ec, sqlite3_stmt* stmt)
 {
-    const auto& vc = view_colors::singleton();
     auto& dls = *(ec.ec_label_source_stack.back());
-    int ncols = sqlite3_column_count(stmt);
+    const int ncols = sqlite3_column_count(stmt);
 
     if (!sqlite3_stmt_busy(stmt)) {
         dls.clear();
@@ -1010,58 +1022,46 @@ sql_callback(exec_context& ec, sqlite3_stmt* stmt)
             const int type = sqlite3_column_type(stmt, lpc);
             std::string colname = sqlite3_column_name(stmt, lpc);
 
-            dls.push_header(colname, type, false);
+            dls.push_header(colname, type);
         }
         return 0;
     }
 
     int retval = 0;
-    auto set_vars = dls.dls_rows.empty();
+    auto set_vars = dls.dls_row_cursors.empty();
 
-    if (dls.dls_rows.empty()) {
+    if (dls.dls_row_cursors.empty()) {
+        dls.dls_query_start = std::chrono::steady_clock::now();
         for (int lpc = 0; lpc < ncols; lpc++) {
             int type = sqlite3_column_type(stmt, lpc);
             std::string colname = sqlite3_column_name(stmt, lpc);
 
-            bool graphable = (type == SQLITE_INTEGER || type == SQLITE_FLOAT)
-                && !binary_search(lnav_data.ld_db_key_names.begin(),
-                                  lnav_data.ld_db_key_names.end(),
-                                  colname);
+            bool graphable = (type == SQLITE_INTEGER || type == SQLITE_FLOAT);
             auto& hm = dls.dls_headers[lpc];
             hm.hm_column_type = type;
-            hm.hm_graphable = graphable;
-            if (graphable) {
-                auto name_for_ident_attrs = colname;
-                auto attrs = vc.attrs_for_ident(name_for_ident_attrs);
-                for (size_t attempt = 0;
-                     hm.hm_chart.attrs_in_use(attrs) && attempt < 3;
-                     attempt++)
-                {
-                    name_for_ident_attrs += " ";
-                    attrs = vc.attrs_for_ident(name_for_ident_attrs);
-                }
-                hm.hm_chart.with_attrs_for_ident(colname, attrs);
-                hm.hm_title_attrs = attrs;
-                hm.hm_column_size = std::max(hm.hm_column_size, size_t{10});
+            if (lnav_data.ld_db_key_names.count(colname) > 0) {
+                hm.hm_graphable = false;
+            } else if (graphable) {
+                dls.set_col_as_graphable(lpc);
             }
         }
     }
 
-    auto row_number = dls.dls_rows.size();
-    dls.dls_rows.resize(row_number + 1);
+    dls.dls_row_cursors.emplace_back(dls.dls_cell_container.end_cursor());
+    dls.dls_push_column = 0;
     for (int lpc = 0; lpc < ncols; lpc++) {
         const auto value_type = sqlite3_column_type(stmt, lpc);
-        scoped_value_t value;
+        db_label_source::column_value_t value;
         auto& hm = dls.dls_headers[lpc];
 
         switch (value_type) {
             case SQLITE_INTEGER:
                 value = (int64_t) sqlite3_column_int64(stmt, lpc);
-                hm.hm_align = db_label_source::align_t::right;
+                hm.hm_align = text_align_t::end;
                 break;
             case SQLITE_FLOAT:
                 value = sqlite3_column_double(stmt, lpc);
-                hm.hm_align = db_label_source::align_t::right;
+                hm.hm_align = text_align_t::end;
                 break;
             case SQLITE_NULL:
                 value = null_value_t{};
@@ -1070,8 +1070,20 @@ sql_callback(exec_context& ec, sqlite3_stmt* stmt)
                 auto frag = string_fragment::from_bytes(
                     sqlite3_column_text(stmt, lpc),
                     sqlite3_column_bytes(stmt, lpc));
-                if (!frag.empty() && isdigit(frag[0])) {
-                    hm.hm_align = db_label_source::align_t::right;
+                if (!frag.empty()) {
+                    if (isdigit(frag[0])) {
+                        hm.hm_align = text_align_t::end;
+                        if (!hm.hm_graphable.has_value()) {
+                            auto split_res = humanize::try_from<double>(frag);
+                            if (split_res.has_value()) {
+                                dls.set_col_as_graphable(lpc);
+                            } else {
+                                hm.hm_graphable = false;
+                            }
+                        }
+                    } else if (!hm.hm_graphable.has_value()) {
+                        hm.hm_graphable = false;
+                    }
                 }
                 value = frag;
                 break;
@@ -1096,10 +1108,13 @@ sql_callback(exec_context& ec, sqlite3_stmt* stmt)
             }
             auto& vars = ec.ec_local_vars.top();
 
-            if (value.is<string_fragment>()) {
-                value = value.get<string_fragment>().to_string();
-            }
-            vars[hm.hm_name] = value;
+            vars[hm.hm_name] = value.match(
+                [](const string_fragment& sf) {
+                    return scoped_value_t{sf.to_string()};
+                },
+                [](int64_t i) { return scoped_value_t{i}; },
+                [](double d) { return scoped_value_t{d}; },
+                [](null_value_t) { return scoped_value_t{null_value_t{}}; });
         }
     }
 

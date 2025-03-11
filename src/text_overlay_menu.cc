@@ -83,7 +83,7 @@ text_overlay_menu::list_overlay_menu(const listview_curses& lv, vis_line_t row)
         menu_line += 1_vl;
 
         std::string filepath;
-        auto file_attr_opt = get_string_attr(sti.sti_attrs, &logline::L_FILE);
+        auto file_attr_opt = get_string_attr(sti.sti_attrs, &L_FILE);
         if (file_attr_opt) {
             filepath = file_attr_opt.value()
                            ->sa_value.get<std::shared_ptr<logfile>>()
@@ -160,7 +160,7 @@ text_overlay_menu::list_overlay_menu(const listview_curses& lv, vis_line_t row)
                     if (exec_res.isOk()) {
                         lnav_data.ld_rl_view->set_value(exec_res.unwrap());
                         if (dls.dls_generation != previous_db_gen &&
-                            dls.dls_rows.size() > 1) {
+                            dls.dls_row_cursors.size() > 1) {
                             ensure_view(&lnav_data.ld_views[LNV_DB]);
                         }
                     }

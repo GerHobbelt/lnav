@@ -55,8 +55,6 @@
 
 using namespace lnav::roles::literals;
 
-const bookmark_type_t logfile_sub_source::BM_ERRORS("error");
-const bookmark_type_t logfile_sub_source::BM_WARNINGS("warning");
 const bookmark_type_t logfile_sub_source::BM_FILES("file");
 
 static int
@@ -348,8 +346,7 @@ logfile_sub_source::text_value_for_line(textview_curses& tc,
             || !(format->lf_timestamp_flags & ETF_MONTH_SET))
         && format->lf_date_time.dts_fmt_lock != -1)
     {
-        auto time_attr
-            = find_string_attr(this->lss_token_attrs, &logline::L_TIMESTAMP);
+        auto time_attr = find_string_attr(this->lss_token_attrs, &L_TIMESTAMP);
         if (time_attr != this->lss_token_attrs.end()) {
             const struct line_range time_range = time_attr->sa_range;
             struct timeval adjusted_time;
@@ -482,7 +479,7 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
             > day_num(this->lss_token_line->get_time<std::chrono::seconds>()
                           .count())))
     {
-        attrs.ta_attrs |= NCSTYLE_UNDERLINE;
+        attrs |= text_attrs::style::underline;
     }
 
     const auto& line_values = this->lss_token_values;
@@ -625,7 +622,7 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
 
     lr.lr_start = 0;
     lr.lr_end = -1;
-    value_out.emplace_back(lr, logline::L_FILE.value(this->lss_token_file));
+    value_out.emplace_back(lr, L_FILE.value(this->lss_token_file));
     value_out.emplace_back(
         lr, SA_FORMAT.value(this->lss_token_file->get_format()->get_name()));
 
@@ -637,7 +634,7 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
             lr.lr_end = -1;
             value_out.emplace_back(
                 lr,
-                logline::L_PARTITION.value(
+                L_PARTITION.value(
                     line_meta_context.bmc_current_metadata.value()));
         }
 
@@ -646,14 +643,13 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
         if (line_meta_opt) {
             lr.lr_start = 0;
             lr.lr_end = -1;
-            value_out.emplace_back(
-                lr, logline::L_META.value(line_meta_opt.value()));
+            value_out.emplace_back(lr, L_META.value(line_meta_opt.value()));
         }
     }
 
     if (this->lss_token_file->is_time_adjusted()) {
         struct line_range time_range
-            = find_string_attr_range(value_out, &logline::L_TIMESTAMP);
+            = find_string_attr_range(value_out, &L_TIMESTAMP);
 
         if (time_range.lr_end != -1) {
             value_out.emplace_back(time_range,
@@ -663,7 +659,7 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
 
     if (this->lss_token_line->is_time_skewed()) {
         struct line_range time_range
-            = find_string_attr_range(value_out, &logline::L_TIMESTAMP);
+            = find_string_attr_range(value_out, &L_TIMESTAMP);
 
         if (time_range.lr_end != -1) {
             value_out.emplace_back(time_range,
@@ -729,8 +725,8 @@ struct logline_cmp {
 
     bool operator()(const content_line_t& lhs, const content_line_t& rhs) const
     {
-        logline* ll_lhs = this->llss_controller.find_line(lhs);
-        logline* ll_rhs = this->llss_controller.find_line(rhs);
+        const auto* ll_lhs = this->llss_controller.find_line(lhs);
+        const auto* ll_rhs = this->llss_controller.find_line(rhs);
 
         return (*ll_lhs) < (*ll_rhs);
     }
@@ -739,8 +735,8 @@ struct logline_cmp {
     {
         content_line_t cl_lhs = (content_line_t) llss_controller.lss_index[lhs];
         content_line_t cl_rhs = (content_line_t) llss_controller.lss_index[rhs];
-        logline* ll_lhs = this->llss_controller.find_line(cl_lhs);
-        logline* ll_rhs = this->llss_controller.find_line(cl_rhs);
+        const auto* ll_lhs = this->llss_controller.find_line(cl_lhs);
+        const auto* ll_rhs = this->llss_controller.find_line(cl_rhs);
 
         return (*ll_lhs) < (*ll_rhs);
     }
@@ -765,7 +761,7 @@ struct logline_cmp {
 
     bool operator()(const content_line_t& lhs, const struct timeval& rhs) const
     {
-        logline* ll_lhs = this->llss_controller.find_line(lhs);
+        const auto* ll_lhs = this->llss_controller.find_line(lhs);
 
         return *ll_lhs < rhs;
     }
@@ -790,8 +786,8 @@ logfile_sub_source::rebuild_index(std::optional<ui_clock::time_point> deadline)
     int file_count = 0;
     bool force = this->lss_force_rebuild;
     auto retval = rebuild_result::rr_no_change;
-    std::optional<struct timeval> lowest_tv = std::nullopt;
-    vis_line_t search_start = 0_vl;
+    std::optional<timeval> lowest_tv = std::nullopt;
+    auto search_start = 0_vl;
 
     this->lss_force_rebuild = false;
     if (force) {
@@ -1280,8 +1276,8 @@ logfile_sub_source::text_update_marks(vis_bookmarks& bm)
     logfile* last_file = nullptr;
     vis_line_t vl;
 
-    bm[&BM_WARNINGS].clear();
-    bm[&BM_ERRORS].clear();
+    bm[&textview_curses::BM_WARNINGS].clear();
+    bm[&textview_curses::BM_ERRORS].clear();
     bm[&BM_FILES].clear();
 
     for (auto& lss_user_mark : this->lss_user_marks) {
@@ -1316,13 +1312,13 @@ logfile_sub_source::text_update_marks(vis_bookmarks& bm)
         if (line_iter->is_message()) {
             switch (line_iter->get_msg_level()) {
                 case LEVEL_WARNING:
-                    bm[&BM_WARNINGS].insert_once(vl);
+                    bm[&textview_curses::BM_WARNINGS].insert_once(vl);
                     break;
 
                 case LEVEL_FATAL:
                 case LEVEL_ERROR:
                 case LEVEL_CRITICAL:
-                    bm[&BM_ERRORS].insert_once(vl);
+                    bm[&textview_curses::BM_ERRORS].insert_once(vl);
                     break;
 
                 default:
@@ -1352,6 +1348,10 @@ logfile_sub_source::text_filters_changed()
             lf->reobserve_from(lf->begin()
                                + ld->ld_filter_state.get_min_count(lf->size()));
         }
+    }
+
+    if (this->lss_force_rebuild) {
+        return;
     }
 
     auto& vis_bm = this->tss_view->get_bookmarks();
@@ -1416,6 +1416,39 @@ logfile_sub_source::text_filters_changed()
     }
 }
 
+std::optional<json_string>
+logfile_sub_source::text_row_details(const textview_curses& tc)
+{
+    if (this->lss_index.empty()) {
+        log_trace("logfile_sub_source::text_row_details empty");
+        return std::nullopt;
+    }
+
+    auto ov_sel = tc.get_overlay_selection();
+    if (ov_sel.has_value()) {
+        auto* fos
+            = dynamic_cast<field_overlay_source*>(tc.get_overlay_source());
+        auto iter = fos->fos_row_to_field_meta.find(ov_sel.value());
+        if (iter != fos->fos_row_to_field_meta.end()) {
+            auto find_res = this->find_line_with_file(tc.get_top());
+            if (find_res) {
+                yajlpp_gen gen;
+
+                {
+                    yajlpp_map root(gen);
+
+                    root.gen("value");
+                    root.gen(iter->second.ri_value);
+                }
+
+                return json_string(gen);
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
 bool
 logfile_sub_source::list_input_handle_key(listview_curses& lv,
                                           const ncinput& ch)
@@ -1427,15 +1460,18 @@ logfile_sub_source::list_input_handle_key(listview_curses& lv,
                 auto* fos = dynamic_cast<field_overlay_source*>(
                     lv.get_overlay_source());
                 auto iter = fos->fos_row_to_field_meta.find(ov_vl.value());
-                if (iter != fos->fos_row_to_field_meta.end()) {
+                if (iter != fos->fos_row_to_field_meta.end()
+                    && iter->second.ri_meta)
+                {
                     auto find_res = this->find_line_with_file(lv.get_top());
                     if (find_res) {
                         auto file_and_line = find_res.value();
                         auto* format = file_and_line.first->get_format_ptr();
                         auto fstates = format->get_field_states();
-                        auto state_iter = fstates.find(iter->second.lvm_name);
+                        auto state_iter
+                            = fstates.find(iter->second.ri_meta->lvm_name);
                         if (state_iter != fstates.end()) {
-                            format->hide_field(iter->second.lvm_name,
+                            format->hide_field(iter->second.ri_meta->lvm_name,
                                                !state_iter->second.is_hidden());
                             lv.set_needs_update();
                         }
@@ -1451,8 +1487,10 @@ logfile_sub_source::list_input_handle_key(listview_curses& lv,
                 auto* fos = dynamic_cast<field_overlay_source*>(
                     lv.get_overlay_source());
                 auto iter = fos->fos_row_to_field_meta.find(ov_vl.value());
-                if (iter != fos->fos_row_to_field_meta.end()) {
-                    const auto& meta = iter->second;
+                if (iter != fos->fos_row_to_field_meta.end()
+                    && iter->second.ri_meta)
+                {
+                    const auto& meta = iter->second.ri_meta.value();
                     std::string cmd;
 
                     switch (meta.to_chart_type()) {
@@ -1619,7 +1657,7 @@ logfile_sub_source::set_sql_marker(std::string stmt_str, sqlite3_stmt* stmt)
     this->lss_marker_stmt_text = std::move(stmt_str);
     this->lss_marker_stmt = stmt;
 
-    if (this->tss_view == nullptr) {
+    if (this->tss_view == nullptr || this->lss_force_rebuild) {
         return Ok();
     }
 
@@ -2760,8 +2798,15 @@ logfile_sub_source::text_crumbs_for_line(int line,
             || this->lss_token_meta_size != sf.length())
         {
             if (body_opt->saw_string_attr->sa_range.length() < 128 * 1024) {
-                this->lss_token_meta = lnav::document::discover_structure(
-                    al, body_opt.value().saw_string_attr->sa_range);
+                this->lss_token_meta
+                    = lnav::document::discover(al)
+                          .over_range(
+                              body_opt.value().saw_string_attr->sa_range)
+                          .perform();
+                // XXX discover_structure() changes `al`, have to recompute
+                // stuff
+                sf = string_fragment::from_str(al.get_string());
+                body_opt = get_string_attr(al.get_attrs(), SA_BODY);
             } else {
                 this->lss_token_meta = lnav::document::metadata{};
             }

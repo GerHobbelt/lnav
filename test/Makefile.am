@@ -1,6 +1,8 @@
 
 include $(top_srcdir)/aminclude_static.am
 
+SUBDIRS = expected
+
 TESTS_ENVIRONMENT = $(BASH) $(top_builddir)/TESTS_ENVIRONMENT
 LOG_COMPILER = $(BASH) $(top_builddir)/TESTS_ENVIRONMENT
 
@@ -73,6 +75,7 @@ check_PROGRAMS = \
 	drive_shlexer \
 	drive_sql \
 	drive_sql_anno \
+	drive_textinput \
 	drive_view_colors \
 	drive_vt52_curses \
 	drive_readline_curses \
@@ -192,6 +195,8 @@ drive_sql_SOURCES = drive_sql.cc
 
 drive_sql_anno_SOURCES = drive_sql_anno.cc
 
+drive_textinput_SOURCES = drive_textinput.cc
+
 slicer_SOURCES = slicer.cc
 
 scripty_SOURCES = scripty.cc
@@ -240,10 +245,7 @@ dist_noinst_SCRIPTS = \
 	test_vt52_curses.sh \
 	test_pretty_print.sh
 
-include expected/expected.am
-
 dist_noinst_DATA = \
-    $(EXPECTED_FILES) \
     expected/test_tailer.sh_12f539e535df04364316699f9edeac461aa9f9de.err \
     expected/test_tailer.sh_12f539e535df04364316699f9edeac461aa9f9de.out \
 	ansi-colors.0.in \
@@ -354,6 +356,8 @@ dist_noinst_DATA = \
 	logfile_invalid_json2.json \
 	logfile_mixed_json2.json \
 	logfile_mux_zookeeper.0 \
+	logfile_java.0 \
+	logfile_java.1 \
 	logfile_journald.json \
 	logfile_json.json \
 	logfile_json2.json \
@@ -526,6 +530,7 @@ TESTS = \
 	test_sql_yaml_func.sh \
 	test_text_anonymizer \
 	test_text_file.sh \
+	test_tui.sh \
 	test_pretty_print.sh \
     test_view_colors.sh
 
@@ -537,7 +542,6 @@ DISABLED_TESTS = \
 	test_grep_proc.sh \
 	test_remote.sh \
 	test_top_status \
-	test_tui.sh \
 	test_line_buffer2 \
     test_line_buffer.sh \
     test_vt52_curses.sh

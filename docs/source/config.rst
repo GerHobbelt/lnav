@@ -306,7 +306,7 @@ Conditions are SQLite expressions like the ones passed to
 :code:`SELECT 1 WHERE`.  The expression can use bound variables that
 correspond to the columns that would be in the format table and are
 prefixed by a colon (:code:`:`).  For example, the standard
-:code:`log_opid` table column can be access by using :code:`:log_opid`.
+:code:`log_opid` table column can be accessed by using :code:`:log_opid`.
 
 .. note:: The expression is executed with bound variables because it
   can be applied to log messages from multiple formats.  Writing an
@@ -399,7 +399,7 @@ File: `pod-2`
 
 
 Behavior Details
-++++++++++++++++
+^^^^^^^^^^^^^^^^
 
 Control Lines:
 
@@ -421,7 +421,7 @@ Demuxing Process:
   further processing. They will not undergo additional demuxing.
 
 JSON Schema Reference
-+++++++++++++++++++++
+^^^^^^^^^^^^^^^^^^^^^
 
 .. jsonschema:: ../schemas/config-v1.schema.json#/properties/log/properties/demux/patternProperties/^([\w\-\.]+)$
 

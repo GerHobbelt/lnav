@@ -114,6 +114,7 @@ private:
         this->vem_map[NCKEY_HOME] = string_fragment::from_const("\x01");
         this->vem_map[NCKEY_END] = string_fragment::from_const("\x05");
         this->vem_map[NCKEY_ENTER] = string_fragment::from_const("\r");
+        this->vem_map[NCKEY_DEL] = string_fragment::from_const("\004");
 
         this->vem_input_map[tgetstr((char*) "ce", &area)] = "ce";
         this->vem_input_map[tgetstr((char*) "kl", &area)] = "kl";
@@ -132,6 +133,9 @@ private:
 string_fragment
 vt52_curses::map_input(const ncinput& ch)
 {
+    if (ch.id == NCKEY_PASTE) {
+        return string_fragment::from_c_str(ch.paste_content);
+    }
     /* Check for an escape sequence, otherwise just return the char. */
     if (ch.modifiers == 0) {
         const auto esc = vt52_escape_map::singleton()[ch.id];
@@ -164,6 +168,9 @@ vt52_curses::map_input(const ncinput& ch)
 
     size_t index = 0;
     for (const auto eff_ch : ch.eff_text) {
+        if (eff_ch == 0) {
+            break;
+        }
         ww898::utf::utf8::write(eff_ch, [this, &index](const char bits) {
             this->vc_map_buffer[index] = bits;
             index += 1;

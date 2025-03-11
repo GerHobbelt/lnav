@@ -4,6 +4,16 @@ Features:
 * Log message timestamps are now represented with microsecond
   precision internally instead of just millisecond.
 * The `log_time` and `log_level` fields can now be hidden.
+* The "Op ID:" overlay that is added when the `log_opid` field is
+  manually set on a message can now be hidden by hiding the
+  `log_opid` field.
+* Pasting a command snippet when the input focus is on the main
+  view will now execute it.
+  For this to work: the terminal must support "bracketed-paste"
+  mode, which most do;
+  and, the pasted content must also start with one of the sigils
+  for the desired operation (i.e. `:` for lnav commands, `;` for SQL
+  queries, `/` for searches, and `|` for scripts).
 * Added a `report-access-log` script that generates a report that
   is similar to the output of the [goaccess](https://goaccess.io)
   utility.
@@ -22,6 +32,20 @@ Features:
 * Added ecs_log for the Elastic Common Schema from @ba-didi.
 * Added a Proxifier log format.
 * Escape sequences for 24-bit color are now handled.
+* The `-i` option for installing files will now copy `.lnav`
+  script files to the `formats/installed` directory.
+* Added `italic` and `strike` to the text styling configuration.
+* DB query results can now be styled on a row-by-row basis by
+  adding a column with the name `__lnav_style__`.
+* Added `format <format-name> test <path>` management command
+  to make it easier to test a format against a file.
+  This can be helpful for determining why a file is not being
+  recognized by particular format.
+* Added a "performance" section to the documentation.
+* Session exports now include `:hide-fields` and `:show-fields`
+  commands from the session.
+  They are currently commented out by default.
+* Added highlighting for Markdown syntax.
 
 Interface changes:
 * DB query results that start with a number are right justified
@@ -37,6 +61,24 @@ Interface changes:
 * Defining a value in a log format with the same name as one of
   predefined columns in the log virtual tables will now generate
   an error.
+* The DB view will now chart result columns that contain a number
+  with a unit, like "KB", "MB", "GB", etc...
+* When switching to the pretty view, the focused line should be
+  in the same position in the text as in the source view.
+* In the LOG view, you can now copy the value of a field by
+  pressing `c` when focused on a line in the parser details
+  overlay (activated by pressing `p`).
+* In the DB View, if there is a column named `log_level`, it
+  will be used as the level for the row and the hotkeys for
+  jumping to the next/previous error/warning will work.
+* In the DB View, columns can now be hidden/shown using the
+  `:hide-fields` / `:show-fields` commands.
+* In the DB View, pressing `p` now works for all rows and will
+  show all columns and not just JSON ones.
+  You can then press `c` while focused in the overlay to copy
+  the value of the column.
+  Pressing space while focused on a column in the overlay will
+  hide/show it.
 
 Breaking changes:
 * The `parse_url()` SQL function no longer raises an error for an
@@ -52,6 +94,7 @@ Bug Fixes:
 * Reduced indexing time for plain text and JSON-lines logs.
 * Reduced memory footprint.
 * Improved search performance.
+* Reduced DB view CPU and memory usage.
 * Reduce time to open help text.
 * Improved performance of log virtual tables when ordering the
   result by `log_line DESC`.
@@ -112,8 +155,9 @@ Interface Changes:
   to `SHIFT` when clicking/dragging in the main view to
   highlight lines.  A few terminals capture shift+clicks as a
   way to select text and do not pass them to the application.
-* Clicking on an internal link in a Markdown document will move 
+* Clicking on an internal link in a Markdown document will move
   to that section.
+* Search duration is now reported in the bottom prompt line.
 
 Bug Fixes:
 * Log messages in formats with custom timestamp formats were

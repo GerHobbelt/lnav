@@ -40,13 +40,13 @@
 #include "yajlpp/yajlpp.hh"
 #include "yajlpp/yajlpp_def.hh"
 
-static const struct json_path_container term_color_rgb_handler = {
+static const json_path_container term_color_rgb_handler = {
     yajlpp::property_handler("r").for_field(&rgb_color::rc_r),
     yajlpp::property_handler("g").for_field(&rgb_color::rc_g),
     yajlpp::property_handler("b").for_field(&rgb_color::rc_b),
 };
 
-static const struct json_path_container term_color_handler = {
+static const json_path_container term_color_handler = {
     yajlpp::property_handler("colorId").for_field(&term_color::xc_id),
     yajlpp::property_handler("name").for_field(&term_color::xc_name),
     yajlpp::property_handler("hexString").for_field(&term_color::xc_hex),
@@ -54,6 +54,55 @@ static const struct json_path_container term_color_handler = {
         .for_child(&term_color::xc_color)
         .with_children(term_color_rgb_handler),
 };
+
+static const json_path_handler_base::enum_value_t _align_values[] = {
+    {"start", text_align_t::start},
+    {"center", text_align_t::center},
+    {"end", text_align_t::end},
+
+    json_path_handler_base::ENUM_TERMINATOR,
+};
+
+const json_path_container style_config_handlers =
+    json_path_container{
+        yajlpp::property_handler("text-align")
+        .with_synopsis("start|center|end")
+        .with_enum_values(_align_values)
+        .with_description("How to align text within a cell")
+        .for_field(&style_config::sc_text_align),
+        yajlpp::property_handler("color")
+            .with_synopsis("#hex|color_name")
+            .with_description(
+                "The foreground color value for this style. The value can be "
+                "the name of an xterm color, the hexadecimal value, or a theme "
+                "variable reference.")
+            .with_example("#fff")
+            .with_example("Green")
+            .with_example("$black")
+            .for_field(&style_config::sc_color),
+        yajlpp::property_handler("background-color")
+            .with_synopsis("#hex|color_name")
+            .with_description(
+                "The background color value for this style. The value can be "
+                "the name of an xterm color, the hexadecimal value, or a theme "
+                "variable reference.")
+            .with_example("#2d2a2e")
+            .with_example("Green")
+            .for_field(&style_config::sc_background_color),
+        yajlpp::property_handler("underline")
+            .with_description("Indicates that the text should be underlined.")
+            .for_field(&style_config::sc_underline),
+        yajlpp::property_handler("bold")
+            .with_description("Indicates that the text should be bolded.")
+            .for_field(&style_config::sc_bold),
+        yajlpp::property_handler("italic")
+            .with_description("Indicates that the text should be italicized.")
+            .for_field(&style_config::sc_italic),
+        yajlpp::property_handler("strike")
+            .with_description("Indicates that the text should be struck.")
+            .for_field(&style_config::sc_strike),
+    }
+.with_definition_id("style");
 
 static const typed_json_path_container<std::vector<term_color>>
     root_color_handler = {
@@ -86,9 +135,7 @@ get_css_color_names()
         = intern_string::lookup(css_color_names_json.get_name());
     static auto sfp = css_color_names_json.to_string_fragment_producer();
     static const auto INSTANCE
-        = css_color_names_handlers.parser_for(iname)
-              .of(*sfp)
-              .unwrap();
+        = css_color_names_handlers.parser_for(iname).of(*sfp).unwrap();
 
     return INSTANCE;
 }

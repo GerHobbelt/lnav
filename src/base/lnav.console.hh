@@ -36,8 +36,7 @@
 #include "base/attr_line.hh"
 #include "base/file_range.hh"
 
-namespace lnav {
-namespace console {
+namespace lnav::console {
 
 void println(FILE* file, const attr_line_t& al);
 
@@ -184,7 +183,6 @@ struct user_message {
 
 void print(FILE* file, const user_message& um);
 
-}  // namespace console
-}  // namespace lnav
+}  // namespace lnav::console
 
 #endif

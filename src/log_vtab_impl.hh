@@ -304,7 +304,7 @@ public:
 
     intern_string_t get_tags_name() const { return this->vi_tags_name; }
 
-    std::string get_table_statement();
+    const std::string& get_table_statement();
 
     virtual bool is_valid(log_cursor& lc, logfile_sub_source& lss);
 
@@ -314,7 +314,8 @@ public:
 
     virtual void get_columns(std::vector<vtab_column>& cols) const {}
 
-    virtual void get_foreign_keys(std::vector<std::string>& keys_inout) const;
+    virtual void get_foreign_keys(
+        std::unordered_set<std::string>& keys_inout) const;
 
     virtual void get_primary_keys(std::vector<std::string>& keys_out) const {}
 
@@ -351,6 +352,7 @@ public:
 protected:
     const intern_string_t vi_name;
     const intern_string_t vi_tags_name;
+    std::string vi_table_statement;
 };
 
 class log_format_vtab_impl : public log_vtab_impl {

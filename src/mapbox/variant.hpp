@@ -526,8 +526,8 @@ class variant
 private:
     static const std::size_t data_size = detail::static_max<sizeof(Types)...>::value;
     static const std::size_t data_align = detail::static_max<alignof(Types)...>::value;
-    static const bool needs_destruct = (!std::is_trivially_destructible_v<Types> || ...);
 public:
+    static const bool needs_destruct = (!std::is_trivially_destructible_v<Types> || ...);
     struct adapted_variant_tag;
     using types = std::tuple<Types...>;
 private:
@@ -554,7 +554,7 @@ public:
         new (&data) first_type();
     }
 
-    VARIANT_INLINE variant(no_init) noexcept
+    VARIANT_INLINE constexpr variant(no_init) noexcept
         : type_index(detail::invalid_value) {}
 
     // http://isocpp.org/blog/2012/11/universal-references-in-c11-scott-meyers

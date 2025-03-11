@@ -70,7 +70,7 @@ public:
             return scan_match{1};
         }
 
-        return scan_no_match{""};
+        return scan_no_match{"not a piper capture"};
     }
 
     void annotate(logfile* lf,
@@ -80,7 +80,7 @@ public:
                   bool annotate_module) const override
     {
         auto lr = line_range{0, 0};
-        sa.emplace_back(lr, logline::L_TIMESTAMP.value());
+        sa.emplace_back(lr, L_TIMESTAMP.value());
         log_format::annotate(lf, line_number, sa, values, annotate_module);
     }
 
@@ -284,7 +284,7 @@ public:
 
         auto ts_cap = md[fmt.pf_timestamp_index].value();
         auto lr = to_line_range(ts_cap.trim());
-        sa.emplace_back(lr, logline::L_TIMESTAMP.value());
+        sa.emplace_back(lr, L_TIMESTAMP.value());
 
         values.lvv_values.emplace_back(TS_META, line, lr);
         values.lvv_values.back().lv_meta.lvm_format = (log_format*) this;
@@ -306,7 +306,7 @@ public:
 
         lr.lr_start = 0;
         lr.lr_end = prefix_len;
-        sa.emplace_back(lr, logline::L_PREFIX.value());
+        sa.emplace_back(lr, L_PREFIX.value());
 
         lr.lr_start = prefix_len;
         lr.lr_end = line.length();
@@ -328,8 +328,13 @@ public:
         if (field_name == TS_META.lvm_name) {
             TS_META.lvm_user_hidden = val;
             return true;
-        } else if (field_name == LEVEL_META.lvm_name) {
+        }
+        if (field_name == LEVEL_META.lvm_name) {
             LEVEL_META.lvm_user_hidden = val;
+            return true;
+        }
+        if (field_name == OPID_META.lvm_name) {
+            OPID_META.lvm_user_hidden = val;
             return true;
         }
         return false;
@@ -340,12 +345,14 @@ public:
         return {
             {TS_META.lvm_name, TS_META},
             {LEVEL_META.lvm_name, LEVEL_META},
+            {OPID_META.lvm_name, OPID_META},
         };
     }
 
 private:
     static logline_value_meta TS_META;
     static logline_value_meta LEVEL_META;
+    static logline_value_meta OPID_META;
 };
 
 logline_value_meta generic_log_format::TS_META{
@@ -353,10 +360,17 @@ logline_value_meta generic_log_format::TS_META{
     value_kind_t::VALUE_TEXT,
     logline_value_meta::table_column{2},
 };
+
 logline_value_meta generic_log_format::LEVEL_META{
     intern_string::lookup("log_level"),
     value_kind_t::VALUE_TEXT,
-    logline_value_meta::table_column{4},
+    logline_value_meta::table_column{3},
+};
+
+logline_value_meta generic_log_format::OPID_META{
+    intern_string::lookup("log_opid"),
+    value_kind_t::VALUE_TEXT,
+    logline_value_meta::internal_column{},
 };
 
 std::string
@@ -670,7 +684,7 @@ public:
             dst.emplace_back(li.li_file_range.fr_offset, tv, level, 0, opid);
             return scan_match{2000};
         }
-        return scan_no_match{};
+        return scan_no_match{"no header found"};
     }
 
     scan_result_t scan(logfile& lf,
@@ -700,7 +714,7 @@ public:
         if (dst.empty() || dst.size() > 20 || sbr.empty()
             || sbr.get_data()[0] == '#')
         {
-            return scan_no_match{};
+            return scan_no_match{"no header found"};
         }
 
         auto line_iter = dst.begin();
@@ -852,7 +866,7 @@ public:
         this->blf_format_name.clear();
         this->lf_value_stats.clear();
 
-        return scan_no_match{};
+        return scan_no_match{"no header found"};
     }
 
     void annotate(logfile* lf,
@@ -885,9 +899,9 @@ public:
             auto lr = line_range(sf.sf_begin, sf.sf_end);
 
             if (fd.fd_meta.lvm_name == TS) {
-                sa.emplace_back(lr, logline::L_TIMESTAMP.value());
+                sa.emplace_back(lr, L_TIMESTAMP.value());
             } else if (fd.fd_meta.lvm_name == UID) {
-                sa.emplace_back(lr, logline::L_OPID.value());
+                sa.emplace_back(lr, L_OPID.value());
             }
 
             if (lr.is_valid()) {
@@ -979,13 +993,13 @@ public:
         }
 
         void get_foreign_keys(
-            std::vector<std::string>& keys_inout) const override
+            std::unordered_set<std::string>& keys_inout) const override
         {
             this->log_vtab_impl::get_foreign_keys(keys_inout);
 
             for (const auto& fd : this->blt_format.blf_field_defs) {
                 if (fd.fd_meta.lvm_identifier || fd.fd_meta.lvm_foreign_key) {
-                    keys_inout.push_back(fd.fd_meta.lvm_name.to_string());
+                    keys_inout.emplace(fd.fd_meta.lvm_name.to_string());
                 }
             }
         }
@@ -1359,7 +1373,7 @@ public:
             return scan_match{2000};
         }
 
-        return scan_no_match{};
+        return scan_no_match{"no header found"};
     }
 
     scan_result_t scan(logfile& lf,
@@ -1394,7 +1408,7 @@ public:
         if (dst.empty() || dst.size() > 20 || sbr.empty()
             || sbr.get_data()[0] == '#')
         {
-            return scan_no_match{};
+            return scan_no_match{"no header found"};
         }
 
         this->clear();
@@ -1530,7 +1544,7 @@ public:
         this->wlf_format_name.clear();
         this->lf_value_stats.clear();
 
-        return scan_no_match{};
+        return scan_no_match{"no header found"};
     }
 
     void annotate(logfile* lf,
@@ -1605,7 +1619,8 @@ public:
         if (field_name == LOG_TIME_STR) {
             auto date_iter = FIELD_META.find(F_DATE);
             auto time_iter = FIELD_META.find(F_TIME);
-            if (date_iter == FIELD_META.end() || time_iter == FIELD_META.end()) {
+            if (date_iter == FIELD_META.end() || time_iter == FIELD_META.end())
+            {
                 return false;
             }
             date_iter->second.lvm_user_hidden = val;
@@ -1672,13 +1687,13 @@ public:
         };
 
         void get_foreign_keys(
-            std::vector<std::string>& keys_inout) const override
+            std::unordered_set<std::string>& keys_inout) const override
         {
             this->log_vtab_impl::get_foreign_keys(keys_inout);
 
             for (const auto& fd : KNOWN_FIELDS) {
                 if (fd.fd_meta.lvm_identifier || fd.fd_meta.lvm_foreign_key) {
-                    keys_inout.push_back(fd.fd_meta.lvm_name.to_string());
+                    keys_inout.emplace(fd.fd_meta.lvm_name.to_string());
                 }
             }
         }
@@ -2073,7 +2088,7 @@ public:
                         = line_range{value_frag.sf_begin, value_frag.sf_end};
 
                     if (kvp.first == "time" || kvp.first == "ts") {
-                        sa.emplace_back(value_lr, logline::L_TIMESTAMP.value());
+                        sa.emplace_back(value_lr, L_TIMESTAMP.value());
                     } else if (kvp.first == "level") {
                     } else if (kvp.first == "msg") {
                         sa.emplace_back(value_lr, SA_BODY.value());

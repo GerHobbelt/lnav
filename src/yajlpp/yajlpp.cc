@@ -219,12 +219,11 @@ json_path_handler_base::gen(yajlpp_gen_context& ygc, yajl_gen handle) const
             ygc.ygc_depth += 1;
 
             if (this->jph_obj_provider) {
-                thread_local auto md
-                    = lnav::pcre2pp::match_data::unitialized();
+                thread_local auto md = lnav::pcre2pp::match_data::unitialized();
 
-                auto find_res = this->jph_regex->capture_from(full_path)
-                                    .into(md)
-                                    .matches(PCRE2_NO_UTF_CHECK);
+                auto find_res
+                    = this->jph_regex->capture_from(full_path).into(md).matches(
+                        PCRE2_NO_UTF_CHECK);
 
                 ygc.ygc_obj_stack.push(this->jph_obj_provider(
                     {&md, yajlpp_provider_context::nindex},
@@ -516,7 +515,7 @@ json_path_handler_base::walk(
 
                 ypc.set_path(full_path).with_obj(root).update_callbacks();
                 if (this->jph_obj_provider) {
-                    static thread_local auto md
+                    thread_local auto md
                         = lnav::pcre2pp::match_data::unitialized();
 
                     const auto short_path = json_ptr::encode_str(lpath) + "/";
@@ -541,7 +540,7 @@ json_path_handler_base::walk(
             }
         }
     } else {
-        for (auto& lpath : local_paths) {
+        for (const auto& lpath : local_paths) {
             const void* field = nullptr;
 
             if (this->jph_field_getter) {
@@ -726,7 +725,7 @@ yajlpp_parse_context::update_callbacks(const json_path_container* orig_handlers,
     auto path_frag = string_fragment::from_byte_range(
         this->ypc_path.data(), 1 + child_start, this->ypc_path.size() - 1);
     for (const auto& jph : handlers->jpc_children) {
-        static thread_local auto md = lnav::pcre2pp::match_data::unitialized();
+        thread_local auto md = lnav::pcre2pp::match_data::unitialized();
 
         if (jph.jph_regex->capture_from(path_frag)
                 .into(md)
@@ -896,7 +895,8 @@ yajlpp_parse_context::handle_unused(void* ctx)
             expected_types.emplace_back("float");
         }
         if (ypc->ypc_callbacks.yajl_string
-            != (int (*)(void*, const unsigned char*, size_t, yajl_string_props_t*))
+            != (int (*)(
+                void*, const unsigned char*, size_t, yajl_string_props_t*))
                 yajlpp_parse_context::handle_unused)
         {
             expected_types.emplace_back("string");
@@ -1124,7 +1124,8 @@ yajlpp_parse_context::get_path_as_string_fragment() const
     if (this->ypc_path.size() <= 1) {
         return string_fragment();
     }
-    return string_fragment::from_bytes(&this->ypc_path[1], this->ypc_path.size() - 2);
+    return string_fragment::from_bytes(&this->ypc_path[1],
+                                       this->ypc_path.size() - 2);
 }
 
 const intern_string_t
@@ -1370,6 +1371,11 @@ yajlpp_gen_context::with_context(yajlpp_parse_context& ypc)
 json_path_handler&
 json_path_handler::with_children(const json_path_container& container)
 {
+    // XXX pattern with children cannot match everything, need to use [^/]+
+    require(!this->jph_is_pattern_property
+            || (this->jph_property.find(".*") == std::string::npos
+                && this->jph_property.find(".+") == std::string::npos));
+
     this->jph_children = &container;
     return *this;
 }

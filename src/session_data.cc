@@ -63,9 +63,9 @@
 session_data_t session_data;
 recent_refs_t recent_refs;
 
-static const char* LOG_METADATA_NAME = "log_metadata.db";
+static const char* const LOG_METADATA_NAME = "log_metadata.db";
 
-static const char* META_TABLE_DEF = R"(
+static const char* const META_TABLE_DEF = R"(
 CREATE TABLE IF NOT EXISTS bookmarks (
     log_time datetime,
     log_format varchar(64),
@@ -116,25 +116,25 @@ CREATE TABLE IF NOT EXISTS regex101_entries (
 );
 )";
 
-static const char* BOOKMARK_LRU_STMT
+static const char* const BOOKMARK_LRU_STMT
     = "DELETE FROM bookmarks WHERE access_time <= "
       "  (SELECT access_time FROM bookmarks "
       "   ORDER BY access_time DESC LIMIT 1 OFFSET 50000)";
 
-static const char* NETLOC_LRU_STMT
+static const char* const NETLOC_LRU_STMT
     = "DELETE FROM recent_netlocs WHERE access_time <= "
       "  (SELECT access_time FROM bookmarks "
       "   ORDER BY access_time DESC LIMIT 1 OFFSET 10)";
 
-static const char* UPGRADE_STMTS[] = {
+static const char* const UPGRADE_STMTS[] = {
     R"(ALTER TABLE bookmarks ADD COLUMN comment text DEFAULT '';)",
     R"(ALTER TABLE bookmarks ADD COLUMN tags text DEFAULT '';)",
     R"(ALTER TABLE bookmarks ADD COLUMN annotations text DEFAULT NULL;)",
     R"(ALTER TABLE bookmarks ADD COLUMN log_opid text DEFAULT NULL;)",
 };
 
-static const size_t MAX_SESSIONS = 8;
-static const size_t MAX_SESSION_FILE_COUNT = 256;
+static constexpr size_t MAX_SESSIONS = 8;
+static constexpr size_t MAX_SESSION_FILE_COUNT = 256;
 
 struct session_line {
     session_line(struct timeval tv,
@@ -779,8 +779,8 @@ load_time_bookmarks()
                     const char* log_hash
                         = (const char*) sqlite3_column_text(stmt.in(), 2);
                     int64_t mark_time = sqlite3_column_int64(stmt.in(), 3);
-                    struct timeval log_tv;
-                    struct exttm log_tm;
+                    timeval log_tv;
+                    exttm log_tm;
 
                     if (last_mark_time == -1) {
                         last_mark_time = mark_time;
@@ -817,7 +817,7 @@ load_time_bookmarks()
                         if (lf->get_content_id() == log_hash) {
                             int file_line
                                 = std::distance(lf->begin(), line_iter);
-                            struct timeval offset;
+                            timeval offset;
 
                             offset_session_lines.emplace_back(
                                 lf->original_line_time(line_iter),
@@ -855,7 +855,10 @@ load_time_bookmarks()
 }
 
 static int
-read_files(yajlpp_parse_context* ypc, const unsigned char* str, size_t len, yajl_string_props_t*)
+read_files(yajlpp_parse_context* ypc,
+           const unsigned char* str,
+           size_t len,
+           yajl_string_props_t*)
 {
     return 1;
 }
@@ -873,13 +876,11 @@ static const struct json_path_container view_handlers = {
     yajlpp::pattern_property_handler("(?<view_name>[\\w\\-]+)")
         .with_obj_provider<view_state, session_data_t>(
             +[](const yajlpp_provider_context& ypc, session_data_t* root) {
-                const char** view_name;
-                int view_index;
-
-                view_name = find(lnav_view_strings,
-                                 lnav_view_strings + LNV__MAX,
-                                 ypc.get_substr("view_name"));
-                view_index = view_name - lnav_view_strings;
+                const auto* const* view_name
+                    = std::find(lnav_view_strings,
+                                lnav_view_strings + LNV__MAX,
+                                ypc.get_substr("view_name"));
+                auto view_index = view_name - lnav_view_strings;
                 if (view_index < LNV__MAX) {
                     return &root->sd_view_states[view_index];
                 }
@@ -1029,7 +1030,7 @@ save_user_bookmarks(sqlite3* db,
 
         sqlite3_clear_bindings(stmt);
 
-        auto line_iter = lf->begin() + cl;
+        const auto line_iter = lf->begin() + cl;
         auto read_result = lf->read_line(line_iter);
 
         if (read_result.isErr()) {
@@ -1413,7 +1414,7 @@ save_time_bookmarks()
                            " VALUES (?, ?, ?, ?, ?, ?)",
                            -1,
                            stmt.out(),
-                           NULL)
+                           nullptr)
         != SQLITE_OK)
     {
         log_error("could not prepare time_offset replace statement -- %s",
@@ -1422,15 +1423,11 @@ save_time_bookmarks()
     }
 
     {
-        logfile_sub_source::iterator file_iter;
-
-        for (file_iter = lnav_data.ld_log_source.begin();
+        for (auto file_iter = lnav_data.ld_log_source.begin();
              file_iter != lnav_data.ld_log_source.end();
              ++file_iter)
         {
             auto lf = (*file_iter)->get_file();
-            content_line_t base_content_line;
-
             if (lf == nullptr) {
                 continue;
             }
@@ -1438,13 +1435,12 @@ save_time_bookmarks()
                 continue;
             }
 
-            base_content_line = lss.get_file_base_content_line(file_iter);
-
-            if (!bind_values(stmt,
-                             lf->original_line_time(lf->begin()),
-                             lf->get_format()->get_name(),
-                             lf->get_content_id(),
-                             lnav_data.ld_session_time))
+            if (bind_values(stmt,
+                            lf->original_line_time(lf->begin()),
+                            lf->get_format()->get_name(),
+                            lf->get_content_id(),
+                            lnav_data.ld_session_time)
+                != SQLITE_OK)
             {
                 continue;
             }
@@ -1471,20 +1467,18 @@ save_time_bookmarks()
         }
     }
 
-    for (auto& ls : lss) {
+    for (const auto& ls : lss) {
         if (ls->get_file() == nullptr) {
             continue;
         }
 
-        auto lf = ls->get_file();
-
+        const auto lf = ls->get_file();
         if (!lf->is_time_adjusted()) {
             continue;
         }
 
         auto line_iter = lf->begin() + lf->get_time_offset_line();
-        struct timeval offset = lf->get_time_offset();
-
+        auto offset = lf->get_time_offset();
         auto read_result = lf->read_line(line_iter);
 
         if (read_result.isErr()) {
@@ -1781,13 +1775,17 @@ reset_session()
         lf->reset_state();
     }
 
+    // XXX clean this up
+    lnav_data.ld_log_source.set_force_rebuild();
     lnav_data.ld_log_source.set_marked_only(false);
     lnav_data.ld_log_source.clear_min_max_log_times();
     lnav_data.ld_log_source.set_min_log_level(LEVEL_UNKNOWN);
     lnav_data.ld_log_source.set_sql_filter("", nullptr);
     lnav_data.ld_log_source.set_sql_marker("", nullptr);
-
     lnav_data.ld_log_source.clear_bookmark_metadata();
+    lnav_data.ld_log_source.rebuild_index();
+
+    lnav_data.ld_db_row_source.reset_user_state();
 
     for (auto& tc : lnav_data.ld_views) {
         text_sub_source* tss = tc.get_sub_source();

@@ -17,7 +17,7 @@ set of files/directories, **lnav** will:
 
 - decompress as needed;
 - detect their format;
-- merge the files together by time into a single view;
+- merge the files by time into a single view;
 - tail the files, follow renames, find new files in directories;
 - build an index of errors and warnings;
 - [pretty-print JSON-lines](https://docs.lnav.org/en/latest/formats.html#json-lines).
@@ -30,7 +30,7 @@ Then, in the **lnav** TUI, you can:
 - filter messages using [regular expressions](https://docs.lnav.org/en/latest/usage.html#regular-expression-match) or [SQLite expressions](https://docs.lnav.org/en/latest/usage.html#sqlite-expression);
 - pretty-print structured text ([press `P`](https://docs.lnav.org/en/latest/ui.html#pretty));
 - view a histogram of messages over time ([press `i`](https://docs.lnav.org/en/latest/ui.html#hist));
-- query messages using SQLite ([press `;`](https://docs.lnav.org/en/latest/sqlext.html))
+- analyze messages using SQLite ([press `;`](https://docs.lnav.org/en/latest/sqlext.html))
 
 ## Screenshot
 
@@ -173,17 +173,18 @@ The following alternatives are also available:
 
 The following software packages are required to build lnav:
 
-- gcc/clang  - A C++14-compatible compiler.
-- libpcre2   - The Perl Compatible Regular Expression v2 (PCRE2) library.
-- sqlite     - The SQLite database engine.  Version 3.9.0 or higher is required.
-- ncurses    - The ncurses text UI library.
-- readline   - The readline line editing library.
-- zlib       - The zlib compression library.
-- bz2        - The bzip2 compression library.
-- libcurl    - The cURL library for downloading files from URLs.  Version 7.23.0 or higher is required.
-- libarchive - The libarchive library for opening archive files, like zip/tgz.
-- wireshark  - The 'tshark' program is used to interpret pcap files.
-- cargo/rust - The Rust language is used to build the PRQL compiler.
+- gcc/clang    - A C++14-compatible compiler.
+- libpcre2     - The Perl Compatible Regular Expression v2 (PCRE2) library.
+- sqlite       - The SQLite database engine.  Version 3.9.0 or higher is required.
+- ncurses      - The ncurses text UI library.
+- readline     - The readline line editing library.
+- zlib         - The zlib compression library.
+- bz2          - The bzip2 compression library.
+- libcurl      - The cURL library for downloading files from URLs.  Version 7.23.0 or higher is required.
+- libarchive   - The libarchive library for opening archive files, like zip/tgz.
+- libunistring - The libunistring library for dealing with unicode.
+- wireshark    - The 'tshark' program is used to interpret pcap files.
+- cargo/rust   - The Rust language is used to build the PRQL compiler.
 
 #### Build
 

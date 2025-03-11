@@ -88,7 +88,7 @@ endswith(const char* str, const char* suffix)
 }
 
 template<int N>
-inline bool
+bool
 endswith(const std::string& str, const char (&suffix)[N])
 {
     if (N - 1 > str.length()) {
@@ -177,23 +177,7 @@ toupper(const std::string& str)
     return toupper(str.c_str());
 }
 
-inline ssize_t
-utf8_char_to_byte_index(const std::string& str, ssize_t ch_index)
-{
-    ssize_t retval = 0;
-
-    while (ch_index > 0) {
-        auto ch_len
-            = ww898::utf::utf8::char_size([&str, retval]() {
-                  return std::make_pair(str[retval], str.length() - retval - 1);
-              }).unwrapOr(1);
-
-        retval += ch_len;
-        ch_index -= 1;
-    }
-
-    return retval;
-}
+ssize_t utf8_char_to_byte_index(const std::string& str, ssize_t ch_index);
 
 inline Result<size_t, const char*>
 utf8_string_length(const char* str, ssize_t len = -1)
@@ -249,7 +233,7 @@ on_blank(const std::string& str, const std::string& def)
 std::string to_superscript(const std::string& in);
 
 template<typename T, std::enable_if_t<std::is_integral_v<T>, bool> = true>
-inline std::string
+std::string
 to_superscript(T in)
 {
     return to_superscript(fmt::to_string(in));
@@ -296,12 +280,16 @@ struct formatter<lnav::tainted_string> : formatter<string_view> {
 };
 }  // namespace fmt
 
-namespace lnav {
-namespace pcre2pp {
+namespace lnav::pcre2pp {
 
 std::string quote(string_fragment sf);
 
 }
-}  // namespace lnav
+
+enum class text_align_t {
+    start,
+    center,
+    end,
+};
 
 #endif

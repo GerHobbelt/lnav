@@ -288,8 +288,7 @@ timeline_header_overlay::list_static_overlay(const listview_curses& lv,
             .append(" ")
             .append("|", VC_GRAPHIC.value(NCACS_VLINE))
             .append(" Operation"_h1);
-        auto hdr_attrs = text_attrs{};
-        hdr_attrs.ta_attrs = NCSTYLE_UNDERLINE;
+        auto hdr_attrs = text_attrs::with_underline();
         value_out.get_attrs().emplace_back(line_range{0, -1},
                                            VC_STYLE.value(hdr_attrs));
         value_out.with_attr_for_all(VC_ROLE.value(role_t::VCR_STATUS_INFO));
@@ -634,8 +633,8 @@ void
 timeline_source::rebuild_indexes()
 {
     auto& bm = this->tss_view->get_bookmarks();
-    auto& bm_errs = bm[&logfile_sub_source::BM_ERRORS];
-    auto& bm_warns = bm[&logfile_sub_source::BM_WARNINGS];
+    auto& bm_errs = bm[&textview_curses::BM_ERRORS];
+    auto& bm_warns = bm[&textview_curses::BM_WARNINGS];
 
     bm_errs.clear();
     bm_warns.clear();
@@ -1057,7 +1056,7 @@ timeline_source::get_filtered_count_for(size_t filter_index) const
     return this->gs_filter_hits[filter_index];
 }
 
-static std::vector<breadcrumb::possibility>
+static const std::vector<breadcrumb::possibility>&
 timestamp_poss()
 {
     const static std::vector<breadcrumb::possibility> retval = {

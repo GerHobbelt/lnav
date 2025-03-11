@@ -39,6 +39,7 @@
 #include "fmt/ostream.h"
 #include "lnav_log.hh"
 #include "pcrepp/pcre2pp.hh"
+#include "unictype.h"
 #include "uniwidth.h"
 #include "ww898/cp_utf8.hpp"
 #include "xxHash/xxhash.h"
@@ -204,6 +205,22 @@ string_fragment::rtrim(const char* tokens) const
     }
 
     return retval;
+}
+
+std::optional<int>
+string_fragment::rfind(char ch) const
+{
+    if (this->empty()) {
+        return std::nullopt;
+    }
+
+    for (auto index = this->sf_end - 1; index >= this->sf_begin; index--) {
+        if (this->sf_string[index] == ch) {
+            return index;
+        }
+    }
+
+    return std::nullopt;
 }
 
 std::optional<string_fragment>
@@ -466,6 +483,183 @@ string_fragment::sub_cell_range(int cell_start, int cell_end) const
     }
 
     return string_fragment{};
+}
+
+size_t
+string_fragment::column_to_byte_index(const size_t col) const
+{
+    auto index = this->sf_begin;
+    size_t curr_col = 0;
+
+    while (curr_col < col && index < this->sf_end) {
+        auto read_res = ww898::utf::utf8::read(
+            [this, &index]() { return this->sf_string[index++]; });
+        if (read_res.isErr()) {
+            curr_col += 1;
+        } else {
+            auto ch = read_res.unwrap();
+
+            switch (ch) {
+                case '\t':
+                    do {
+                        curr_col += 1;
+                    } while (curr_col % 8);
+                    break;
+                default: {
+                    auto wcw_res = uc_width(read_res.unwrap(), "UTF-8");
+                    if (wcw_res < 0) {
+                        wcw_res = 1;
+                    }
+
+                    curr_col += wcw_res;
+                    break;
+                }
+            }
+        }
+    }
+
+    return index;
+}
+
+size_t
+string_fragment::byte_to_column_index(const size_t byte_index) const
+{
+    auto index = this->sf_begin;
+    size_t curr_col = 0;
+
+    while (index < this->sf_end && index < byte_index) {
+        auto read_res = ww898::utf::utf8::read(
+            [this, &index]() { return this->sf_string[index++]; });
+        if (read_res.isErr()) {
+            curr_col += 1;
+        } else {
+            auto ch = read_res.unwrap();
+
+            switch (ch) {
+                case '\t':
+                    do {
+                        curr_col += 1;
+                    } while (curr_col % 8);
+                break;
+                default: {
+                    auto wcw_res = uc_width(read_res.unwrap(), "UTF-8");
+                    if (wcw_res < 0) {
+                        wcw_res = 1;
+                    }
+
+                    curr_col += wcw_res;
+                    break;
+                }
+            }
+        }
+    }
+
+    return curr_col;
+}
+
+static bool
+iswordbreak(wchar_t wchar)
+{
+    const uint32_t mask
+        = UC_CATEGORY_MASK_L | UC_CATEGORY_MASK_N | UC_CATEGORY_MASK_Pc;
+    return !uc_is_general_category_withtable(wchar, mask);
+}
+
+std::optional<int>
+string_fragment::next_word(const int start_col) const
+{
+    auto index = this->sf_begin;
+    size_t curr_col = 0;
+    auto in_word = false;
+
+    while (index < this->sf_end) {
+        auto read_res = ww898::utf::utf8::read(
+            [this, &index]() { return this->sf_string[index++]; });
+        if (read_res.isErr()) {
+            curr_col += 1;
+        } else {
+            auto ch = read_res.unwrap();
+
+            switch (ch) {
+                case '\t':
+                    do {
+                        curr_col += 1;
+                    } while (curr_col % 8);
+                    break;
+                default: {
+                    auto wcw_res = uc_width(read_res.unwrap(), "UTF-8");
+                    if (wcw_res < 0) {
+                        wcw_res = 1;
+                    }
+
+                    if (curr_col == start_col) {
+                        in_word = !iswordbreak(ch);
+                    } else if (curr_col > start_col) {
+                        if (in_word) {
+                            if (iswordbreak(ch)) {
+                                in_word = false;
+                            }
+                        } else if (!iswordbreak(ch)) {
+                            return curr_col;
+                        }
+                    }
+                    curr_col += wcw_res;
+                    break;
+                }
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<int>
+string_fragment::prev_word(const int start_col) const
+{
+    auto index = this->sf_begin;
+    size_t curr_col = 0;
+    auto in_word = false;
+    std::optional<int> last_word_col;
+
+    while (index < this->sf_end) {
+        auto read_res = ww898::utf::utf8::read(
+            [this, &index]() { return this->sf_string[index++]; });
+        if (read_res.isErr()) {
+            curr_col += 1;
+        } else {
+            auto ch = read_res.unwrap();
+
+            switch (ch) {
+                case '\t':
+                    do {
+                        curr_col += 1;
+                    } while (curr_col % 8);
+                    break;
+                default: {
+                    auto wcw_res = uc_width(read_res.unwrap(), "UTF-8");
+                    if (wcw_res < 0) {
+                        wcw_res = 1;
+                    }
+
+                    if (curr_col == start_col) {
+                        return last_word_col;
+                    }
+                    if (iswordbreak(ch)) {
+                        in_word = false;
+                    } else {
+                        if (!in_word) {
+                            last_word_col = curr_col;
+                        }
+                        in_word = true;
+                    }
+                    curr_col += wcw_res;
+                    break;
+                }
+            }
+        }
+    }
+
+    return last_word_col;
 }
 
 size_t

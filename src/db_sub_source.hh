@@ -30,6 +30,9 @@
 #ifndef db_sub_source_hh
 #define db_sub_source_hh
 
+#include <chrono>
+#include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -37,19 +40,21 @@
 #include <sqlite3.h>
 
 #include "ArenaAlloc/arenaalloc.h"
+#include "base/cell_container.hh"
+#include "base/lnav.resolver.hh"
 #include "hist_source.hh"
-#include "shlex.resolver.hh"
 #include "textview_curses.hh"
 
 class db_label_source
     : public text_sub_source
-    , public text_time_translator {
+    , public text_time_translator
+    , public list_input_delegate
+    , public text_delegate
+    , public text_detail_provider {
 public:
-    ~db_label_source() override { this->clear(); }
-
     bool has_log_time_column() const { return !this->dls_time_column.empty(); }
 
-    size_t text_line_count() override { return this->dls_rows.size(); }
+    size_t text_line_count() override { return this->dls_row_cursors.size(); }
 
     size_t text_size_for_line(textview_curses& tc,
                               int line,
@@ -77,9 +82,15 @@ public:
                              int row,
                              string_attrs_t& sa) override;
 
-    void push_header(const std::string& colstr, int type, bool graphable);
+    void push_header(const std::string& colstr, int type);
 
-    void push_column(const scoped_value_t& sv);
+    void set_col_as_graphable(int lpc);
+
+    using column_value_t
+        = mapbox::util::variant<string_fragment, int64_t, double, null_value_t>;
+
+    static_assert(!column_value_t::needs_destruct);
+    void push_column(const column_value_t& sv);
 
     void clear();
 
@@ -89,11 +100,24 @@ public:
 
     std::optional<row_info> time_for_row(vis_line_t row) override;
 
-    enum class align_t {
-        left,
-        center,
-        right,
-    };
+    bool text_handle_mouse(textview_curses& tc,
+                           const listview_curses::display_line_content_t&,
+                           mouse_event& me) override;
+
+    bool list_input_handle_key(listview_curses& lv, const ncinput& ch) override;
+
+    std::string get_row_as_string(vis_line_t row);
+
+    std::optional<json_string> text_row_details(
+        const textview_curses& tc) override;
+
+    std::string get_cell_as_string(vis_line_t row, size_t col);
+    std::optional<int64_t> get_cell_as_int64(vis_line_t row, size_t col);
+    std::optional<double> get_cell_as_double(vis_line_t row, size_t col);
+
+    void update_time_column(const string_fragment& sf);
+
+    void reset_user_state();
 
     struct header_meta {
         explicit header_meta(std::string name) : hm_name(std::move(name)) {}
@@ -103,29 +127,46 @@ public:
             return this->hm_name == name;
         }
 
+        bool is_graphable() const
+        {
+            return this->hm_graphable && this->hm_graphable.value();
+        }
+
         std::string hm_name;
         int hm_column_type{SQLITE3_TEXT};
         unsigned int hm_sub_type{0};
-        bool hm_graphable{false};
+        bool hm_hidden{false};
+        std::optional<bool> hm_graphable;
         size_t hm_column_size{0};
-        align_t hm_align{align_t::left};
-        text_attrs hm_title_attrs;
+        text_align_t hm_align{text_align_t::start};
+        text_attrs hm_title_attrs{text_attrs::with_underline()};
         stacked_bar_chart<std::string> hm_chart;
     };
 
+    struct row_style {
+        std::map<int, text_attrs> rs_column_config;
+    };
+
     uint32_t dls_generation{0};
+    std::optional<std::chrono::steady_clock::time_point> dls_query_start;
+    std::optional<std::chrono::steady_clock::time_point> dls_query_end;
     size_t dls_max_column_width{120};
     std::vector<header_meta> dls_headers;
-    std::vector<std::vector<const char*>> dls_rows;
+    lnav::cell_container dls_cell_container;
+    std::vector<lnav::cell_container::cursor> dls_row_cursors;
+    size_t dls_push_column{0};
     std::vector<timeval> dls_time_column;
     std::vector<size_t> dls_cell_width;
     int dls_time_column_index{-1};
     std::optional<size_t> dls_time_column_invalidated_at;
-    std::unique_ptr<ArenaAlloc::Alloc<char>> dls_allocator{
-        std::make_unique<ArenaAlloc::Alloc<char>>(64 * 1024)};
+    std::optional<size_t> dls_level_column;
+    std::vector<row_style> dls_row_styles;
+    bool dls_row_styles_have_errors{false};
+    int dls_row_style_column{-1};
+    ArenaAlloc::Alloc<char> dls_cell_allocator{1024};
     string_attrs_t dls_ansi_attrs;
 
-    static const char NULL_STR[];
+    static const unsigned char NULL_STR[];
 };
 
 class db_overlay_source : public list_overlay_source {
@@ -155,4 +196,5 @@ public:
     bool dos_active{false};
     db_label_source* dos_labels{nullptr};
 };
+
 #endif

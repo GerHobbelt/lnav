@@ -41,6 +41,7 @@ run_cap_test ${lnav_test} -nq \
 
 run_cap_test ${lnav_test} -nq \
     -c ";update access_log set log_mark = 1 where sc_bytes > 60000" \
+    -c ":hide-fields cs_user_agent" \
     -c ":set-min-log-level debug" \
     -c ":hide-lines-before 2005" \
     -c ":hide-lines-after 2030" \
@@ -97,6 +98,23 @@ run_cap_test ${lnav_test} -n \
     -c ":load-session" \
     -c ":test-comment adjust time in session" \
     ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -n \
+    -c ":load-session" \
+    -c ":reset-session" \
+    -c ":save-session" \
+    -c ":test-comment reset adjusted time" \
+    ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -n \
+    -c ":load-session" \
+    -c ":test-comment reset of adjust stuck" \
+    ${test_dir}/logfile_access_log.0
+
+run_cap_test ${lnav_test} -n \
+    -c ":adjust-log-time +1h" \
+    -c ":reset-session" \
+    ${test_dir}/logfile_java.*
 
 # hiding fields failed
 rm -rf ./sessions

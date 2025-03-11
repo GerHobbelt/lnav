@@ -29,7 +29,7 @@ set of files/directories, [1mlnav[0m will:
 
  [33m•[0m decompress as needed;
  [33m•[0m detect their format;
- [33m•[0m merge the files together by time into a single view;
+ [33m•[0m merge the files by time into a single view;
  [33m•[0m tail the files, follow renames, find new files in
    directories;
  [33m•[0m build an index of errors and warnings;
@@ -47,7 +47,7 @@ Then, in the [1mlnav[0m TUI, you can:
    ]8;;https://docs.lnav.org/en/latest/usage.html#sqlite-expression\[4mexpressions[0m]8;;\⁵;
  [33m•[0m pretty-print structured text (]8;;https://docs.lnav.org/en/latest/ui.html#pretty\[4mpress [0m]8;;\]8;;https://docs.lnav.org/en/latest/ui.html#pretty\[4m[37m[40m P [0m]8;;\⁶);
  [33m•[0m view a histogram of messages over time (]8;;https://docs.lnav.org/en/latest/ui.html#hist\[4mpress [0m]8;;\]8;;https://docs.lnav.org/en/latest/ui.html#hist\[4m[37m[40m i [0m]8;;\⁷);
- [33m•[0m query messages using SQLite (]8;;https://docs.lnav.org/en/latest/sqlext.html\[4mpress [0m]8;;\]8;;https://docs.lnav.org/en/latest/sqlext.html\[4m[37m[40m ; [0m]8;;\⁸)
+ [33m•[0m analyze messages using SQLite (]8;;https://docs.lnav.org/en/latest/sqlext.html\[4mpress [0m]8;;\]8;;https://docs.lnav.org/en/latest/sqlext.html\[4m[37m[40m ; [0m]8;;\⁸)
 
  [34m▌[0m[1] - https://docs.lnav.org/en/latest/hotkeys.html#spatial-navigation     
  [34m▌[0m[2] - https://docs.lnav.org/en/latest/hotkeys.html#spatial-navigation     
@@ -206,22 +206,24 @@ The following alternatives are also available:
 
 The following software packages are required to build lnav:
 
- [33m•[0m gcc/clang  - A C++14-compatible compiler.
- [33m•[0m libpcre2   - The Perl Compatible Regular Expression v2
-   (PCRE2) library.
- [33m•[0m sqlite     - The SQLite database engine.  Version
+ [33m•[0m gcc/clang    - A C++14-compatible compiler.
+ [33m•[0m libpcre2     - The Perl Compatible Regular Expression
+   v2 (PCRE2) library.
+ [33m•[0m sqlite       - The SQLite database engine.  Version
    3.9.0 or higher is required.
- [33m•[0m ncurses    - The ncurses text UI library.
- [33m•[0m readline   - The readline line editing library.
- [33m•[0m zlib       - The zlib compression library.
- [33m•[0m bz2        - The bzip2 compression library.
- [33m•[0m libcurl    - The cURL library for downloading files
+ [33m•[0m ncurses      - The ncurses text UI library.
+ [33m•[0m readline     - The readline line editing library.
+ [33m•[0m zlib         - The zlib compression library.
+ [33m•[0m bz2          - The bzip2 compression library.
+ [33m•[0m libcurl      - The cURL library for downloading files
    from URLs.  Version 7.23.0 or higher is required.
- [33m•[0m libarchive - The libarchive library for opening
+ [33m•[0m libarchive   - The libarchive library for opening
    archive files, like zip/tgz.
- [33m•[0m wireshark  - The [35m'tshark'[0m program is used to interpret
-   pcap files.
- [33m•[0m cargo/rust - The Rust language is used to build the
+ [33m•[0m libunistring - The libunistring library for dealing
+   with unicode.
+ [33m•[0m wireshark    - The [35m'tshark'[0m program is used to
+   interpret pcap files.
+ [33m•[0m cargo/rust   - The Rust language is used to build the
    PRQL compiler.
 
 [4mBuild[0m

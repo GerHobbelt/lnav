@@ -4,7 +4,7 @@ srcdir="$1"
 builddir="$2"
 
 expected_dir="$1/expected"
-expected_am="${expected_dir}/expected.am"
+expected_am="${expected_dir}/Makefile.am"
 
 mkdir -p "${expected_dir}"
 
@@ -16,8 +16,8 @@ for fname in $(ls -t ${builddir}/*.cmd); do
   stem=$(echo $fname | sed -e 's/.cmd$//')
   exp_stem="${srcdir}/expected/$(basename $stem)"
 
-  echo "    \$(srcdir)/%reldir%/$(basename "$stem").out \\" >> "${expected_am}.tmp"
-  echo "    \$(srcdir)/%reldir%/$(basename "$stem").err \\" >> "${expected_am}.tmp"
+  echo "    $(basename "$stem").out \\" >> "${expected_am}.tmp"
+  echo "    $(basename "$stem").err \\" >> "${expected_am}.tmp"
 
   if ! test -f "${exp_stem}.out"; then
     printf '\033[0;32mBEGIN\033[0m %s.out\n' "${stem}"
@@ -86,7 +86,7 @@ done
 
 cat > "${expected_am}.new" <<EOF
 
-EXPECTED_FILES = \\
+dist_noinst_DATA = \\
 $(sort "${expected_am}.tmp")
     \$()
 EOF

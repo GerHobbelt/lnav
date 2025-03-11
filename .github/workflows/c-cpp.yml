@@ -8,10 +8,12 @@ on:
       - README.md
       - NEWS.md
   pull_request:
+    types: [opened, synchronize, edited, ready_for_review]
     branches: [ master ]
 
 jobs:
   coverage:
+    if: false
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -81,6 +83,8 @@ jobs:
           zlib1g-dev
       - name: Install python packages
         run: pipx install check-jsonschema
+      - name: ulimit
+        run: ulimit -s
       - name: autogen
         run: ./autogen.sh
       - name: configure

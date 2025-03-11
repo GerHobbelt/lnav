@@ -49,19 +49,13 @@ to_text_line(const std::vector<attr_line_t>& lines)
            });
 }
 
-plain_text_source::plain_text_source(const std::string& text)
+plain_text_source::plain_text_source(const string_fragment& text)
 {
-    size_t start = 0, end;
+    size_t start = 0;
 
-    while ((end = text.find('\n', start)) != std::string::npos) {
-        size_t len = (end - start);
-        this->tds_lines.emplace_back(
-            start, attr_line_t::from_ansi_str(text.substr(start, len)));
-        start = end + 1;
-    }
-    if (start < text.length()) {
-        this->tds_lines.emplace_back(
-            start, attr_line_t::from_ansi_str(text.substr(start)));
+    for (const auto& line : text.split_lines()) {
+        this->tds_lines.emplace_back(start, attr_line_t::from_ansi_frag(line));
+        start += line.length();
     }
     this->tds_longest_line = this->compute_longest_line();
 }
@@ -106,7 +100,7 @@ plain_text_source::replace_with_mutable(attr_line_t& text_lines,
     this->tds_text_format = tf;
     this->tds_lines.clear();
     this->tds_doc_sections
-        = lnav::document::discover_structure(text_lines, line_range{0, -1}, tf);
+        = lnav::document::discover(text_lines).with_text_format(tf).perform();
     file_off_t off = 0;
     auto lines = text_lines.split_lines();
     while (!lines.empty() && lines.back().empty()) {

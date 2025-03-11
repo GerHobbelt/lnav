@@ -57,10 +57,11 @@ Options
 
 .. option:: -i
 
-   Install the format files in the :file:`.lnav/formats/` directory.
-   Individual files will be installed in the :file:`installed`
-   directory and git repositories will be cloned with a directory
-   name based on their repository URI.
+   Install the given files in the lnav configuration directories.
+   Format files, SQL, and lnav scripts will be installed in the
+   :file:`formats/installed`.  Configuration files will be installed
+   in the :file:`configs/installed` directory.  Git repository URIs
+   will be cloned with a directory name based on their repository URI.
 
 .. option:: -u
 
@@ -154,6 +155,11 @@ Subcommands
 .. option:: format <format-name> regex <regex-name> pull
 
    Pull changes to a regex that was previously pushed to regex101.com .
+
+.. _format_test_cli:
+.. option:: format <format-name> test <path>
+
+   Test this format against the given file.
 
 .. option:: piper clean
 

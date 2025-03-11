@@ -70,7 +70,7 @@ handle_keyseq(const char* keyseq)
     // XXX push another so it doesn't look like interactive use
     var_stack.push(std::map<std::string, scoped_value_t>());
     auto& vars = var_stack.top();
-    vars["keyseq"] = keyseq;
+    vars["keyseq"] = string_fragment::from_c_str(keyseq);
     const auto& kc = iter->second;
 
     log_debug(
@@ -104,6 +104,56 @@ handle_keyseq(const char* keyseq)
     return true;
 }
 
+void
+handle_paste_content(notcurses* nc, const ncinput& ch)
+{
+    auto& ec = lnav_data.ld_exec_context;
+
+    switch (ch.paste_content[0]) {
+        case '/':
+        case ':':
+        case ';':
+        case '|': {
+            static const auto lf_re = lnav::pcre2pp::code::from_const("\r\n?");
+            static const intern_string_t SRC
+                = intern_string::lookup("pasted-content");
+
+            auto paste_sf = string_fragment::from_c_str(ch.paste_content);
+            auto cmdline = lf_re.replace(paste_sf, "\n");
+            auto sg = ec.enter_source(SRC, 0, cmdline);
+
+            auto exec_res = ec.execute(cmdline);
+            if (exec_res.isOk()) {
+                lnav_data.ld_rl_view->set_value(exec_res.unwrap());
+            } else {
+                auto um = exec_res.unwrapErr();
+
+                ec.ec_msg_callback_stack.back()(um);
+            }
+            break;
+        }
+        default: {
+            auto um
+                = lnav::console::user_message::error(
+                      attr_line_t("ignoring pasted content"))
+                      .with_reason(
+                          attr_line_t("content does not start with one of the "
+                                      "expected prefixes: ")
+                              .append(":"_quoted_code)
+                              .append(" for lnav commands; ")
+                              .append(";"_quoted_code)
+                              .append(" for SQL queries; ")
+                              .append("/"_quoted_code)
+                              .append(" for searches; ")
+                              .append("|"_quoted_code)
+                              .append(" scripts"));
+
+            ec.ec_msg_callback_stack.back()(um);
+            break;
+        }
+    }
+}
+
 bool
 handle_paging_key(notcurses* nc, const ncinput& ch, const char* keyseq)
 {
@@ -111,10 +161,15 @@ handle_paging_key(notcurses* nc, const ncinput& ch, const char* keyseq)
         return false;
     }
 
-    textview_curses* tc = *lnav_data.ld_view_stack.top();
+    auto* tc = *lnav_data.ld_view_stack.top();
     auto& ec = lnav_data.ld_exec_context;
     auto* tc_tss = tc->get_sub_source();
     auto& bm = tc->get_bookmarks();
+
+    if (ch.id == NCKEY_PASTE) {
+        handle_paste_content(nc, ch);
+        return true;
+    }
 
     if (tc->get_overlay_selection()) {
         if (tc->handle_key(ch)) {
@@ -130,8 +185,8 @@ handle_paging_key(notcurses* nc, const ncinput& ch, const char* keyseq)
         return true;
     }
 
-    auto lss = dynamic_cast<logfile_sub_source*>(tc->get_sub_source());
-    auto text_accel_p = dynamic_cast<text_accel_source*>(tc->get_sub_source());
+    auto* lss = dynamic_cast<logfile_sub_source*>(tc->get_sub_source());
+    auto* text_accel_p = dynamic_cast<text_accel_source*>(tc->get_sub_source());
 
     /* process the command keystroke */
     switch (ch.eff_text[0]) {
@@ -678,32 +733,25 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
         }
 
         case 'V': {
-            textview_curses* db_tc = &lnav_data.ld_views[LNV_DB];
-            db_label_source& dls = lnav_data.ld_db_row_source;
+            auto* db_tc = &lnav_data.ld_views[LNV_DB];
+            auto& dls = lnav_data.ld_db_row_source;
 
             if (toggle_view(db_tc)) {
-                auto log_line_index = dls.column_name_to_index("log_line");
+                auto log_line_col = dls.column_name_to_index("log_line");
 
-                if (!log_line_index) {
-                    log_line_index = dls.column_name_to_index("min(log_line)");
+                if (!log_line_col) {
+                    log_line_col = dls.column_name_to_index("min(log_line)");
                 }
 
-                if (log_line_index) {
-                    fmt::memory_buffer linestr;
-                    int line_number = (int) tc->get_selection();
+                if (log_line_col) {
+                    auto line_number = tc->get_selection();
                     unsigned int row;
 
-                    fmt::format_to(std::back_inserter(linestr),
-                                   FMT_STRING("{}"),
-                                   line_number);
-                    linestr.push_back('\0');
-                    for (row = 0; row < dls.dls_rows.size(); row++) {
-                        if (strcmp(dls.dls_rows[row][log_line_index.value()],
-                                   linestr.data())
-                            == 0)
+                    for (row = 0; row < dls.dls_row_cursors.size(); row++) {
+                        auto db_line = vis_line_t(row);
+                        if (dls.get_cell_as_int64(db_line, log_line_col.value())
+                            == line_number)
                         {
-                            vis_line_t db_line(row);
-
                             db_tc->set_selection(db_line);
                             db_tc->set_needs_update();
                             break;
@@ -711,34 +759,35 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
                     }
                 }
             } else if (db_tc->get_inner_height() > 0) {
-                int db_row = db_tc->get_selection();
+                auto db_row = db_tc->get_selection();
                 tc = &lnav_data.ld_views[LNV_LOG];
-                auto log_line_index = dls.column_name_to_index("log_line");
+                auto log_line_col = dls.column_name_to_index("log_line");
 
-                if (!log_line_index) {
-                    log_line_index = dls.column_name_to_index("min(log_line)");
+                if (!log_line_col) {
+                    log_line_col = dls.column_name_to_index("min(log_line)");
                 }
 
-                if (log_line_index) {
-                    unsigned int line_number;
+                if (log_line_col) {
+                    auto line_number
+                        = dls.get_cell_as_int64(db_row, log_line_col.value());
 
-                    if (sscanf(dls.dls_rows[db_row][log_line_index.value()],
-                               "%d",
-                               &line_number)
-                        && line_number < tc->listview_rows(*tc))
-                    {
-                        tc->set_selection(vis_line_t(line_number));
+                    if (line_number < tc->listview_rows(*tc)) {
+                        tc->set_selection(vis_line_t(line_number.value()));
                         tc->set_needs_update();
                     }
                 } else {
                     for (size_t lpc = 0; lpc < dls.dls_headers.size(); lpc++) {
                         date_time_scanner dts;
-                        struct timeval tv;
-                        struct exttm tm;
-                        const char* col_value = dls.dls_rows[db_row][lpc];
-                        size_t col_len = strlen(col_value);
+                        timeval tv;
+                        exttm tm;
+                        const auto col_value
+                            = dls.get_cell_as_string(db_row, lpc);
 
-                        if (dts.scan(col_value, col_len, nullptr, &tm, tv)
+                        if (dts.scan(col_value.c_str(),
+                                     col_value.length(),
+                                     nullptr,
+                                     &tm,
+                                     tv)
                             != nullptr)
                         {
                             lnav_data.ld_log_source.find_from_time(tv) |
@@ -767,7 +816,7 @@ DELETE FROM lnav_user_notifications WHERE id = 'org.lnav.mouse-support'
                     tc->get_data_source()->listview_value_for_rows(
                         *tc, tc->get_top(), rows);
                     auto& sa = rows[0].get_attrs();
-                    auto line_attr_opt = get_string_attr(sa, logline::L_FILE);
+                    auto line_attr_opt = get_string_attr(sa, L_FILE);
                     if (line_attr_opt) {
                         const auto& fc = lnav_data.ld_active_files;
                         auto lf = line_attr_opt.value().get();

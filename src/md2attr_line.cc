@@ -238,14 +238,13 @@ md2attr_line::leave_block(const md4cpp::event_handler::block& bl)
         if (tf_opt) {
             static const auto highlighters = get_highlight_map();
 
-            lnav::document::discover_structure(
-                block_text, line_range{0, -1}, tf_opt.value());
+            lnav::document::discover(block_text)
+                .with_text_format(tf_opt.value())
+                .perform();
             for (const auto& hl_pair : highlighters) {
                 const auto& hl = hl_pair.second;
 
-                if (!hl.h_text_formats.empty()
-                    && hl.h_text_formats.count(tf_opt.value()) == 0)
-                {
+                if (!hl.applies_to_format(tf_opt.value())) {
                     continue;
                 }
                 hl.annotate(block_text, 0);
@@ -706,12 +705,12 @@ right_border_string(border_line_width width)
 static attr_line_t
 span_style_border(border_side side, const string_fragment& value)
 {
-    static const auto NAME_THIN = string_fragment::from_const("thin");
-    static const auto NAME_MEDIUM = string_fragment::from_const("medium");
-    static const auto NAME_THICK = string_fragment::from_const("thick");
-    static const auto NAME_SOLID = string_fragment::from_const("solid");
-    static const auto NAME_DASHED = string_fragment::from_const("dashed");
-    static const auto NAME_DOTTED = string_fragment::from_const("dotted");
+    static constexpr auto NAME_THIN = string_fragment::from_const("thin");
+    static constexpr auto NAME_MEDIUM = string_fragment::from_const("medium");
+    static constexpr auto NAME_THICK = string_fragment::from_const("thick");
+    static constexpr auto NAME_SOLID = string_fragment::from_const("solid");
+    static constexpr auto NAME_DASHED = string_fragment::from_const("dashed");
+    static constexpr auto NAME_DOTTED = string_fragment::from_const("dotted");
     static const auto& vc = view_colors::singleton();
 
     text_attrs border_attrs;

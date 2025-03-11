@@ -38,7 +38,6 @@
 #include "base/time_util.hh"
 #include "config.h"
 #include "data_scanner.hh"
-#include "date/solar_hijri.h"
 #include "fmt/format.h"
 #include "lnav_config.hh"
 #include "log_format_fwd.hh"
@@ -46,7 +45,7 @@
 #include "shlex.hh"
 #include "view_curses.hh"
 
-const auto REVERSE_SEARCH_OFFSET = 2000_vl;
+constexpr auto REVERSE_SEARCH_OFFSET = 2000_vl;
 
 void
 text_filter::revert_to_last(logfile_filter_state& lfs, size_t rollback_size)
@@ -180,6 +179,8 @@ text_accel_source::get_time_offset_for_line(textview_curses& tc, vis_line_t vl)
     return humanize::time::duration::from_tv(diff_tv).to_string();
 }
 
+const bookmark_type_t textview_curses::BM_ERRORS("error");
+const bookmark_type_t textview_curses::BM_WARNINGS("warning");
 const bookmark_type_t textview_curses::BM_USER("user");
 const bookmark_type_t textview_curses::BM_USER_EXPR("user-expr");
 const bookmark_type_t textview_curses::BM_SEARCH("search");
@@ -214,15 +215,6 @@ textview_curses::reload_config(error_reporter& reporter)
         iter = this->tc_highlights.erase(iter);
     }
 
-    std::map<std::string, scoped_value_t> vars;
-    auto curr_theme_iter
-        = lnav_config.lc_ui_theme_defs.find(lnav_config.lc_ui_theme);
-    if (curr_theme_iter != lnav_config.lc_ui_theme_defs.end()) {
-        for (const auto& vpair : curr_theme_iter->second.lt_vars) {
-            vars[vpair.first] = vpair.second;
-        }
-    }
-
     for (const auto& theme_name : {DEFAULT_THEME_NAME, lnav_config.lc_ui_theme})
     {
         auto theme_iter = lnav_config.lc_ui_theme_defs.find(theme_name);
@@ -231,20 +223,21 @@ textview_curses::reload_config(error_reporter& reporter)
             continue;
         }
 
+        auto vars = &theme_iter->second.lt_vars;
         for (const auto& hl_pair : theme_iter->second.lt_highlights) {
             if (hl_pair.second.hc_regex.pp_value == nullptr) {
                 continue;
             }
 
             const auto& sc = hl_pair.second.hc_style;
-            std::string fg1, bg1, fg_color, bg_color, errmsg;
+            std::string fg_color, bg_color, errmsg;
             bool invalid = false;
             text_attrs attrs;
 
-            fg1 = sc.sc_color;
-            bg1 = sc.sc_background_color;
-            shlex(fg1).eval(fg_color, scoped_resolver{&vars});
-            shlex(bg1).eval(bg_color, scoped_resolver{&vars});
+            auto fg1 = sc.sc_color;
+            auto bg1 = sc.sc_background_color;
+            shlex(fg1).eval(fg_color, scoped_resolver{vars});
+            shlex(bg1).eval(bg_color, scoped_resolver{vars});
 
             attrs.ta_fg_color = vc.match_color(
                 styling::color_unit::from_str(fg_color).unwrapOrElse(
@@ -376,6 +369,16 @@ textview_curses::grep_end(grep_proc<vis_line_t>& gp)
 {
     this->tc_searching -= 1;
     this->grep_end_batch(gp);
+    if (this->tc_searching == 0 && this->tc_search_start_time) {
+        const auto now = std::chrono::steady_clock::now();
+        this->tc_search_duration
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - this->tc_search_start_time.value());
+        this->tc_search_start_time = std::nullopt;
+        if (this->tc_state_event_handler) {
+            this->tc_state_event_handler(*this);
+        }
+    }
 
     ensure(this->tc_searching >= 0);
 }
@@ -733,12 +736,52 @@ textview_curses::handle_mouse(mouse_event& me)
 }
 
 void
+textview_curses::apply_highlights(attr_line_t& al,
+                                  const line_range& body,
+                                  const line_range& orig_line)
+{
+    intern_string_t format_name;
+
+    auto format_attr_opt = get_string_attr(al.al_attrs, SA_FORMAT);
+    if (format_attr_opt.has_value()) {
+        format_name = format_attr_opt.value().get();
+    }
+
+    auto source_format = this->tc_sub_source->get_text_format();
+    for (const auto& tc_highlight : this->tc_highlights) {
+        bool internal_hl
+            = tc_highlight.first.first == highlight_source_t::INTERNAL
+            || tc_highlight.first.first == highlight_source_t::THEME;
+
+        if (!tc_highlight.second.applies_to_format(source_format)) {
+            continue;
+        }
+
+        if (!tc_highlight.second.h_format_name.empty()
+            && tc_highlight.second.h_format_name != format_name)
+        {
+            continue;
+        }
+
+        if (this->tc_disabled_highlights.count(tc_highlight.first.first)) {
+            continue;
+        }
+
+        // Internal highlights should only apply to the log message body so
+        // that we don't start highlighting other fields.  User-provided
+        // highlights should apply only to the line itself and not any of
+        // the surrounding decorations that are added (for example, the file
+        // lines that are inserted at the beginning of the log view).
+        int start_pos = internal_hl ? body.lr_start : orig_line.lr_start;
+        tc_highlight.second.annotate(al, start_pos);
+    }
+}
+
+void
 textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
 {
     auto& sa = value_out.get_attrs();
     auto& str = value_out.get_string();
-    auto source_format = this->tc_sub_source->get_text_format();
-    intern_string_t format_name;
 
     this->tc_sub_source->text_value_for_line(*this, row, str);
     this->tc_sub_source->text_attrs_for_line(*this, row, sa);
@@ -747,10 +790,10 @@ textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
         require_ge(attr.sa_range.lr_start, 0);
     }
 
-    struct line_range body, orig_line;
+    line_range body, orig_line;
 
     body = find_string_attr_range(sa, &SA_BODY);
-    if (body.lr_start == -1) {
+    if (!body.is_valid()) {
         body.lr_start = 0;
         body.lr_end = str.size();
     }
@@ -759,11 +802,6 @@ textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
     if (!orig_line.is_valid()) {
         orig_line.lr_start = 0;
         orig_line.lr_end = str.size();
-    }
-
-    auto format_attr_opt = get_string_attr(sa, SA_FORMAT);
-    if (format_attr_opt) {
-        format_name = format_attr_opt.value().get();
     }
 
     if (this->is_selectable() && this->tc_cursor_role
@@ -790,34 +828,8 @@ textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
         }
     }
 
-    for (auto& tc_highlight : this->tc_highlights) {
-        bool internal_hl
-            = tc_highlight.first.first == highlight_source_t::INTERNAL
-            || tc_highlight.first.first == highlight_source_t::THEME;
-
-        if (!tc_highlight.second.h_text_formats.empty()
-            && tc_highlight.second.h_text_formats.count(source_format) == 0)
-        {
-            continue;
-        }
-
-        if (!tc_highlight.second.h_format_name.empty()
-            && tc_highlight.second.h_format_name != format_name)
-        {
-            continue;
-        }
-
-        if (this->tc_disabled_highlights.count(tc_highlight.first.first)) {
-            continue;
-        }
-
-        // Internal highlights should only apply to the log message body so
-        // that we don't start highlighting other fields.  User-provided
-        // highlights should apply only to the line itself and not any of the
-        // surrounding decorations that are added (for example, the file lines
-        // that are inserted at the beginning of the log view).
-        int start_pos = internal_hl ? body.lr_start : orig_line.lr_start;
-        tc_highlight.second.annotate(value_out, start_pos);
+    if (!body.empty() || !orig_line.empty()) {
+        this->apply_highlights(value_out, body, orig_line);
     }
 
     if (this->tc_hide_fields) {
@@ -906,6 +918,8 @@ textview_curses::execute_search(const std::string& regex_orig)
             if (top > 0) {
                 gp->queue_request(0_vl, top);
             }
+            this->tc_search_start_time = std::chrono::steady_clock::now();
+            this->tc_search_duration = std::nullopt;
             gp->start();
 
             this->tc_search_child = std::make_shared<grep_highlighter>(
@@ -1012,13 +1026,11 @@ textview_curses::toggle_user_mark(const bookmark_type_t* bm,
     if (end_line >= this->get_inner_height()) {
         end_line = vis_line_t(this->get_inner_height() - 1);
     }
-    for (vis_line_t curr_line = start_line; curr_line <= end_line; ++curr_line)
-    {
-        bookmark_vector<vis_line_t>& bv = this->tc_bookmarks[bm];
-        bookmark_vector<vis_line_t>::iterator iter;
+    for (auto curr_line = start_line; curr_line <= end_line; ++curr_line) {
+        auto& bv = this->tc_bookmarks[bm];
         bool added;
 
-        iter = bv.insert_once(curr_line);
+        auto iter = bv.insert_once(curr_line);
         if (iter == bv.end()) {
             added = true;
         } else {

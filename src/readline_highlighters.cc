@@ -199,11 +199,10 @@ readline_command_highlighter_int(attr_line_t& al,
                     .then([&](const auto& rgb_fg) {
                         auto color
                             = view_colors::singleton().match_color(rgb_fg);
+                        auto ta = text_attrs::with_bold();
+                        ta.ta_fg_color = color;
                         alb.overlay_attr(to_line_range(md[0].value()),
-                                         VC_STYLE.value(text_attrs{
-                                             NCSTYLE_BOLD,
-                                             color,
-                                         }));
+                                         VC_STYLE.value(ta));
                     });
             });
     }
@@ -519,5 +518,26 @@ readline_lnav_highlighter(attr_line_t& al, std::optional<int> x)
                                           (int) section_start.value(),
                                           (int) al.al_string.length(),
                                       });
+    }
+}
+
+void
+highlight_syntax(text_format_t tf, attr_line_t& al)
+{
+     switch (tf) {
+        case text_format_t::TF_SQL: {
+            readline_sqlite_highlighter(al, std::nullopt);
+            break;
+        }
+         case text_format_t::TF_SHELL_SCRIPT: {
+            readline_shlex_highlighter(al, std::nullopt);
+            break;
+        }
+         case text_format_t::TF_LNAV_SCRIPT: {
+            readline_lnav_highlighter(al, std::nullopt);
+            break;
+        }
+        default:
+            break;
     }
 }

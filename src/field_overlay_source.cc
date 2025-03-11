@@ -145,7 +145,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
     time_str.append(curr_timestamp);
     time_lr.lr_end = time_str.length();
     time_line.with_attr(
-        string_attr(time_lr, VC_STYLE.value(text_attrs{NCSTYLE_BOLD})));
+        string_attr(time_lr, VC_STYLE.value(text_attrs::with_bold())));
     time_str.append(" \u2014 ");
     time_lr.lr_start = time_str.length();
     time_str.append(humanize::time::point::from_tv(ll->get_timeval())
@@ -153,10 +153,10 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
                         .as_precise_time_ago());
     time_lr.lr_end = time_str.length();
     time_line.with_attr(
-        string_attr(time_lr, VC_STYLE.value(text_attrs{NCSTYLE_BOLD})));
+        string_attr(time_lr, VC_STYLE.value(text_attrs::with_bold())));
 
-    struct line_range time_range = find_string_attr_range(
-        this->fos_log_helper.ldh_line_attrs, &logline::L_TIMESTAMP);
+    auto time_range = find_string_attr_range(
+        this->fos_log_helper.ldh_line_attrs, &L_TIMESTAMP);
 
     curr_tv = this->fos_log_helper.ldh_line->get_timeval();
     if (ll->is_time_skewed() && time_range.lr_end != -1) {
@@ -193,7 +193,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
                 humanize::time::duration::from_tv(diff_tv).to_string());
             time_lr.lr_end = time_str.length();
             time_line.with_attr(
-                string_attr(time_lr, VC_STYLE.value(text_attrs{NCSTYLE_BOLD})));
+                string_attr(time_lr, VC_STYLE.value(text_attrs::with_bold())));
         }
     }
 
@@ -325,7 +325,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
         auto* curr_elf = dynamic_cast<external_log_format*>(curr_format);
         const auto format_name = curr_format->get_name().to_string();
         attr_line_t al;
-        std::string value_str = lv.to_string();
+        auto value_str = lv.to_string();
 
         if (curr_format != last_format) {
             this->fos_lines.emplace_back(" Known message fields for table "
@@ -333,7 +333,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
             this->fos_lines.back().with_attr(
                 string_attr(line_range(32, 32 + format_name.length()),
                             VC_STYLE.value(vc.attrs_for_ident(format_name)
-                                           | text_attrs{NCSTYLE_BOLD})));
+                                           | text_attrs::style::bold)));
             last_format = curr_format;
         }
 
@@ -376,7 +376,8 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
             hl_range.lr_end = al.get_string().length();
             al.pad_to(prefix_len + this->fos_known_key_size);
 
-            this->fos_row_to_field_meta.emplace(this->fos_lines.size(), meta);
+            this->fos_row_to_field_meta.emplace(this->fos_lines.size(),
+                                                row_info{meta, value_str});
         } else {
             auto jget_str = lnav::sql::mprintf("jget(%s, '/%q')",
                                                meta.lvm_struct_name.get(),
@@ -384,6 +385,9 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
             hl_range.lr_start = al.get_string().length();
             al.append(jget_str.in());
             hl_range.lr_end = al.get_string().length();
+
+            this->fos_row_to_field_meta.emplace(
+                this->fos_lines.size(), row_info{std::nullopt, value_str});
         }
         readline_sqlite_highlighter_int(al, std::nullopt, hl_range);
 
@@ -424,6 +428,11 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
         readline_sqlite_highlighter(key_line, std::nullopt);
         auto key_size = key_line.length();
         key_line.append(" = ").append(scrub_ws(extra_pair.second));
+        this->fos_row_to_field_meta.emplace(this->fos_lines.size(),
+                                            row_info{
+                                                std::nullopt,
+                                                extra_pair.second,
+                                            });
         this->fos_lines.emplace_back(key_line);
         this->add_key_line_attrs(key_size - 3);
     }
@@ -439,6 +448,9 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
             readline_sqlite_highlighter(key_line, std::nullopt);
             auto key_size = key_line.length();
             key_line.append(" = ").append(scrub_ws(jpairs[lpc].wt_value));
+            this->fos_row_to_field_meta.emplace(
+                this->fos_lines.size(),
+                row_info{std::nullopt, jpairs[lpc].wt_value});
             this->fos_lines.emplace_back(key_line);
             this->add_key_line_attrs(key_size - 3);
         }
@@ -459,6 +471,8 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
         readline_sqlite_highlighter(key_line, std::nullopt);
         auto key_size = key_line.length();
         key_line.append(" = ").append(scrub_ws(xml_pair.second));
+        this->fos_row_to_field_meta.emplace(
+            this->fos_lines.size(), row_info{std::nullopt, xml_pair.second});
         this->fos_lines.emplace_back(key_line);
         this->add_key_line_attrs(key_size - 3);
     }
@@ -476,7 +490,7 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
         auto& disc_str = al.get_string();
 
         al.with_attr(string_attr(line_range(disc_str.length(), -1),
-                                 VC_STYLE.value(text_attrs{NCSTYLE_BOLD})));
+                                 VC_STYLE.value(text_attrs::with_bold())));
         disc_str.append(this->fos_log_helper.ldh_msg_format);
     }
 
@@ -493,6 +507,8 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
             string_attr(line_range(3, 3 + name.length()),
                         VC_STYLE.value(vc.attrs_for_ident(name.to_string()))));
 
+        this->fos_row_to_field_meta.emplace(this->fos_lines.size(),
+                                            row_info{std::nullopt, val});
         this->fos_lines.emplace_back(al);
         this->add_key_line_attrs(
             this->fos_unknown_key_size,
@@ -545,7 +561,20 @@ field_overlay_source::build_meta_line(const listview_curses& lv,
     const auto& line_meta = *(line_meta_opt.value());
     size_t filename_width = this->fos_lss.get_filename_offset();
 
-    if (!line_meta.bm_opid.empty()) {
+    auto file_and_line = this->fos_lss.find_line_with_file(row);
+    auto* format = file_and_line->first->get_format_ptr();
+    auto field_states = format->get_field_states();
+    auto show_opid = false;
+    auto field_iter = field_states.find(log_format::LOG_OPID_STR);
+    if (field_iter != field_states.end() && !field_iter->second.is_hidden()) {
+        show_opid = true;
+    }
+    if (row == tc->get_selection() && !this->fos_contexts.empty()
+        && this->fos_contexts.top().c_show)
+    {
+        show_opid = true;
+    }
+    if (show_opid && !line_meta.bm_opid.empty()) {
         auto al = attr_line_t()
                       .append(" Op ID: "_table_header)
                       .append(lnav::roles::identifier(line_meta.bm_opid))
@@ -687,7 +716,7 @@ field_overlay_source::add_key_line_attrs(int key_size, bool last_line)
 
     lr.lr_start = 3 + key_size + 3;
     lr.lr_end = -1;
-    sa.emplace_back(lr, VC_STYLE.value(text_attrs{NCSTYLE_BOLD}));
+    sa.emplace_back(lr, VC_STYLE.value(text_attrs::with_bold()));
 }
 
 void
@@ -728,6 +757,8 @@ field_overlay_source::list_header_for_overlay(const listview_curses& lv,
         retval.append("  ")
             .append("SPC"_hotkey)
             .append(": hide/show field  ")
+            .append("c"_hotkey)
+            .append(": copy field value  ")
             .append("Esc"_hotkey)
             .append(": exit this panel");
     } else {

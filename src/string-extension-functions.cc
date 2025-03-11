@@ -26,6 +26,7 @@
 #include "data_parser.hh"
 #include "data_scanner.hh"
 #include "elem_to_json.hh"
+#include "fmt/format.h"
 #include "formats/logfmt/logfmt.parser.hh"
 #include "hasher.hh"
 #include "libbase64.h"
@@ -56,7 +57,7 @@ enum class encode_algo {
 
 template<>
 struct from_sqlite<encode_algo> {
-    inline encode_algo operator()(int argc, sqlite3_value** val, int argi)
+    encode_algo operator()(int argc, sqlite3_value** val, int argi)
     {
         const char* algo_name = (const char*) sqlite3_value_text(val[argi]);
 
@@ -83,12 +84,12 @@ struct cache_entry {
         std::make_shared<column_namer>(column_namer::language::JSON)};
 };
 
-static cache_entry*
+cache_entry*
 find_re(string_fragment re)
 {
     using re_cache_t
         = std::unordered_map<string_fragment, cache_entry, frag_hasher>;
-    static thread_local re_cache_t cache;
+    thread_local re_cache_t cache;
 
     auto iter = cache.find(re);
     if (iter == cache.end()) {
@@ -300,7 +301,7 @@ spooky_hash(const std::vector<const char*>& args)
     }
     context.to_string(hash_str_buf);
 
-    return string_fragment::from_bytes(hash_str_buf, sizeof(hash_str_buf));
+    return string_fragment::from_bytes(hash_str_buf, sizeof(hash_str_buf) - 1);
 }
 
 void
@@ -321,7 +322,7 @@ sql_spooky_hash_step(sqlite3_context* context, int argc, sqlite3_value** argv)
     }
 }
 
-static void
+void
 sql_spooky_hash_final(sqlite3_context* context)
 {
     auto* hasher
@@ -346,7 +347,7 @@ struct sparkline_context {
     std::vector<double> sc_values;
 };
 
-static void
+void
 sparkline_step(sqlite3_context* context, int argc, sqlite3_value** argv)
 {
     auto* sc = (sparkline_context*) sqlite3_aggregate_context(
@@ -369,7 +370,7 @@ sparkline_step(sqlite3_context* context, int argc, sqlite3_value** argv)
     }
 }
 
-static void
+void
 sparkline_final(sqlite3_context* context)
 {
     auto* sc = (sparkline_context*) sqlite3_aggregate_context(
@@ -477,7 +478,7 @@ get_curl_easy()
 }
 #endif
 
-static mapbox::util::variant<text_auto_buffer, auto_mem<char>, null_value_t>
+mapbox::util::variant<text_auto_buffer, auto_mem<char>, null_value_t>
 sql_encode(sqlite3_value* value, encode_algo algo)
 {
     switch (sqlite3_value_type(value)) {
@@ -557,7 +558,7 @@ sql_encode(sqlite3_value* value, encode_algo algo)
     ensure(false);
 }
 
-static mapbox::util::variant<blob_auto_buffer, auto_mem<char>>
+mapbox::util::variant<blob_auto_buffer, auto_mem<char>>
 sql_decode(string_fragment str, encode_algo algo)
 {
     switch (algo) {
@@ -608,7 +609,7 @@ sql_humanize_file_size(file_ssize_t value)
     return humanize::file_size(value, humanize::alignment::columnar);
 }
 
-static std::string
+std::string
 sql_anonymize(string_fragment frag)
 {
     static safe::Safe<lnav::text_anonymizer> ta;
@@ -813,30 +814,37 @@ struct url_parts {
     std::optional<std::string> up_fragment;
 };
 
-static const json_path_container url_params_handlers = {
-    yajlpp::pattern_property_handler("(?<param>.*)")
-        .for_field(&url_parts::up_parameters),
-};
+const typed_json_path_container<url_parts>&
+get_url_parts_handlers()
+{
+    static const json_path_container url_params_handlers = {
+        yajlpp::pattern_property_handler("(?<param>.*)")
+            .for_field(&url_parts::up_parameters),
+    };
 
-static const typed_json_path_container<url_parts> url_parts_handlers = {
-    yajlpp::property_handler("scheme").for_field(&url_parts::up_scheme),
-    yajlpp::property_handler("username").for_field(&url_parts::up_username),
-    yajlpp::property_handler("password").for_field(&url_parts::up_password),
-    yajlpp::property_handler("host").for_field(&url_parts::up_host),
-    yajlpp::property_handler("port").for_field(&url_parts::up_port),
-    yajlpp::property_handler("path").for_field(&url_parts::up_path),
-    yajlpp::property_handler("query").for_field(&url_parts::up_query),
-    yajlpp::property_handler("parameters").with_children(url_params_handlers),
-    yajlpp::property_handler("fragment").for_field(&url_parts::up_fragment),
-};
+    static const typed_json_path_container<url_parts> retval = {
+        yajlpp::property_handler("scheme").for_field(&url_parts::up_scheme),
+        yajlpp::property_handler("username").for_field(&url_parts::up_username),
+        yajlpp::property_handler("password").for_field(&url_parts::up_password),
+        yajlpp::property_handler("host").for_field(&url_parts::up_host),
+        yajlpp::property_handler("port").for_field(&url_parts::up_port),
+        yajlpp::property_handler("path").for_field(&url_parts::up_path),
+        yajlpp::property_handler("query").for_field(&url_parts::up_query),
+        yajlpp::property_handler("parameters")
+            .with_children(url_params_handlers),
+        yajlpp::property_handler("fragment").for_field(&url_parts::up_fragment),
+    };
 
-static auto_mem<char>
+    return retval;
+}
+
+auto_mem<char>
 sql_unparse_url(string_fragment in)
 {
     static auto* CURL_HANDLE = get_curl_easy();
     static intern_string_t SRC = intern_string::lookup("arg");
 
-    auto parse_res = url_parts_handlers.parser_for(SRC).of(in);
+    auto parse_res = get_url_parts_handlers().parser_for(SRC).of(in);
     if (parse_res.isErr()) {
         throw parse_res.unwrapErr()[0];
     }

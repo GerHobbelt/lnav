@@ -5,8 +5,10 @@
 #include <sys/utsname.h>
 #include <sys/sysinfo.h>
 #elif !defined(__MINGW32__)
+#if 0
 #include <sys/sysctl.h>
 #include <sys/utsname.h>
+#endif
 #endif
 #else
 #include <winsock2.h>
@@ -79,6 +81,7 @@ char* notcurses_hostname(void){
   return NULL;
 }
 
+#if 0
 char* notcurses_osversion(void){
 #ifdef __MINGW32__
   // FIXME get version
@@ -111,3 +114,4 @@ char* notcurses_osversion(void){
 #undef PREFIX
 #endif
 }
+#endif

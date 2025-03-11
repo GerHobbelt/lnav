@@ -32,10 +32,13 @@
 #ifndef highlighter_hh
 #define highlighter_hh
 
+#include <memory>
 #include <set>
-#include <utility>
+#include <string>
 
 #include "base/attr_line.hh"
+#include "base/intern_string.hh"
+#include "base/string_attr_type.hh"
 #include "pcrepp/pcre2pp_fwd.hh"
 #include "styling.hh"
 #include "text_format.hh"
@@ -47,10 +50,6 @@ struct highlighter {
         : h_regex(regex)
     {
     }
-
-    highlighter(const highlighter& other) = default;
-
-    highlighter& operator=(const highlighter& other);
 
     virtual ~highlighter() = default;
 
@@ -99,6 +98,12 @@ struct highlighter {
     void annotate(attr_line_t& al, int start) const;
 
     void annotate_capture(attr_line_t& al, const line_range& lr) const;
+
+    bool applies_to_format(text_format_t tf) const
+    {
+        return this->h_text_formats.empty()
+            || this->h_text_formats.count(tf) > 0;
+    }
 
     std::string h_name;
     role_t h_role{role_t::VCR_NONE};

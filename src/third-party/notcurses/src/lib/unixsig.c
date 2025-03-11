@@ -4,7 +4,7 @@
 #include "internal.h"
 
 // primarily drive ownership off an atomic, safely used within a signal handler
-static void* _Atomic signal_nc = ATOMIC_VAR_INIT(NULL);
+static void* _Atomic signal_nc = NULL;
 
 #ifdef __MINGW32__
 int block_signals(sigset_t* old_blocked_signals){
@@ -201,7 +201,7 @@ int setup_signals(void* vnc, bool no_quit_sigs, bool no_winch_sigs,
     }
     // we're not going to be restoring the old mask at exit, as who knows,
     // they might have masked more things afterwards.
-    pthread_sigmask(SIG_BLOCK, &sa.sa_mask, NULL);
+    // pthread_sigmask(SIG_BLOCK, &sa.sa_mask, NULL);
     handling_winch = true;
   }
   if(!no_quit_sigs){

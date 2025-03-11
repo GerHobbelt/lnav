@@ -1,4 +1,4 @@
-AC_INIT([lnav],[0.12.3],[lnav@googlegroups.com],[lnav],[http://lnav.org])
+AC_INIT([lnav],[0.12.4],[lnav@googlegroups.com],[lnav],[http://lnav.org])
 AC_CONFIG_SRCDIR([src/lnav.cc])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
@@ -339,5 +339,6 @@ AC_CONFIG_FILES([src/third-party/date/src/Makefile])
 AC_CONFIG_FILES([src/third-party/notcurses/src/lib/Makefile])
 AC_CONFIG_FILES([src/third-party/scnlib/src/Makefile])
 AC_CONFIG_FILES([test/Makefile])
+AC_CONFIG_FILES([test/expected/Makefile])
 
 AC_OUTPUT

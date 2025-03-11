@@ -36,7 +36,9 @@
 
 #include "base/color_spaces.hh"
 #include "base/intern_string.hh"
+#include "base/lnav.resolver.hh"
 #include "base/log_level_enum.hh"
+#include "base/string_util.hh"
 #include "yajlpp/yajlpp.hh"
 #include "yajlpp/yajlpp_def.hh"
 
@@ -57,15 +59,19 @@ struct term_color_palette {
 };
 
 struct style_config {
+    std::optional<text_align_t> sc_text_align;
     std::string sc_color;
     std::string sc_background_color;
     bool sc_underline{false};
     bool sc_bold{false};
+    bool sc_italic{false};
+    bool sc_strike{false};
 
     bool empty() const
     {
         return this->sc_color.empty() && this->sc_background_color.empty()
-            && !this->sc_underline && !this->sc_bold;
+            && !this->sc_underline && !this->sc_bold && !this->sc_italic
+            && !this->sc_strike;
     }
 };
 
@@ -79,8 +85,12 @@ struct icon_config {
 };
 
 struct lnav_theme {
-    std::map<std::string, std::string> lt_vars;
+    std::map<std::string, scoped_value_t> lt_vars;
     positioned_property<icon_config> lt_icon_hidden;
+    positioned_property<icon_config> lt_icon_ok;
+    positioned_property<icon_config> lt_icon_info;
+    positioned_property<icon_config> lt_icon_warning;
+    positioned_property<icon_config> lt_icon_error;
     positioned_property<style_config> lt_style_identifier;
     positioned_property<style_config> lt_style_text;
     positioned_property<style_config> lt_style_alt_text;
@@ -158,5 +168,7 @@ struct lnav_theme {
 
 extern term_color_palette* xterm_colors();
 extern term_color_palette* ansi_colors();
+
+extern const json_path_container style_config_handlers;
 
 #endif

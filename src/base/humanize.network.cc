@@ -33,9 +33,7 @@
 #include "itertools.hh"
 #include "pcrepp/pcre2pp.hh"
 
-namespace humanize {
-namespace network {
-namespace path {
+namespace humanize::network::path {
 
 std::optional<::network::path>
 from_str(string_fragment sf)
@@ -44,8 +42,7 @@ from_str(string_fragment sf)
         "^(?:(?<username>[\\w\\._\\-]+)@)?"
         "(?:\\[(?<ipv6>[^\\]]+)\\]|(?<hostname>[^\\[/:]+)):"
         "(?<path>.*)$");
-    static thread_local auto REMOTE_MATCH_DATA
-        = REMOTE_PATTERN.create_match_data();
+    thread_local auto REMOTE_MATCH_DATA = REMOTE_PATTERN.create_match_data();
 
     auto match_res = REMOTE_PATTERN.capture_from(sf)
                          .into(REMOTE_MATCH_DATA)
@@ -72,6 +69,4 @@ from_str(string_fragment sf)
     };
 }
 
-}  // namespace path
-}  // namespace network
-}  // namespace humanize
+}  // namespace humanize::network::path

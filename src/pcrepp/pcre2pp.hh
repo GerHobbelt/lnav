@@ -311,7 +311,7 @@ public:
     matcher::matches_result find_in(string_fragment in,
                                     uint32_t options = 0) const
     {
-        static thread_local match_data md = this->create_match_data();
+        thread_local match_data md = this->create_match_data();
 
         if (md.md_ovector_count < this->p_match_proto.md_ovector_count) {
             md = this->create_match_data();
@@ -360,7 +360,11 @@ template<uint32_t Options, typename F>
 Result<string_fragment, matcher::error>
 capture_builder::for_each(F func) &&
 {
-    auto md = this->mb_code.create_match_data();
+    thread_local auto md = match_data::unitialized();
+
+    if (md.get_capacity() < this->mb_code.get_match_data_capacity()) {
+        md = this->mb_code.create_match_data();
+    }
     auto mat = matcher{this->mb_code, this->mb_input, md};
 
     bool done = false;

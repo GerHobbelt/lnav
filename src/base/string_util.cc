@@ -37,6 +37,7 @@
 #include "config.h"
 #include "is_utf8.hh"
 #include "lnav_log.hh"
+#include "scn/scan.h"
 
 void
 scrub_to_utf8(char* buffer, size_t length)
@@ -190,6 +191,23 @@ truncate_to(std::string& str, size_t max_char_len)
     str.insert(bytes_to_keep_at_front, ELLIPSIS);
 }
 
+ssize_t
+utf8_char_to_byte_index(const std::string& str, ssize_t ch_index)
+{
+    ssize_t retval = 0;
+
+    while (ch_index > 0) {
+        auto ch_len
+            = ww898::utf::utf8::char_size([&str, retval]() {
+                  return std::make_pair(str[retval], str.length() - retval - 1);
+              }).unwrapOr(1);
+
+        retval += ch_len;
+        ch_index -= 1;
+    }
+
+    return retval;
+}
 bool
 is_url(const std::string& fn)
 {
@@ -309,6 +327,10 @@ scrub_ws(const char* in, ssize_t len)
 
     std::string retval;
 
+    if (len > 0) {
+        retval.reserve(len);
+    }
+
     for (size_t lpc = 0; (len == -1 && in[lpc]) || (len >= 0 && lpc < len);
          lpc++)
     {
@@ -325,7 +347,7 @@ scrub_ws(const char* in, ssize_t len)
                 retval.append(CR_SYMBOL);
                 break;
             default:
-                retval.append(1, ch);
+                retval.push_back(ch);
                 break;
         }
     }
@@ -379,8 +401,7 @@ formatter<lnav::tainted_string>::format(const lnav::tainted_string& ts,
 }
 }  // namespace fmt
 
-namespace lnav {
-namespace pcre2pp {
+namespace lnav::pcre2pp {
 
 static bool
 is_meta(char ch)
@@ -450,5 +471,4 @@ quote(string_fragment str)
     return retval;
 }
 
-}  // namespace pcre2pp
-}  // namespace lnav
+}  // namespace lnav::pcre2pp

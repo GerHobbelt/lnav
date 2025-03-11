@@ -47,6 +47,7 @@
 #include "base/injector.hh"
 #include "base/snippet_highlighters.hh"
 #include "base/string_util.hh"
+#include "base/time_util.hh"
 #include "config.h"
 #include "file_options.hh"
 #include "hasher.hh"
@@ -61,16 +62,21 @@ using namespace lnav::roles::literals;
 
 static auto intern_lifetime = intern_string::get_table_lifetime();
 
-static const size_t INDEX_RESERVE_INCREMENT = 1024;
+static constexpr size_t INDEX_RESERVE_INCREMENT = 1024;
 
-static const typed_json_path_container<lnav::gzip::header> file_header_handlers
-    = {
+static const typed_json_path_container<lnav::gzip::header>&
+get_file_header_handlers()
+{
+    static const typed_json_path_container<lnav::gzip::header> retval = {
         yajlpp::property_handler("name").for_field(&lnav::gzip::header::h_name),
         yajlpp::property_handler("mtime").for_field(
             &lnav::gzip::header::h_mtime),
         yajlpp::property_handler("comment").for_field(
             &lnav::gzip::header::h_comment),
-};
+    };
+
+    return retval;
+}
 
 Result<std::shared_ptr<logfile>, std::string>
 logfile::open(std::filesystem::path filename,
@@ -153,7 +159,8 @@ logfile::open(std::filesystem::path filename,
                 if (!gzhdr.empty()) {
                     lf->lf_embedded_metadata["net.zlib.gzip.header"] = {
                         text_format_t::TF_JSON,
-                        file_header_handlers.formatter_for(gzhdr)
+                        get_file_header_handlers()
+                            .formatter_for(gzhdr)
                             .with_config(yajl_gen_beautify, 1)
                             .to_string(),
                     };
@@ -295,8 +302,8 @@ logfile::exists() const
         && this->lf_stat.st_size <= st.st_size;
 }
 
-void
-logfile::reset_state()
+auto
+logfile::reset_state() -> void
 {
     this->clear_time_offset();
     this->lf_indexing = this->lf_options.loo_is_visible;
@@ -622,8 +629,11 @@ logfile::process_prefix(shared_buffer_ref& sbr,
             last_line.set_has_ansi(last_line.has_ansi()
                                    || li.li_utf8_scan_result.usr_has_ansi);
             if (last_line.get_msg_level() == LEVEL_INVALID) {
-                if (this->lf_invalid_lines.ili_lines.size() < invalid_line_info::MAX_INVALID_LINES) {
-                    this->lf_invalid_lines.ili_lines.push_back(this->lf_index.size() - 1);
+                if (this->lf_invalid_lines.ili_lines.size()
+                    < invalid_line_info::MAX_INVALID_LINES)
+                {
+                    this->lf_invalid_lines.ili_lines.push_back(
+                        this->lf_index.size() - 1);
                 }
                 this->lf_invalid_lines.ili_total += 1;
             }
@@ -990,6 +1000,17 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
                           .unwrapOr(text_format_t::TF_UNKNOWN);
                 log_debug("setting text format to %s",
                           fmt::to_string(this->lf_text_format).c_str());
+                switch (this->lf_text_format) {
+                    case text_format_t::TF_DIFF:
+                    case text_format_t::TF_MAN:
+                    case text_format_t::TF_MARKDOWN:
+                        log_debug(
+                            "  file is text, disabling log format detection");
+                        this->lf_options.loo_detect_format = false;
+                        break;
+                    default:
+                        break;
+                }
             }
             if (!li.li_utf8_scan_result.is_valid()
                 && this->lf_text_format != text_format_t::TF_MARKDOWN
@@ -1489,7 +1510,11 @@ logfile::mark_as_duplicate(const std::string& name)
 void
 logfile::adjust_content_time(int line, const timeval& tv, bool abs_offset)
 {
-    struct timeval old_time = this->lf_time_offset;
+    if (this->lf_time_offset == tv) {
+        return;
+    }
+
+    auto old_time = this->lf_time_offset;
 
     this->lf_time_offset_line = line;
     if (abs_offset) {
@@ -1498,7 +1523,7 @@ logfile::adjust_content_time(int line, const timeval& tv, bool abs_offset)
         timeradd(&old_time, &tv, &this->lf_time_offset);
     }
     for (auto& iter : *this) {
-        struct timeval curr, diff, new_time;
+        timeval curr, diff, new_time;
 
         curr = iter.get_timeval();
         timersub(&curr, &old_time, &diff);
@@ -1506,6 +1531,7 @@ logfile::adjust_content_time(int line, const timeval& tv, bool abs_offset)
         iter.set_time(new_time);
     }
     this->lf_sort_needed = true;
+    this->lf_index_generation += 1;
 }
 
 void

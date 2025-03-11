@@ -43,6 +43,7 @@
 #include "base/attr_line.hh"
 #include "base/from_trait.hh"
 #include "base/injector.hh"
+#include "base/itertools.enumerate.hh"
 #include "base/itertools.hh"
 #include "base/lnav_log.hh"
 #include "config.h"
@@ -120,6 +121,14 @@ struct utf_to_display_adjustment {
     {
     }
 };
+
+bool
+mouse_event::is_click(mouse_button_t button) const
+{
+    return this->me_button == button
+        && this->me_state == mouse_button_state_t::BUTTON_STATE_RELEASED
+        && this->me_press_x == this->me_x && this->me_press_y == this->me_y;
+}
 
 bool
 mouse_event::is_click_in(mouse_button_t button, int x_start, int x_end) const
@@ -228,7 +237,6 @@ view_curses::mvwattrline(ncplane* window,
     auto& sa = al.get_attrs();
     const auto& line = al.get_string();
     std::vector<utf_to_display_adjustment> utf_adjustments;
-    std::string full_line;
 
     require(lr_chars.lr_end >= 0);
 
@@ -357,24 +365,15 @@ view_curses::mvwattrline(ncplane* window,
         retval.mr_chars_out = char_index;
     }
     retval.mr_bytes_remaining = expanded_line.size() - lr_bytes.lr_end;
-
-    full_line = expanded_line;
-    if (line_width_chars > retval.mr_chars_out) {
-        for (size_t fill_index = 0;
-             fill_index < (line_width_chars - retval.mr_chars_out);
-             fill_index++)
-        {
-            full_line.push_back(' ');
-        }
-    }
+    expanded_line.resize(lr_bytes.lr_end);
 
     auto& vc = view_colors::singleton();
     auto base_attrs = vc.attrs_for_role(base_role);
     if (lr_chars.length() > 0) {
         ncplane_erase_region(window, y, x, 1, lr_chars.length());
-        if (lr_bytes.lr_start < (int) full_line.size()) {
+        if (lr_bytes.lr_start < (int) expanded_line.size()) {
             ncplane_putstr_yx(
-                window, y, x, &full_line.c_str()[lr_bytes.lr_start]);
+                window, y, x, &expanded_line.c_str()[lr_bytes.lr_start]);
         }
     }
 
@@ -450,7 +449,6 @@ view_curses::mvwattrline(ncplane* window,
         if (attr_range.lr_start < attr_range.lr_end) {
             auto attrs = text_attrs{};
             std::optional<const char*> graphic;
-            std::optional<wchar_t> block_elem;
 
             if (iter->sa_type == &VC_GRAPHIC) {
                 graphic = iter->sa_value.get<const char*>();
@@ -462,13 +460,13 @@ view_curses::mvwattrline(ncplane* window,
                 }
             } else if (iter->sa_type == &VC_BLOCK_ELEM) {
                 auto be = iter->sa_value.get<block_elem_t>();
-                block_elem = be.value;
+                ncplane_putwc_yx(window, y, x + attr_range.lr_start, be.value);
                 attrs = vc.attrs_for_role(be.role);
             } else if (iter->sa_type == &VC_ICON) {
                 auto ic = iter->sa_value.get<ui_icon_t>();
                 auto be = vc.wchar_for_icon(ic);
 
-                block_elem = be.value;
+                ncplane_putwc_yx(window, y, x + attr_range.lr_start, be.value);
                 attrs = vc.attrs_for_role(be.role);
             } else if (iter->sa_type == &VC_STYLE) {
                 attrs = iter->sa_value.get<text_attrs>();
@@ -490,7 +488,7 @@ view_curses::mvwattrline(ncplane* window,
                 attrs.ta_fg_color = role_attrs.ta_fg_color;
             }
 
-            if (graphic || block_elem || !attrs.empty()) {
+            if (graphic || !attrs.empty()) {
                 if (attrs.ta_fg_color.cu_value.is<styling::semantic>()) {
                     attrs.ta_fg_color
                         = vc.color_for_ident(al.to_string_fragment(iter));
@@ -746,12 +744,14 @@ view_colors::init(notcurses* nc)
 {
     vc_active_palette = ansi_colors();
     if (nc != nullptr) {
-        vc_active_palette = xterm_colors();
         const auto* caps = notcurses_capabilities(nc);
         if (caps->rgb) {
             log_info("terminal supports RGB colors");
         } else {
             log_info("terminal supports %d colors", caps->colors);
+        }
+        if (caps->colors > 8) {
+            vc_active_palette = xterm_colors();
         }
     }
 
@@ -801,7 +801,7 @@ view_colors::to_attrs(const lnav_theme& lt,
                       lnav_config_listener::error_reporter& reporter)
 {
     const auto& sc = pp_sc.pp_value;
-    std::string fg1, bg1, fg_color, bg_color;
+    std::string fg_color, bg_color;
     intern_string_t role_class;
 
     if (pp_sc.pp_path.empty()) {
@@ -809,23 +809,21 @@ view_colors::to_attrs(const lnav_theme& lt,
         // too slow to do this now
         reporter(&sc.sc_color, lnav::console::user_message::warning(""));
 #endif
-    } else {
-        auto role_class_path = std::filesystem::path(pp_sc.pp_path.to_string());
-        auto inner = role_class_path.filename().string();
-        auto outer = role_class_path.parent_path().filename().string();
+    } else if (!pp_sc.pp_path.empty()) {
+        auto role_class_path = pp_sc.pp_path.to_string_fragment();
+        auto inner
+            = role_class_path.rsplit_pair(string_fragment::tag1{'/'}).value();
+        auto outer
+            = inner.first.rsplit_pair(string_fragment::tag1{'/'}).value();
 
         role_class = intern_string::lookup(
-            fmt::format(FMT_STRING("-lnav_{}_{}"), outer, inner));
+            fmt::format(FMT_STRING("-lnav_{}_{}"), outer.second, inner.second));
     }
 
-    fg1 = sc.sc_color;
-    bg1 = sc.sc_background_color;
-    std::map<std::string, scoped_value_t> vars;
-    for (const auto& vpair : lt.lt_vars) {
-        vars[vpair.first] = vpair.second;
-    }
-    shlex(fg1).eval(fg_color, scoped_resolver{&vars});
-    shlex(bg1).eval(bg_color, scoped_resolver{&vars});
+    auto fg1 = sc.sc_color;
+    auto bg1 = sc.sc_background_color;
+    shlex(fg1).eval(fg_color, scoped_resolver{&lt.lt_vars});
+    shlex(bg1).eval(bg_color, scoped_resolver{&lt.lt_vars});
 
     auto fg = styling::color_unit::from_str(fg_color).unwrapOrElse(
         [&](const auto& msg) {
@@ -860,6 +858,14 @@ view_colors::to_attrs(const lnav_theme& lt,
         retval1 |= text_attrs::style::bold;
         retval2 |= text_attrs::style::bold;
     }
+    if (sc.sc_italic) {
+        retval1 |= text_attrs::style::italic;
+        retval2 |= text_attrs::style::italic;
+    }
+    if (sc.sc_strike) {
+        retval1 |= text_attrs::style::struck;
+        retval2 |= text_attrs::style::struck;
+    }
 
     return {retval1, retval2, role_class};
 }
@@ -869,24 +875,50 @@ view_colors::init_roles(const lnav_theme& lt,
                         lnav_config_listener::error_reporter& reporter)
 {
     const auto& default_theme = lnav_config.lc_ui_theme_defs["default"];
-    rgb_color fg, bg;
     std::string err;
 
+    size_t icon_index = 0;
+    for (const auto& ic : {
+             lt.lt_icon_hidden,
+             lt.lt_icon_ok,
+             lt.lt_icon_info,
+             lt.lt_icon_warning,
+             lt.lt_icon_error,
+         })
     {
         size_t index = 0;
-        if (lt.lt_icon_hidden.pp_value.ic_value) {
-            auto read_res = ww898::utf::utf8::read([&lt, &index]() {
-                return lt.lt_icon_hidden.pp_value.ic_value.value()[index++];
+        if (ic.pp_value.ic_value) {
+            auto read_res = ww898::utf::utf8::read([&ic, &index]() {
+                return ic.pp_value.ic_value.value()[index++];
             });
             if (read_res.isErr()) {
-                reporter(&lt.lt_icon_hidden,
-                         lnav::console::user_message::error("bad"));
+                reporter(&ic,
+                         lnav::console::user_message::error(
+                             "icon is not valid UTF-8"));
             } else if (read_res.unwrap() != 0) {
-                this->vc_icons[lnav::enums::to_underlying(ui_icon_t::hidden)]
-                    = block_elem_t{(wchar_t) read_res.unwrap(),
-                                   role_t::VCR_HIDDEN};
+                role_t icon_role;
+                switch (static_cast<ui_icon_t>(icon_index)) {
+                    case ui_icon_t::hidden:
+                        icon_role = role_t::VCR_HIDDEN;
+                        break;
+                    case ui_icon_t::ok:
+                        icon_role = role_t::VCR_OK;
+                        break;
+                    case ui_icon_t::info:
+                        icon_role = role_t::VCR_INFO;
+                        break;
+                    case ui_icon_t::warning:
+                        icon_role = role_t::VCR_WARNING;
+                        break;
+                    case ui_icon_t::error:
+                        icon_role = role_t::VCR_ERROR;
+                        break;
+                }
+                this->vc_icons[icon_index]
+                    = block_elem_t{(wchar_t) read_res.unwrap(), icon_role};
             }
         }
+        icon_index += 1;
     }
 
     /* Setup the mappings from roles to actual colors. */
@@ -895,7 +927,9 @@ view_colors::init_roles(const lnav_theme& lt,
 
     for (int ansi_fg = 1; ansi_fg < 8; ansi_fg++) {
         auto fg_iter = lt.lt_vars.find(COLOR_NAMES[ansi_fg]);
-        auto fg_str = fg_iter == lt.lt_vars.end() ? "" : fg_iter->second;
+        auto fg_str = fg_iter == lt.lt_vars.end()
+            ? ""
+            : fmt::to_string(fg_iter->second);
 
         auto rgb_fg = from<rgb_color>(string_fragment::from_str(fg_str))
                           .unwrapOrElse([&](const auto& msg) {
@@ -979,10 +1013,10 @@ view_colors::init_roles(const lnav_theme& lt,
         this->get_role_attrs(role_t::VCR_ACTIVE_STATUS).ra_normal,
         this->get_role_attrs(role_t::VCR_ACTIVE_STATUS).ra_reverse,
     };
-    this->get_role_attrs(role_t::VCR_ACTIVE_STATUS2).ra_normal.ta_attrs
-        |= NCSTYLE_BOLD;
-    this->get_role_attrs(role_t::VCR_ACTIVE_STATUS2).ra_reverse.ta_attrs
-        |= NCSTYLE_BOLD;
+    this->get_role_attrs(role_t::VCR_ACTIVE_STATUS2).ra_normal
+        |= text_attrs::style::bold;
+    this->get_role_attrs(role_t::VCR_ACTIVE_STATUS2).ra_reverse
+        |= text_attrs::style::bold;
     this->get_role_attrs(role_t::VCR_STATUS_TITLE)
         = this->to_attrs(lt, lt.lt_style_status_title, reporter);
     this->get_role_attrs(role_t::VCR_STATUS_SUBTITLE)

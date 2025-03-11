@@ -15,6 +15,7 @@ Contents:
    hotkeys
    cli
    usage
+   scripts
    cookbook
    config
    formats
@@ -24,6 +25,7 @@ Contents:
    sqltab
    events
    data
+   performance
    howitworks
    faq
 

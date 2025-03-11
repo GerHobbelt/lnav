@@ -310,7 +310,7 @@ textfile_sub_source::text_attrs_for_line(textview_curses& tc,
         }
     }
 
-    value_out.emplace_back(lr, logline::L_FILE.value(this->current_file()));
+    value_out.emplace_back(lr, L_FILE.value(this->current_file()));
 }
 
 size_t
@@ -856,10 +856,9 @@ textfile_sub_source::rescan_files(textfile_sub_source::scan_callback& callback,
                                 = metadata_state{
                                     st.st_mtime,
                                     lf->get_index_size(),
-                                    lnav::document::discover_structure(
-                                        content,
-                                        line_range{0, -1},
-                                        lf->get_text_format()),
+                                    lnav::document::discover(content)
+                                        .with_text_format(lf->get_text_format())
+                                        .perform(),
                                 };
                         }
                     } else {
@@ -1537,9 +1536,7 @@ textfile_header_overlay::list_static_overlay(const listview_curses& lv,
         && this->tho_src->get_effective_view_mode()
             == textfile_sub_source::view_mode::rendered)
     {
-        text_attrs ta;
-
-        ta.ta_attrs |= NCSTYLE_UNDERLINE;
+        auto ta = text_attrs::with_underline();
         value_out.append("\u24d8"_info)
             .append(" The following is a rendered view of the content.  Use ")
             .append(lnav::roles::quoted_code(":set-text-view-mode raw"))
@@ -1573,6 +1570,6 @@ textfile_header_overlay::list_static_overlay(const listview_curses& lv,
             alb.appendf(FMT_STRING("  {:^17}"), "ASCII");
         }
     }
-    value_out.with_attr_for_all(VC_STYLE.value(text_attrs{NCSTYLE_UNDERLINE}));
+    value_out.with_attr_for_all(VC_STYLE.value(text_attrs::with_underline()));
     return true;
 }

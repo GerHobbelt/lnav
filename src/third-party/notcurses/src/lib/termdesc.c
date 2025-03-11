@@ -917,6 +917,13 @@ apply_konsole_heuristics(tinfo* ti){
 }
 
 static const char*
+apply_ghostty_heuristics(tinfo* ti){
+  ti->caps.quadrants = true;
+  ti->caps.sextants = true;
+  return "ghostty";
+}
+
+static const char*
 apply_linux_heuristics(tinfo* ti, unsigned nonewfonts){
   const char* tname = NULL;
 #ifdef __linux__
@@ -966,6 +973,7 @@ apply_term_heuristics(tinfo* ti, const char* tname, queried_terminals_e qterm,
     // setupterm interprets a missing/empty TERM variable as the special value “unknown”.
     tname = ti->termname ? ti->termname : "unknown";
   }
+  loginfo("tname is %s (qterm %d)", tname, qterm);
   // st had neither caps.sextants nor caps.quadrants last i checked (0.8.4)
   ti->caps.braille = true; // most everyone has working caps.braille, even from fonts
   ti->caps.halfblocks = true; // most everyone has working halfblocks
@@ -1029,7 +1037,11 @@ apply_term_heuristics(tinfo* ti, const char* tname, queried_terminals_e qterm,
     case TERMINAL_KONSOLE:
       newname = apply_konsole_heuristics(ti);
       break;
+    case TERMINAL_GHOSTTY:
+      newname = apply_ghostty_heuristics(ti);
+      break;
     default:
+      logwarn("no match for qterm %d tname %s", qterm, tname);
       newname = tname;
       break;
   }
@@ -1356,6 +1368,17 @@ int interrogate_terminfo(tinfo* ti, FILE* out, unsigned utf8,
       free(ti->tpreserved);
       return -1;
     }
+
+#ifndef __MINGW32__
+      // windows doesn't really have a concept of terminfo. you might ssh into other
+      // machines, but they'll use the terminfo installed thereon (putty, etc.).
+      int termerr;
+      if(setupterm(termtype, ti->ttyfd, &termerr)){
+          logpanic("terminfo error %d for [%s] (see terminfo(3ncurses))",
+                   termerr, termtype ? termtype : "");
+          goto err;
+      }
+#endif
     // if we already know our terminal (e.g. on the linux console), there's no
     // need to send the identification queries. the controls are sufficient.
     bool minimal = (ti->qterm != TERMINAL_UNKNOWN);
@@ -1364,15 +1387,7 @@ int interrogate_terminfo(tinfo* ti, FILE* out, unsigned utf8,
     }
   }
 #ifndef __MINGW32__
-  // windows doesn't really have a concept of terminfo. you might ssh into other
-  // machines, but they'll use the terminfo installed thereon (putty, etc.).
-  int termerr;
-  if(setupterm(termtype, ti->ttyfd, &termerr)){
-    logpanic("terminfo error %d for [%s] (see terminfo(3ncurses))",
-             termerr, termtype ? termtype : "");
-    goto err;
-  }
-  tname = termname(); // longname() is also available
+      tname = termname(); // longname() is also available
 #endif
   int linesigs_enabled = 1;
   if(ti->tpreserved){
@@ -1460,6 +1475,16 @@ int interrogate_terminfo(tinfo* ti, FILE* out, unsigned utf8,
             goto err;
         }
     }
+    if(get_escape(ti, ESCAPE_BE) == NULL){
+        if(grow_esc_table(ti, "\e[?2004h", ESCAPE_BE, &tablelen, &tableused)){
+            goto err;
+        }
+    }
+    if(get_escape(ti, ESCAPE_BD) == NULL){
+        if(grow_esc_table(ti, "\e[?2004l", ESCAPE_BD, &tablelen, &tableused)){
+            goto err;
+        }
+    }
     // if op is defined as ansi 39 + ansi 49, make the split definitions
   // available. this ought be asserted by extension capability "ax", but
   // no terminal i've found seems to do so. =[
@@ -1471,7 +1496,6 @@ int interrogate_terminfo(tinfo* ti, FILE* out, unsigned utf8,
     }
   }
   unsigned kitty_graphics = 0;
-    loginfo("ttyfd %d", ti->ttyfd);
   if(ti->ttyfd >= 0){
     if(handle_responses(ti, &tablelen, &tableused, cursor_y, cursor_x,
                         draininput, &kitty_graphics)){

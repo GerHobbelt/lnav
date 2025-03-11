@@ -32,8 +32,8 @@
 #ifndef lnav_auto_mem_hh
 #define lnav_auto_mem_hh
 
-#include <exception>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -108,6 +108,7 @@ public:
         return *this;
     }
 
+    auto_mem& operator=(const auto_mem&) = delete;
     auto_mem& operator=(auto_mem&) = delete;
 
     auto_mem& operator=(auto_mem&& am) noexcept
@@ -241,6 +242,11 @@ public:
         std::swap(this->ab_capacity, other.ab_capacity);
     }
 
+    unsigned char* u_in()
+    {
+        return reinterpret_cast<unsigned char*>(this->ab_buffer);
+    }
+
     char* in() { return this->ab_buffer; }
 
     char* at(size_t offset) { return &this->ab_buffer[offset]; }
@@ -321,6 +327,15 @@ public:
         this->ab_buffer = nullptr;
         this->ab_size = 0;
         this->ab_capacity = 0;
+        return retval;
+    }
+
+    std::unique_ptr<const unsigned char[]>
+    to_unique() const
+    {
+        auto retval = std::make_unique<unsigned char[]>(this->ab_size);
+
+        memcpy(retval.get(), this->ab_buffer, this->ab_size);
         return retval;
     }
 
