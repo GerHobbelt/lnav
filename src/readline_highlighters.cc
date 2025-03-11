@@ -189,8 +189,10 @@ readline_command_highlighter_int(attr_line_t& al,
     ws_index = line.find(' ', sub.lr_start);
     auto command = line.substr(sub.lr_start, ws_index);
     if (ws_index != std::string::npos) {
-        alb.overlay_attr(line_range(sub.lr_start + 1, ws_index),
-                         VC_ROLE.value(role_t::VCR_KEYWORD));
+        auto has_prefix = al.al_string[sub.lr_start] == ':';
+        alb.overlay_attr(
+            line_range(sub.lr_start + (has_prefix ? 1 : 0), ws_index),
+            VC_ROLE.value(role_t::VCR_KEYWORD));
 
         if (RE_PREFIXES.find_in(in_frag).ignore_error()) {
             lnav::snippets::regex_highlighter(
@@ -286,7 +288,7 @@ readline_sqlite_highlighter_int(attr_line_t& al,
     annotate_sql_statement(anno_sql);
 
     for (const auto& attr : anno_sql.al_attrs) {
-        line_range lr{
+        auto lr = line_range{
             sub.lr_start + attr.sa_range.lr_start,
             sub.lr_start + attr.sa_range.lr_end,
         };

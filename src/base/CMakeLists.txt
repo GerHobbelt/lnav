@@ -10,6 +10,7 @@ add_library(
         color_spaces.cc
         date_time_scanner.cc
         fs_util.cc
+        fts_fuzzy_match.cc
         humanize.cc
         humanize.network.cc
         humanize.time.cc
@@ -43,6 +44,7 @@ add_library(
         enum_util.hh
         from_trait.hh
         fs_util.hh
+        fts_fuzzy_match.hh
         func_util.hh
         future_util.hh
         guard_util.hh
@@ -68,6 +70,7 @@ add_library(
         network.tcp.hh
         paths.hh
         piper.file.hh
+        progress.hh
         result.h
         snippet_highlighters.hh
         string_attr_type.hh
@@ -103,6 +106,7 @@ add_executable(
         humanize.time.tests.cc
         intern_string.tests.cc
         lnav.gzip.tests.cc
+        math_util.tests.cc
         string_util.tests.cc
         network.tcp.tests.cc
         test_base.cc)

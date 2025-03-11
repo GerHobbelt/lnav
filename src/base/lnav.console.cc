@@ -133,6 +133,21 @@ user_message::warning(const attr_line_t& al)
     return retval;
 }
 
+user_message&
+user_message::remove_internal_snippets()
+{
+    auto new_end = std::remove_if(
+        this->um_snippets.begin(),
+        this->um_snippets.end(),
+        [](const snippet& snip) {
+            return snip.s_location.sl_source.to_string_fragment().startswith(
+                "__");
+        });
+    this->um_snippets.erase(new_end, this->um_snippets.end());
+
+    return *this;
+}
+
 attr_line_t
 user_message::to_attr_line(std::set<render_flags> flags) const
 {
@@ -380,6 +395,7 @@ role_to_style(const role_t role,
             line_style
                 |= fmt::fg(fmt::terminal_color::red) | fmt::emphasis::bold;
             break;
+        case role_t::VCR_HIDDEN:
         case role_t::VCR_WARNING:
         case role_t::VCR_RE_REPEAT:
             line_style |= fmt::fg(fmt::terminal_color::yellow);
@@ -469,6 +485,25 @@ wchar_for_icon(ui_icon_t ic)
             return {L'\u26a0', role_t::VCR_WARNING};
         case ui_icon_t::error:
             return {L'\u2718', role_t::VCR_ERROR};
+
+        case ui_icon_t::log_level_trace:
+            return {L'\U0001F143', role_t::VCR_TEXT};
+        case ui_icon_t::log_level_debug:
+            return {L'\U0001F133', role_t::VCR_TEXT};
+        case ui_icon_t::log_level_info:
+            return {L'\U0001F138', role_t::VCR_TEXT};
+        case ui_icon_t::log_level_stats:
+            return {L'\U0001F142', role_t::VCR_TEXT};
+        case ui_icon_t::log_level_notice:
+            return {L'\U0001F13d', role_t::VCR_TEXT};
+        case ui_icon_t::log_level_warning:
+            return {L'\U0001F146', role_t::VCR_WARNING};
+        case ui_icon_t::log_level_error:
+            return {L'\U0001F134', role_t::VCR_ERROR};
+        case ui_icon_t::log_level_critical:
+            return {L'\U0001F132', role_t::VCR_ERROR};
+        case ui_icon_t::log_level_fatal:
+            return {L'\U0001F135', role_t::VCR_ERROR};
     }
 
     ensure(false);
@@ -686,9 +721,19 @@ println(FILE* file, const attr_line_t& al)
                     case '\x07':
                         sub.append("\U0001F514");
                         break;
+                    case '\t':
+                    case '\n':
+                        sub.push_back(ch);
+                        break;
 
                     default:
-                        sub.append(&str[cp_start], lpc - cp_start);
+                        if (ch <= 0x1f) {
+                            sub.push_back(0xe2);
+                            sub.push_back(0x90);
+                            sub.push_back(0x80 + ch);
+                        } else {
+                            sub.append(&str[cp_start], lpc - cp_start);
+                        }
                         break;
                 }
             }

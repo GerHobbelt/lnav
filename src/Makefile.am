@@ -127,11 +127,13 @@ if HAVE_CARGO
 RUST_DEPS_CPPFLAGS = -DHAVE_RUST_DEPS=1
 PRQLC_DIR = third-party/prqlc-c/target
 RUST_DEPS_LIBS = $(PRQLC_DIR)/release/libprqlc_c.a
+RUST_DEPS_TRIGGER = $(PRQLC_DIR)/release/libprqlc_c.a.dep
 
 $(RUST_DEPS_LIBS): $(srcdir)/third-party/prqlc-c/src/lib.rs $(srcdir)/third-party/prqlc-c/Cargo.toml
 	mkdir -p $(PRQLC_DIR)
 	env CARGO_TARGET_DIR=third-party/prqlc-c/target $(CARGO_CMD) build --manifest-path \
 	    $(srcdir)/third-party/prqlc-c/Cargo.toml --package prqlc-c --release
+	touch $(RUST_DEPS_LIBS)
 
 else
 RUST_DEPS =
@@ -193,7 +195,6 @@ LDADD = \
 # css-color-names.json is from https://github.com/bahamas10/css-color-names/blob/master/css-color-names.json
 
 dist_noinst_DATA = \
-	alpha-release.sh \
 	animals.json \
 	ansi-palette.json \
 	css-color-names.json \
@@ -240,6 +241,8 @@ noinst_HEADERS = \
 	dump_internals.hh \
 	elem_to_json.hh \
 	environ_vtab.hh \
+	external_editor.hh \
+	external_editor.cfg.hh \
 	external_opener.hh \
 	external_opener.cfg.hh \
 	field_overlay_source.hh \
@@ -254,12 +257,10 @@ noinst_HEADERS = \
 	filter_sub_source.hh \
 	format.scripts.hh \
 	fstat_vtab.hh \
-	fts_fuzzy_match.hh \
 	grep_highlighter.hh \
 	grep_proc.hh \
 	hasher.hh \
 	help.md \
-	help.txt \
 	help_text.hh \
 	help_text_formatter.hh \
 	highlighter.hh \
@@ -308,6 +309,7 @@ noinst_HEADERS = \
 	mapbox/variant_visitor.hpp \
 	md2attr_line.hh \
 	md4cpp.hh \
+	msg.text.hh \
 	piper.header.hh \
 	piper.looper.hh \
 	piper.looper.cfg.hh \
@@ -447,6 +449,7 @@ libdiag_a_SOURCES = \
 	elem_to_json.cc \
 	environ_vtab.cc \
 	extension-functions.cc \
+	external_editor.cc \
 	external_opener.cc \
 	field_overlay_source.cc \
 	file_collection.cc \
@@ -459,7 +462,6 @@ libdiag_a_SOURCES = \
 	filter_sub_source.cc \
 	fstat_vtab.cc \
     fs-extension-functions.cc \
-    fts_fuzzy_match.cc \
 	grep_proc.cc \
 	help_text.cc \
 	help_text_formatter.cc \
@@ -489,6 +491,7 @@ libdiag_a_SOURCES = \
 	logfile_sub_source.cc \
 	md2attr_line.cc \
 	md4cpp.cc \
+	msg.text.cc \
 	network-extension-functions.cc \
 	data_parser.cc \
 	piper.header.cc \
@@ -497,6 +500,7 @@ libdiag_a_SOURCES = \
 	plain_text_source.cc \
 	pollable.cc \
 	pretty_printer.cc \
+	preview_status_source.cc \
 	ptimec_rt.cc \
 	readline_callbacks.cc \
 	readline_highlighters.cc \
@@ -635,6 +639,3 @@ if HAVE_CHECK_JSONSCHEMA
 	$(CHECK_JSONSCHEMA) --schemafile $(top_srcdir)/docs/schemas/format-v1.schema.json $(FORMAT_FILES)
 	$(CHECK_JSONSCHEMA) --schemafile $(top_srcdir)/docs/schemas/config-v1.schema.json $(CONFIG_FILES)
 endif
-
-install-exec-hook:
-	bash $(srcdir)/alpha-release.sh

@@ -44,6 +44,7 @@
 #include <algorithm>
 #include <set>
 
+#include "base/auto_mem.hh"
 #include "base/auto_pid.hh"
 #include "base/fs_util.hh"
 #include "base/injector.bind.hh"
@@ -95,7 +96,7 @@ class lock_hack {
 public:
     class guard {
     public:
-        guard() : g_lock(lock_hack::singleton()) { this->g_lock.lock(); }
+        guard() : g_lock(singleton()) { this->g_lock.lock(); }
 
         ~guard() { this->g_lock.unlock(); }
 
@@ -494,7 +495,8 @@ line_buffer::set_fd(auto_fd& fd)
 void
 line_buffer::resize_buffer(size_t new_max)
 {
-    if (new_max <= MAX_LINE_BUFFER_SIZE
+    if (((this->lb_compressed && new_max <= MAX_COMPRESSED_BUFFER_SIZE)
+         || (!this->lb_compressed && new_max <= MAX_LINE_BUFFER_SIZE))
         && new_max > (size_t) this->lb_buffer.capacity())
     {
         /* Still need more space, try a realloc. */
@@ -752,10 +754,11 @@ line_buffer::load_next_buffer()
 
         do {
             auto before = line_start - this->lb_alt_buffer->begin();
-            auto remaining = this->lb_alt_buffer.value().size() - before;
-            auto frag = string_fragment::from_bytes(line_start, remaining);
+            const auto remaining = this->lb_alt_buffer.value().size() - before;
+            const auto frag
+                = string_fragment::from_bytes(line_start, remaining);
             auto utf_scan_res = is_utf8(frag, '\n');
-            auto lf = utf_scan_res.remaining_ptr();
+            const auto* lf = utf_scan_res.remaining_ptr();
             this->lb_alt_line_starts.emplace_back(before);
             this->lb_alt_line_is_utf.emplace_back(utf_scan_res.is_valid());
             this->lb_alt_line_has_ansi.emplace_back(utf_scan_res.usr_has_ansi);
@@ -1130,11 +1133,15 @@ line_buffer::load_next_line(file_range prev_line)
         if (!retval.li_utf8_scan_result.is_valid()) {
             retval.li_utf8_scan_result = {};
         }
-        bool found_in_cache = false;
+        auto found_in_cache = false;
+        auto has_ansi = false;
+        auto valid_utf8 = true;
         if (!this->lb_line_starts.empty()) {
             auto buffer_offset = offset - this->lb_file_offset;
 
             if (this->lb_next_buffer_offset == buffer_offset) {
+                require(this->lb_next_line_start_index
+                        < this->lb_line_starts.size());
                 auto start_iter = this->lb_line_starts.begin()
                     + this->lb_next_line_start_index;
                 auto next_line_iter = start_iter + 1;
@@ -1142,6 +1149,10 @@ line_buffer::load_next_line(file_range prev_line)
                     utf8_end = *next_line_iter - 1 - *start_iter;
                     found_in_cache = true;
                     lf = line_start + utf8_end;
+                    has_ansi = this->lb_line_has_ansi
+                                   [this->lb_next_line_start_index];
+                    valid_utf8
+                        = this->lb_line_is_utf[this->lb_next_line_start_index];
 
                     // log_debug("hit cache");
                     this->lb_next_buffer_offset = *next_line_iter;
@@ -1159,12 +1170,15 @@ line_buffer::load_next_line(file_range prev_line)
                     // log_debug("found offset %d %d", buffer_offset,
                     // *start_iter);
                     if (next_line_iter != this->lb_line_starts.end()) {
+                        auto start_index = std::distance(
+                            this->lb_line_starts.begin(), start_iter);
                         utf8_end = *next_line_iter - 1 - *start_iter;
                         found_in_cache = true;
                         lf = line_start + utf8_end;
+                        has_ansi = this->lb_line_has_ansi[start_index];
+                        valid_utf8 = this->lb_line_is_utf[start_index];
 
-                        this->lb_next_line_start_index = std::distance(
-                            this->lb_alt_line_starts.begin(), next_line_iter);
+                        this->lb_next_line_start_index = start_index + 1;
                         this->lb_next_buffer_offset = *next_line_iter;
                     } else {
                         // log_debug("no next iter");
@@ -1175,7 +1189,9 @@ line_buffer::load_next_line(file_range prev_line)
             }
         }
 
-        if (!found_in_cache) {
+        if (found_in_cache && valid_utf8) {
+            retval.li_utf8_scan_result.usr_has_ansi = has_ansi;
+        } else {
             auto frag = string_fragment::from_bytes(
                 line_start, retval.li_file_range.fr_size);
             auto scan_res = is_utf8(frag, '\n');

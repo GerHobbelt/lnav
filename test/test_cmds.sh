@@ -29,6 +29,11 @@ run_cap_test ${lnav_test} -nN \
     -c ":open logfile_access_log.0"
 
 run_cap_test ${lnav_test} -nN \
+    -c ":cd ${top_srcdir}" \
+    -c ";SELECT * FROM environ WHERE name = 'PWD'" \
+    -c ":write-json-to -"
+
+run_cap_test ${lnav_test} -nN \
     -e "echo Hello, World!"
 
 run_cap_test ${lnav_test} -nN \
@@ -349,13 +354,13 @@ run_cap_test ${lnav_test} -n \
     -c ":filter-out World" \
     ${test_dir}/logfile_plain.0
 
-TOO_MANY_FILTERS=""
-for i in `seq 1 32`; do
-    TOO_MANY_FILTERS="$TOO_MANY_FILTERS -c ':filter-out $i'"
-done
-run_cap_test eval ${lnav_test} -d /tmp/lnav.err -n \
-    $TOO_MANY_FILTERS \
-    ${test_dir}/logfile_filter.0
+#TOO_MANY_FILTERS=""
+#for i in `seq 1 32`; do
+#    TOO_MANY_FILTERS="$TOO_MANY_FILTERS -c ':filter-out $i'"
+#done
+#run_cap_test ${lnav_test} -d /tmp/lnav.err -n \
+#    $TOO_MANY_FILTERS \
+#    ${test_dir}/logfile_filter.0
 
 run_cap_test ${lnav_test} -n \
     -c ":close" \

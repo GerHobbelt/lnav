@@ -1,20 +1,84 @@
-## lnav v0.12.5
+## lnav v0.13.0
 
 Interface changes:
 * The prompt is now a custom implementation instead of readline.
+  Some highlights:
+  - In the DB prompt: pressing `CTRL+L` will reformat the query and
+    switch the prompt to multi-line mode; error locations will be
+    highlighted.
+  - Pressing `CTRL+O` in the prompt will transfer the prompt to
+    contents to Visual Studio Code or the default text editor on
+    macOS.
+    You can then edit the file and run it from the `|` prompt with:
+
+    ```lnav
+    |saved-prompt
+    ```
+  - When editing a regular expression, like the search prompt or
+    for a filter, if the current pattern matches a line in the
+    view, the following will be suggested.
+    For example, if the view has the text "foo bar baz" and you
+    type "foo ", the prompt will suggest "bar" and you can then
+    press `TAB` to complete.
+  - In the history listing, an icon indicates if the command or
+    query succeeded or failed.
 * Pressing `F1` in the prompt will show the help text for the
   prompt itself.
   The size of the prompt panel is expanded for readability.
+* When reading from stdin, the files used to store the content
+  will be rotated when they cross the `/tuning/piper/max-size`
+  threshold.
+  Previously, the name of the file in the TEXT view would just
+  be "stdin", but now it includes the rotation number.
+* The LOG and TEXT views will now display a message if they
+  contain no content to make it clear to the user that they
+  need to switch views or `:open` a file.
+* The HIST view now supports bookmarks, so you can use the usual
+  hotkeys to just to the next/previous time segment with
+  errors/warnings/marks.
+* In table cells, control characters are replaced with unicode
+  symbols and highlighted with the 'hidden' style from the theme.
 
 Features:
 * The `:comment` command will now switch the prompt to multi-line
   mode and does syntax highlighting for Markdown directives in the
   comment.
-* In the DB prompt, pressing `CTRL+L` will reformat the query and
-  switch the prompt to multi-line mode.
+* Scrolling right in the LOG view when at the start of a message
+  can hide the timestamp/level fields in the message and insert a
+  shorter timestamp column on the left side.
+  The column should take less space than the existing field and
+  aligns all timestamps across all log formats.
+  This feature is gated by the `/ui/views/log/time-column`
+  setting, with the following values:
+  - `disabled`: scrolling right works as normal and does not insert
+    the time column.
+  - `enabled`: scrolling right enables the time column.
+  - `default`: the time column is enabled and the default on startup.
 * Added a `fuzzy_match()` SQL function that compares a pattern to
   a string and returns a score.
   The algorithm used is the same as in lnav itself.
+* Added a `match_rowid` column to search tables to make it easier
+  to join multiple search tables together.
+  For example, when multiple log messages occur together in the
+  same sequence.
+  You can create search tables for each line and then join them
+  to query over the whole group of messages.
+* Added a `:write-debug-log-to` command that can be used to write
+  lnav's internal debug log to a file.
+* Added a `:clear-adjusted-log-time` command to clear the time offset
+  set by the `:adjust-log-time` command.
+* Added a `measure_with_units` collation function that can compare
+  numbers with unit suffixes, like "10KB" or "1.2ms".
+* Render task marks in markdown.
+
+Bug Fixes:
+* Should start up in tmux and line drawing should show up now as well.
+* The default terminal colors will now be used in the default theme.
+  So, a light background with a dark foreground will be respected.
+* Improved performance for compressed files.
+* Improved performance for the timeline view.
+* Copying a column with a text value in the DB overlay view.
+* Generic logs read from stdin or exec'd were not working properly.
 
 ## lnav v0.12.4
 

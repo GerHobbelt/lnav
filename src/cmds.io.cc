@@ -62,7 +62,7 @@
 #if !CURL_AT_LEAST_VERSION(7, 80, 0)
 extern "C"
 {
-    const char* curl_url_strerror(CURLUcode error);
+const char* curl_url_strerror(CURLUcode error);
 }
 #endif
 
@@ -211,9 +211,9 @@ com_save_to(exec_context& ec,
         auto split_err = split_args_res.unwrapErr();
         auto um
             = lnav::console::user_message::error("unable to parse file name")
-                  .with_reason(split_err.te_msg)
+                  .with_reason(split_err.se_error.te_msg)
                   .with_snippet(lnav::console::snippet::from(
-                      SRC, lexer.to_attr_line(split_err)))
+                      SRC, lexer.to_attr_line(split_err.se_error)))
                   .move();
 
         return Err(um);
@@ -774,9 +774,9 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
         auto split_err = split_args_res.unwrapErr();
         auto um
             = lnav::console::user_message::error("unable to parse file names")
-                  .with_reason(split_err.te_msg)
+                  .with_reason(split_err.se_error.te_msg)
                   .with_snippet(lnav::console::snippet::from(
-                      SRC, lexer.to_attr_line(split_err)))
+                      SRC, lexer.to_attr_line(split_err.se_error)))
                   .move();
 
         return Err(um);
@@ -795,7 +795,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
     }
 
     for (auto fn : split_args) {
-        file_location_t file_loc;
+        auto file_loc = file_location_t{file_location_tail{}};
 
         if (access(fn.c_str(), R_OK) != 0) {
             auto colon_index = fn.rfind(':');
@@ -807,11 +807,16 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
 
                 if (scan_res) {
                     fn = fn.substr(0, colon_index);
+                    log_debug(
+                        "opening %s at line %d", fn.c_str(), scan_res->value());
                     file_loc = vis_line_t(scan_res->value());
                 }
             } else if (hash_index != std::string::npos) {
-                file_loc = fn.substr(hash_index);
+                auto hash_loc = fn.substr(hash_index);
+                file_loc = hash_loc;
                 fn = fn.substr(0, hash_index);
+                log_debug(
+                    "opening %s at anchor %s", fn.c_str(), hash_loc.c_str());
             }
             loo.with_init_location(file_loc);
         }
@@ -1287,9 +1292,9 @@ com_xopen(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
         auto split_err = split_args_res.unwrapErr();
         auto um
             = lnav::console::user_message::error("unable to parse file names")
-                  .with_reason(split_err.te_msg)
+                  .with_reason(split_err.se_error.te_msg)
                   .with_snippet(lnav::console::snippet::from(
-                      SRC, lexer.to_attr_line(split_err)))
+                      SRC, lexer.to_attr_line(split_err.se_error)))
                   .move();
 
         return Err(um);
@@ -1330,9 +1335,9 @@ com_close(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
             auto split_err = split_args_res.unwrapErr();
             auto um = lnav::console::user_message::error(
                           "unable to parse file name")
-                          .with_reason(split_err.te_msg)
+                          .with_reason(split_err.se_error.te_msg)
                           .with_snippet(lnav::console::snippet::from(
-                              SRC, lexer.to_attr_line(split_err)))
+                              SRC, lexer.to_attr_line(split_err.se_error)))
                           .move();
 
             return Err(um);
@@ -1628,9 +1633,9 @@ com_redirect_to(exec_context& ec,
         auto split_err = split_args_res.unwrapErr();
         auto um
             = lnav::console::user_message::error("unable to parse file name")
-                  .with_reason(split_err.te_msg)
+                  .with_reason(split_err.se_error.te_msg)
                   .with_snippet(lnav::console::snippet::from(
-                      SRC, lexer.to_attr_line(split_err)))
+                      SRC, lexer.to_attr_line(split_err.se_error)))
                   .move();
 
         return Err(um);
@@ -1683,7 +1688,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                           "the given file")
             .with_parameter(
                 help_text("path", "The path to the file to append to")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io"})
             .with_example({"To append marked lines to the file "
                            "/tmp/interesting-lines.txt",
@@ -1701,7 +1706,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                 help_text("--anonymize", "Anonymize the lines").optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting"})
             .with_example({"To write marked lines to the file "
                            "/tmp/interesting-lines.txt",
@@ -1718,7 +1723,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                     .optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting", "sql"})
             .with_example({"To write SQL results as CSV to /tmp/table.csv",
                            "/tmp/table.csv"}),
@@ -1734,7 +1739,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                     .optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting", "sql"})
             .with_example({"To write SQL results as JSON to /tmp/table.json",
                            "/tmp/table.json"}),
@@ -1751,7 +1756,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                     .optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting", "sql"})
             .with_example({"To write SQL results as JSON Lines to "
                            "/tmp/table.json",
@@ -1769,7 +1774,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                     .optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting", "sql"})
             .with_example({"To write SQL results as text to /tmp/table.txt",
                            "/tmp/table.txt"}),
@@ -1791,7 +1796,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                 help_text("--anonymize", "Anonymize the lines").optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting", "sql"})
             .with_example({"To write the marked lines in the log view "
                            "to /tmp/table.txt",
@@ -1808,7 +1813,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                 help_text("--anonymize", "Anonymize the lines").optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting", "sql"})
             .with_example(
                 {"To write the top view to /tmp/table.txt", "/tmp/table.txt"}),
@@ -1825,7 +1830,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                 help_text("--anonymize", "Anonymize the lines").optional())
             .with_parameter(
                 help_text("path", "The path to the file to write")
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting", "sql"})
             .with_example({"To write only the displayed text to /tmp/table.txt",
                            "/tmp/table.txt"}),
@@ -1915,7 +1920,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                           "  If not specified, the current redirect "
                           "will be cleared")
                     .optional()
-                    .with_format(help_parameter_format_t::HPF_FILENAME))
+                    .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
             .with_tags({"io", "scripting"})
             .with_example({"To write the output of lnav commands to the file "
                            "/tmp/script-output.txt",

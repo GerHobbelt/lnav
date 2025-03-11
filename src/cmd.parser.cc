@@ -35,6 +35,8 @@
 #include "base/itertools.enumerate.hh"
 #include "data_scanner.hh"
 #include "shlex.hh"
+#include "sql_help.hh"
+#include "sql_util.hh"
 
 namespace lnav::command {
 
@@ -48,7 +50,7 @@ parsed::arg_at(int x) const
         for (const auto& [index, se] :
              lnav::itertools::enumerate(arg.second.a_values))
         {
-            log_debug("    val [%d:%d) %.*s -> %s",
+            log_debug("    val [%d:%d) '%.*s' -> '%s'",
                       se.se_origin.sf_begin,
                       se.se_origin.sf_end,
                       se.se_origin.length(),
@@ -56,10 +58,67 @@ parsed::arg_at(int x) const
                       se.se_value.c_str());
             if (se.se_origin.sf_begin <= x && x <= se.se_origin.sf_end) {
                 switch (arg.second.a_help->ht_format) {
+                    case help_parameter_format_t::HPF_SQL:
+                    case help_parameter_format_t::HPF_SQL_EXPR: {
+                        auto al = attr_line_t(se.se_value);
+                        auto al_x = x - se.se_origin.sf_begin;
+
+                        annotate_sql_statement(al);
+                        for (const auto& attr : al.al_attrs) {
+                            if (al_x < attr.sa_range.lr_start
+                                || attr.sa_range.lr_end < al_x)
+                            {
+                                continue;
+                            }
+
+                            auto sf = al.to_string_fragment(attr);
+                            if (attr.sa_type == &SQL_GARBAGE_ATTR
+                                && attr.sa_range.length() == 1)
+                            {
+                                switch (al.al_string[attr.sa_range.lr_start]) {
+                                    case ':':
+                                    case '$':
+                                    case '@':
+                                        return arg_at_result{
+                                            arg.second.a_help,
+                                            false,
+                                            {
+                                                sf,
+                                                sf.to_string(),
+                                            },
+                                        };
+                                }
+                            }
+
+                            if (attr.sa_type != &SQL_IDENTIFIER_ATTR
+                                && attr.sa_type != &SQL_STRING_ATTR
+                                && attr.sa_type != &SQL_KEYWORD_ATTR)
+                            {
+                                continue;
+                            }
+                            return arg_at_result{
+                                arg.second.a_help,
+                                false,
+                                {
+                                    sf,
+                                    sf.to_string(),
+                                },
+                            };
+                        }
+                        return arg_at_result{arg.second.a_help, false, {}};
+                    }
+                    case help_parameter_format_t::HPF_ALL_FILTERS:
+                    case help_parameter_format_t::HPF_ENABLED_FILTERS:
+                    case help_parameter_format_t::HPF_DISABLED_FILTERS:
+                    case help_parameter_format_t::HPF_HIGHLIGHTS: {
+                        return arg_at_result{arg.second.a_help, true, se};
+                    }
+                    case help_parameter_format_t::HPF_CONFIG_VALUE:
                     case help_parameter_format_t::HPF_TEXT:
                     case help_parameter_format_t::HPF_REGEX:
                     case help_parameter_format_t::HPF_TIME_FILTER_POINT: {
-                        data_scanner ds(se.se_value);
+                        std::optional<data_scanner::capture_t> cap_to_start;
+                        data_scanner ds(se.se_origin);
 
                         while (true) {
                             auto tok_res = ds.tokenize2();
@@ -69,10 +128,15 @@ parsed::arg_at(int x) const
                             }
                             auto tok = tok_res.value();
 
-                            log_debug("cap b:%d  x:%d  e:%d",
+                            log_debug("cap b:%d  x:%d  e:%d %s",
                                       tok.tr_capture.c_begin,
                                       x,
-                                      tok.tr_capture.c_end);
+                                      tok.tr_capture.c_end,
+                                      data_scanner::token2name(tok.tr_token));
+                            if (cap_to_start && tok.tr_token == DT_GARBAGE) {
+                                log_debug("expanding cap");
+                                tok.tr_capture.c_begin = cap_to_start->c_begin;
+                            }
                             if (tok.tr_capture.c_begin <= x
                                 && x <= tok.tr_capture.c_end)
                             {
@@ -83,6 +147,20 @@ parsed::arg_at(int x) const
                                         tok.to_string_fragment(),
                                         tok.to_string(),
                                     }};
+                            }
+                            if (!cap_to_start && tok.tr_token != DT_WHITE) {
+                                cap_to_start = tok.tr_capture;
+                            } else {
+                                switch (tok.tr_token) {
+                                    case DT_WHITE:
+                                        cap_to_start = std::nullopt;
+                                        break;
+                                    case DT_GARBAGE:
+                                        break;
+                                    default:
+                                        cap_to_start = tok.tr_capture;
+                                        break;
+                                }
                             }
                         }
                         return arg_at_result{
@@ -97,7 +175,7 @@ parsed::arg_at(int x) const
 
     for (const auto& param : this->p_help->ht_parameters) {
         const auto p_iter = this->p_args.find(param.ht_name);
-        if (p_iter->second.a_values.empty()
+        if ((p_iter->second.a_values.empty() || param.is_trailing_arg())
             || param.ht_nargs == help_nargs_t::HN_ZERO_OR_MORE
             || param.ht_nargs == help_nargs_t::HN_ONE_OR_MORE)
         {
@@ -132,11 +210,11 @@ parse_for(mode_t mode,
         if (mode == mode_t::call) {
             return Err(
                 lnav::console::user_message::error("unable to parse arguments")
-                    .with_reason(te.te_msg));
+                    .with_reason(te.se_error.te_msg));
         }
     }
     auto split_args = split_res.isOk() ? split_res.unwrap()
-                                       : std::vector<shlex::split_element_t>{};
+                                       : split_res.unwrapErr().se_elements;
     auto split_index = size_t{0};
 
     retval.p_help = &ht;
@@ -168,30 +246,47 @@ parse_for(mode_t mode,
             const auto& se = split_args[split_index];
             switch (param.ht_format) {
                 case help_parameter_format_t::HPF_TEXT:
+                case help_parameter_format_t::HPF_MULTILINE_TEXT:
                 case help_parameter_format_t::HPF_REGEX:
-                case help_parameter_format_t::HPF_TIME_FILTER_POINT: {
-                    const auto& last_se = split_args.back();
+                case help_parameter_format_t::HPF_SQL:
+                case help_parameter_format_t::HPF_SQL_EXPR:
+                case help_parameter_format_t::HPF_TIME_FILTER_POINT:
+                case help_parameter_format_t::HPF_ALL_FILTERS:
+                case help_parameter_format_t::HPF_CONFIG_VALUE:
+                case help_parameter_format_t::HPF_ENABLED_FILTERS:
+                case help_parameter_format_t::HPF_DISABLED_FILTERS:
+                case help_parameter_format_t::HPF_HIGHLIGHTS: {
                     auto sf = string_fragment{
                         se.se_origin.sf_string,
                         se.se_origin.sf_begin,
-                        last_se.se_origin.sf_end,
+                        args.sf_end - args.sf_begin,
                     };
                     arg.a_values.emplace_back(
                         shlex::split_element_t{sf, sf.to_string()});
                     split_index = split_args.size() - 1;
                     break;
                 }
+                case help_parameter_format_t::HPF_INTEGER:
+                case help_parameter_format_t::HPF_ENUM:
+                case help_parameter_format_t::HPF_NUMBER:
+                case help_parameter_format_t::HPF_DATETIME:
                 case help_parameter_format_t::HPF_CONFIG_PATH:
-                case help_parameter_format_t::HPF_CONFIG_VALUE:
                 case help_parameter_format_t::HPF_TAG:
+                case help_parameter_format_t::HPF_ADJUSTED_TIME:
                 case help_parameter_format_t::HPF_LINE_TAG:
+                case help_parameter_format_t::HPF_LOGLINE_TABLE:
+                case help_parameter_format_t::HPF_SEARCH_TABLE:
                 case help_parameter_format_t::HPF_STRING:
                 case help_parameter_format_t::HPF_FILENAME:
+                case help_parameter_format_t::HPF_LOCAL_FILENAME:
                 case help_parameter_format_t::HPF_DIRECTORY:
                 case help_parameter_format_t::HPF_LOADED_FILE:
                 case help_parameter_format_t::HPF_FORMAT_FIELD:
                 case help_parameter_format_t::HPF_NUMERIC_FIELD:
-                case help_parameter_format_t::HPF_TIMEZONE: {
+                case help_parameter_format_t::HPF_TIMEZONE:
+                case help_parameter_format_t::HPF_FILE_WITH_ZONE:
+                case help_parameter_format_t::HPF_VISIBLE_FILES:
+                case help_parameter_format_t::HPF_HIDDEN_FILES: {
                     if (!param.ht_enum_values.empty()) {
                         auto enum_iter = std::find(param.ht_enum_values.begin(),
                                                    param.ht_enum_values.end(),

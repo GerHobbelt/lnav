@@ -161,13 +161,25 @@ looper::get_wakeup_pipe()
     return retval;
 }
 
+static std::string
+curdir()
+{
+    std::error_code ec;
+    auto cur = std::filesystem::current_path(ec);
+    if (ec) {
+        return "";
+    }
+
+    return cur.string();
+}
+
 looper::looper(std::string name,
                auto_fd stdout_fd,
                auto_fd stderr_fd,
                options opts)
-    : l_name(std::move(name)), l_cwd(std::filesystem::current_path().string()),
-      l_env(environ_to_map()), l_stdout(std::move(stdout_fd)),
-      l_stderr(std::move(stderr_fd)), l_options(opts)
+    : l_name(std::move(name)), l_cwd(curdir()), l_env(environ_to_map()),
+      l_stdout(std::move(stdout_fd)), l_stderr(std::move(stderr_fd)),
+      l_options(opts)
 {
     size_t count = 0;
     do {
@@ -565,17 +577,20 @@ looper::loop()
                     }
 
                     os.os_fd = create_res.unwrap();
-                    rotate_count += 1;
 
                     auto hdr = header{
                         current_timeval(),
-                        this->l_name,
+                        rotate_count == 0 ? this->l_name
+                                          : fmt::format(FMT_STRING("{}.{}"),
+                                                        this->l_name,
+                                                        rotate_count),
                         this->l_cwd,
                         this->l_env,
                         "",
                         line_muxid_sf.to_string(),
                         demux_output,
                     };
+                    rotate_count += 1;
                     hdr.h_demux_output = demux_output;
                     if (!line_muxid_sf.empty()) {
                         hdr.h_name = fmt::format(

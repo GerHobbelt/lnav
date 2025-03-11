@@ -34,12 +34,14 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "base/attr_line.hh"
+#include "base/lnav.console.hh"
 #include "base/line_range.hh"
 #include "document.sections.hh"
 #include "pcrepp/pcre2pp.hh"
@@ -326,8 +328,6 @@ public:
 
     void move_cursor_to(input_point ip);
 
-    void move_cursor_to_offset(int offset);
-
     void clamp_point(input_point& ip) const
     {
         if (ip.y < 0) {
@@ -351,6 +351,14 @@ public:
     void tick(ui_clock::time_point now);
 
     int get_cursor_offset() const;
+
+    input_point get_point_for_offset(int offset) const;
+
+    bool is_cursor_at_end_of_line() const
+    {
+        return this->tc_cursor.x
+            == this->tc_lines[this->tc_cursor.y].column_width();
+    }
 
     void clear_inactive_value()
     {
@@ -382,6 +390,12 @@ public:
         this->set_needs_update();
     }
 
+    void command_down(const ncinput& ch);
+
+    void command_up(const ncinput& ch);
+
+    void add_mark(input_point pos, const lnav::console::user_message& msg);
+
     enum class mode_t {
         editing,
         searching,
@@ -406,12 +420,11 @@ public:
     int tc_max_cursor_x{0};
     mode_t tc_mode{mode_t::editing};
 
-    enum class notice_t {
-        unhandled_input,
-        no_changes,
-    };
+    static const std::vector<attr_line_t>& unhandled_input();
+    static const std::vector<attr_line_t>& no_changes();
+    static const std::vector<attr_line_t>& external_edit_failed();
 
-    std::optional<notice_t> tc_notice;
+    std::optional<std::vector<attr_line_t>> tc_notice;
     attr_line_t tc_inactive_value;
     attr_line_t tc_alt_value;
 
@@ -422,6 +435,7 @@ public:
 
     text_format_t tc_text_format{text_format_t::TF_UNKNOWN};
     std::vector<attr_line_t> tc_lines;
+    std::map<input_point, lnav::console::user_message> tc_marks;
     lnav::document::metadata tc_doc_meta;
     highlight_map_t tc_highlights;
     attr_line_t tc_prefix;
@@ -465,6 +479,7 @@ public:
     std::function<void(textinput_curses&)> tc_on_timeout;
     std::function<void(textinput_curses&)> tc_on_reformat;
     std::function<void(textinput_curses&)> tc_on_perform;
+    std::function<void(textinput_curses&)> tc_on_external_open;
 };
 
 #endif

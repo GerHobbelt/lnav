@@ -113,6 +113,22 @@
                 }
             }
         },
+        "external-editor": {
+            "impls": {
+                "VSCode": {
+                    "test": "command -v code",
+                    "command": "env VSCODE_PWD=\"$PWD\" code \"$FILE_PATH\""
+                },
+                "VSCode.app": {
+                    "test": "command -v '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'",
+                    "command": "env VSCODE_PWD=\"$PWD\" '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' \"$FILE_PATH\""
+                },
+                "zzz.MacOS": {
+                    "test": "command -v open",
+                    "command": "open -t \"$FILE_PATH\""
+                }
+            }
+        },
         "textfile": {
             "max-unformatted-line-length": 1024
         },
@@ -163,6 +179,33 @@
                     },
                     "error": {
                         "value": "✘"
+                    },
+                    "log-level-trace": {
+                        "value": "🅃"
+                    },
+                    "log-level-debug": {
+                        "value": "🄳"
+                    },
+                    "log-level-info": {
+                        "value": "🄸"
+                    },
+                    "log-level-stats": {
+                        "value": "🅂"
+                    },
+                    "log-level-notice": {
+                        "value": "🄽"
+                    },
+                    "log-level-warning": {
+                        "value": "🅆"
+                    },
+                    "log-level-error": {
+                        "value": "🄴"
+                    },
+                    "log-level-critical": {
+                        "value": "🄲"
+                    },
+                    "log-level-fatal": {
+                        "value": "🄵"
                     }
                 },
                 "styles": {
@@ -190,11 +233,19 @@
                         "italic": false,
                         "strike": false
                     },
+                    "fuzzy-match": {
+                        "color": "Olive",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
+                        "italic": false,
+                        "strike": false
+                    },
                     "alt-text": {
                         "color": "",
-                        "background-color": "#262626",
+                        "background-color": "",
                         "underline": false,
-                        "bold": false,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -286,6 +337,14 @@
                         "italic": false,
                         "strike": false
                     },
+                    "time-column": {
+                        "color": "",
+                        "background-color": "#aaa",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
                     "invalid-msg": {
                         "color": "Olive",
                         "background-color": "",
@@ -296,14 +355,14 @@
                     },
                     "popup": {
                         "color": "Silver",
-                        "background-color": "Teal",
+                        "background-color": "Grey",
                         "underline": false,
                         "bold": false,
                         "italic": false,
                         "strike": false
                     },
                     "popup-border": {
-                        "color": "",
+                        "color": "Purple",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -505,7 +564,7 @@
                         "strike": false
                     },
                     "keyword": {
-                        "color": "#00f",
+                        "color": "Navy",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -950,15 +1009,20 @@
             },
             "dracula": {
                 "vars": {
-                    "black": "#282A36",
+                    "background": "#282A36",
+                    "bgdark": "#21222C",
+                    "bglight": "#343746",
+                    "black": "#21222C",
                     "blue": "#BD93F9",
                     "cyan": "#8BE9FD",
+                    "foreground": "#F8F8F2",
                     "green": "#50FA7B",
                     "magenta": "#FF79C6",
                     "orange": "#FFB86C",
                     "pink": "#FF79C6",
                     "purple": "#BD93F9",
                     "red": "#FF5555",
+                    "selection": "#44475A",
                     "semantic_highlight_color": "semantic()",
                     "white": "#F8F8F2",
                     "yellow": "#F1FA8C"
@@ -978,6 +1042,33 @@
                     },
                     "error": {
 
+                    },
+                    "log-level-trace": {
+
+                    },
+                    "log-level-debug": {
+
+                    },
+                    "log-level-info": {
+
+                    },
+                    "log-level-stats": {
+
+                    },
+                    "log-level-notice": {
+
+                    },
+                    "log-level-warning": {
+
+                    },
+                    "log-level-error": {
+
+                    },
+                    "log-level-critical": {
+
+                    },
+                    "log-level-fatal": {
+
                     }
                 },
                 "styles": {
@@ -990,8 +1081,8 @@
                         "strike": false
                     },
                     "text": {
-                        "color": "#f6f6f6",
-                        "background-color": "$black",
+                        "color": "#F8F8F2",
+                        "background-color": "$background",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -999,9 +1090,17 @@
                     },
                     "selected-text": {
                         "color": "",
-                        "background-color": "$cyan",
+                        "background-color": "$foreground",
                         "underline": false,
                         "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "fuzzy-match": {
+                        "color": "$orange",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -1055,7 +1154,7 @@
                     },
                     "cursor-line": {
                         "color": "$cyan",
-                        "background-color": "#44475A",
+                        "background-color": "$selection",
                         "underline": false,
                         "bold": true,
                         "italic": false,
@@ -1101,6 +1200,14 @@
                         "italic": false,
                         "strike": false
                     },
+                    "time-column": {
+                        "color": "",
+                        "background-color": "$bglight",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
                     "invalid-msg": {
                         "color": "$yellow",
                         "background-color": "",
@@ -1110,8 +1217,8 @@
                         "strike": false
                     },
                     "popup": {
-                        "color": "$black",
-                        "background-color": "$cyan",
+                        "color": "$foreground",
+                        "background-color": "$bglight",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -1119,7 +1226,7 @@
                     },
                     "popup-border": {
                         "color": "",
-                        "background-color": "",
+                        "background-color": "$bgdark",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -1748,6 +1855,33 @@
                     },
                     "error": {
 
+                    },
+                    "log-level-trace": {
+
+                    },
+                    "log-level-debug": {
+
+                    },
+                    "log-level-info": {
+
+                    },
+                    "log-level-stats": {
+
+                    },
+                    "log-level-notice": {
+
+                    },
+                    "log-level-warning": {
+
+                    },
+                    "log-level-error": {
+
+                    },
+                    "log-level-critical": {
+
+                    },
+                    "log-level-fatal": {
+
                     }
                 },
                 "styles": {
@@ -1772,6 +1906,14 @@
                         "background-color": "$cyan",
                         "underline": false,
                         "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "fuzzy-match": {
+                        "color": "$orange",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -1865,6 +2007,14 @@
                     },
                     "offset-time": {
                         "color": "$cyan",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "time-column": {
+                        "color": "",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -2517,6 +2667,33 @@
                     },
                     "error": {
 
+                    },
+                    "log-level-trace": {
+
+                    },
+                    "log-level-debug": {
+
+                    },
+                    "log-level-info": {
+
+                    },
+                    "log-level-stats": {
+
+                    },
+                    "log-level-notice": {
+
+                    },
+                    "log-level-warning": {
+
+                    },
+                    "log-level-error": {
+
+                    },
+                    "log-level-critical": {
+
+                    },
+                    "log-level-fatal": {
+
                     }
                 },
                 "styles": {
@@ -2541,6 +2718,14 @@
                         "background-color": "",
                         "underline": false,
                         "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "fuzzy-match": {
+                        "color": "",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -2634,6 +2819,14 @@
                     },
                     "offset-time": {
                         "color": "$cyan",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "time-column": {
+                        "color": "",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -3261,7 +3454,7 @@
             },
             "monocai": {
                 "vars": {
-                    "black": "#2d2a2e",
+                    "black": "Grey15",
                     "blue": "#5394ec",
                     "cyan": "#66d9ee",
                     "green": "#a7e22e",
@@ -3287,6 +3480,33 @@
                     },
                     "error": {
 
+                    },
+                    "log-level-trace": {
+
+                    },
+                    "log-level-debug": {
+
+                    },
+                    "log-level-info": {
+
+                    },
+                    "log-level-stats": {
+
+                    },
+                    "log-level-notice": {
+
+                    },
+                    "log-level-warning": {
+
+                    },
+                    "log-level-error": {
+
+                    },
+                    "log-level-critical": {
+
+                    },
+                    "log-level-fatal": {
+
                     }
                 },
                 "styles": {
@@ -3299,7 +3519,7 @@
                         "strike": false
                     },
                     "text": {
-                        "color": "#f6f6f6",
+                        "color": "Grey89",
                         "background-color": "$black",
                         "underline": false,
                         "bold": false,
@@ -3314,9 +3534,17 @@
                         "italic": false,
                         "strike": false
                     },
+                    "fuzzy-match": {
+                        "color": "$orange",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
+                        "italic": false,
+                        "strike": false
+                    },
                     "alt-text": {
                         "color": "",
-                        "background-color": "#1c1c1c",
+                        "background-color": "Grey11",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -3405,6 +3633,14 @@
                     "offset-time": {
                         "color": "$cyan",
                         "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "time-column": {
+                        "color": "",
+                        "background-color": "Grey27",
                         "underline": false,
                         "bold": false,
                         "italic": false,
@@ -4056,6 +4292,33 @@
                     },
                     "error": {
 
+                    },
+                    "log-level-trace": {
+
+                    },
+                    "log-level-debug": {
+
+                    },
+                    "log-level-info": {
+
+                    },
+                    "log-level-stats": {
+
+                    },
+                    "log-level-notice": {
+
+                    },
+                    "log-level-warning": {
+
+                    },
+                    "log-level-error": {
+
+                    },
+                    "log-level-critical": {
+
+                    },
+                    "log-level-fatal": {
+
                     }
                 },
                 "styles": {
@@ -4080,6 +4343,14 @@
                         "background-color": "$cyan",
                         "underline": false,
                         "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "fuzzy-match": {
+                        "color": "$yellow",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -4173,6 +4444,14 @@
                     },
                     "offset-time": {
                         "color": "$cyan",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "time-column": {
+                        "color": "",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -4834,6 +5113,33 @@
                     },
                     "error": {
 
+                    },
+                    "log-level-trace": {
+
+                    },
+                    "log-level-debug": {
+
+                    },
+                    "log-level-info": {
+
+                    },
+                    "log-level-stats": {
+
+                    },
+                    "log-level-notice": {
+
+                    },
+                    "log-level-warning": {
+
+                    },
+                    "log-level-error": {
+
+                    },
+                    "log-level-critical": {
+
+                    },
+                    "log-level-fatal": {
+
                     }
                 },
                 "styles": {
@@ -4858,6 +5164,14 @@
                         "background-color": "$cyan",
                         "underline": false,
                         "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "fuzzy-match": {
+                        "color": "$orange",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -4951,6 +5265,14 @@
                     },
                     "offset-time": {
                         "color": "$cyan",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "time-column": {
+                        "color": "",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -5612,6 +5934,33 @@
                     },
                     "error": {
 
+                    },
+                    "log-level-trace": {
+
+                    },
+                    "log-level-debug": {
+
+                    },
+                    "log-level-info": {
+
+                    },
+                    "log-level-stats": {
+
+                    },
+                    "log-level-notice": {
+
+                    },
+                    "log-level-warning": {
+
+                    },
+                    "log-level-error": {
+
+                    },
+                    "log-level-critical": {
+
+                    },
+                    "log-level-fatal": {
+
                     }
                 },
                 "styles": {
@@ -5636,6 +5985,14 @@
                         "background-color": "$cyan",
                         "underline": false,
                         "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "fuzzy-match": {
+                        "color": "$orange",
+                        "background-color": "",
+                        "underline": true,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -5729,6 +6086,14 @@
                     },
                     "offset-time": {
                         "color": "$cyan",
+                        "background-color": "",
+                        "underline": false,
+                        "bold": false,
+                        "italic": false,
+                        "strike": false
+                    },
+                    "time-column": {
+                        "color": "",
                         "background-color": "",
                         "underline": false,
                         "bold": false,
@@ -6883,6 +7248,11 @@
                     "command": ":goto last hour",
                     "alt-msg": ""
                 }
+            }
+        },
+        "views": {
+            "log": {
+                "time-column": "disabled"
             }
         }
     },

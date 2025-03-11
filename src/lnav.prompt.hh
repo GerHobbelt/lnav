@@ -54,12 +54,15 @@ struct prompt {
     struct sql_db_t {};
     struct sql_table_t {};
     struct sql_table_valued_function_t {};
-    struct sql_function_t {};
+    struct sql_function_t {
+        size_t sf_param_count{0};
+    };
     struct sql_column_t {};
     struct sql_number_t {};
     struct sql_string_t {};
     struct sql_collation_t {};
     struct sql_var_t {};
+    struct sql_field_var_t {};
 
     using sql_item_t = mapbox::util::variant<sql_keyword_t,
                                              sql_collation_t,
@@ -70,7 +73,8 @@ struct prompt {
                                              sql_column_t,
                                              sql_number_t,
                                              sql_string_t,
-                                             sql_var_t>;
+                                             sql_var_t,
+                                             sql_field_var_t>;
 
     struct sql_item_meta {
         const char* sim_type_hint;
@@ -105,17 +109,27 @@ struct prompt {
     std::map<std::string, sql_item_t> p_prql_completions;
     std::map<std::string, const json_path_handler_base*> p_config_paths;
     std::map<std::string, std::vector<std::string>> p_config_values;
+    std::set<std::string> p_remote_paths;
     available_scripts p_scripts;
     textinput_curses p_editor;
+    bool p_alt_mode{false};
 
-    void focus_for(char sigil, const std::vector<std::string>& args);
+    void focus_for(textview_curses& tc,
+                   char sigil,
+                   const std::vector<std::string>& args);
 
     void refresh_sql_completions(textview_curses& tc);
+    void refresh_sql_expr_completions(textview_curses& tc);
     void insert_sql_completion(const std::string& name, const sql_item_t& item);
     const sql_item_meta& sql_item_hint(const sql_item_t& item) const;
-    attr_line_t get_db_completion_text(const std::string& str, int width) const;
+    attr_line_t get_db_completion_text(const std::string& pattern,
+                                       const std::string& str,
+                                       int width) const;
     attr_line_t get_sql_completion_text(
+        const std::string& pattern,
         const std::pair<std::string, sql_item_t>& p) const;
+    std::string get_regex_suggestion(textview_curses& tc,
+                                     const std::string& pattern) const;
 
     void refresh_config_completions();
     std::vector<attr_line_t> get_cmd_parameter_completion(
@@ -124,10 +138,14 @@ struct prompt {
     std::vector<attr_line_t> get_config_value_completion(
         const std::string& path, const std::string& str) const;
 
+    void highlight_match_chars(const std::string& str,
+                               std::vector<attr_line_t>& poss);
+
     void rl_help(textinput_curses& tc);
     void rl_reformat(textinput_curses& tc);
     void rl_history(textinput_curses& tc);
     void rl_completion(textinput_curses& tc);
+    void rl_external_edit(textinput_curses& tc);
 };
 
 }  // namespace lnav

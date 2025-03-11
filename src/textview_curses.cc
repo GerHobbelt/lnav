@@ -77,20 +77,21 @@ text_filter::revert_to_last(logfile_filter_state& lfs, size_t rollback_size)
     }
 }
 
-void
+bool
 text_filter::add_line(logfile_filter_state& lfs,
                       logfile::const_iterator ll,
                       const shared_buffer_ref& line)
 {
-    bool match_state = this->matches(line_source{*lfs.tfs_logfile, ll}, line);
-
     if (ll->is_message()) {
         this->end_of_message(lfs);
     }
+    auto retval = this->matches(line_source{*lfs.tfs_logfile, ll}, line);
 
     lfs.tfs_message_matched[this->lf_index]
-        = lfs.tfs_message_matched[this->lf_index] || match_state;
+        = lfs.tfs_message_matched[this->lf_index] || retval;
     lfs.tfs_lines_for_message[this->lf_index] += 1;
+
+    return retval;
 }
 
 void
@@ -171,7 +172,7 @@ text_accel_source::get_time_offset_for_line(textview_curses& tc, vis_line_t vl)
     } else {
         auto prev_row
             = std::max(prev_umark.value_or(0_vl), prev_emark.value_or(0_vl));
-        auto first_line = this->text_accel_get_line(prev_row);
+        auto* first_line = this->text_accel_get_line(prev_row);
         auto start_tv = first_line->get_timeval();
         diff_tv = curr_tv - start_tv;
     }
@@ -823,8 +824,7 @@ textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
                 ? this->tc_disabled_cursor_role.value()
                 : this->tc_cursor_role.value();
 
-            sa.emplace_back(line_range{orig_line.lr_start, -1},
-                            VC_ROLE.value(role));
+            sa.emplace_back(line_range{0, -1}, VC_ROLE.value(role));
         }
     }
 
@@ -986,7 +986,7 @@ textview_curses::set_user_mark(const bookmark_type_t* bm,
                                vis_line_t vl,
                                bool marked)
 {
-    bookmark_vector<vis_line_t>& bv = this->tc_bookmarks[bm];
+    auto& bv = this->tc_bookmarks[bm];
     bookmark_vector<vis_line_t>::iterator iter;
 
     if (marked) {
@@ -1099,6 +1099,7 @@ textview_curses::set_sub_source(text_sub_source* src)
 std::optional<line_info>
 textview_curses::grep_value_for_line(vis_line_t line, std::string& value_out)
 {
+    // log_debug("grep line %d", line);
     if (this->tc_sub_source
         && line < (int) this->tc_sub_source->text_line_count())
     {
@@ -1112,6 +1113,7 @@ textview_curses::grep_value_for_line(vis_line_t line, std::string& value_out)
             auto new_size = erase_ansi_escapes(value_out);
             value_out.resize(new_size);
         }
+        // log_debug("  line off %lld", retval.li_file_range.fr_offset);
         return retval;
     }
 

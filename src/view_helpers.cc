@@ -154,16 +154,19 @@ open_schema_view()
     schema_tc->redo_search();
 }
 
-static void
+static bool
 open_timeline_view()
 {
     auto* timeline_tc = &lnav_data.ld_views[LNV_TIMELINE];
     auto* timeline_src
         = dynamic_cast<timeline_source*>(timeline_tc->get_sub_source());
 
-    timeline_src->rebuild_indexes();
+    if (!timeline_src->rebuild_indexes()) {
+        return false;
+    }
     timeline_tc->reload_data();
     timeline_tc->redo_search();
+    return true;
 }
 
 class pretty_sub_source : public plain_text_source {
@@ -716,7 +719,7 @@ layout_views()
 
     int preview_height0 = lnav_data.ld_preview_hidden
         ? 0
-        : lnav_data.ld_preview_view[0].get_inner_height();
+        : std::min(10_vl, lnav_data.ld_preview_view[0].get_inner_height());
     if (!lnav_data.ld_preview_hidden
         && lnav_data.ld_preview_view[0].get_overlay_source() != nullptr)
     {
@@ -760,6 +763,8 @@ layout_views()
     switch (lnav_data.ld_mode) {
         case ln_mode_t::FILES:
         case ln_mode_t::FILTER:
+        case ln_mode_t::SEARCH_FILES:
+        case ln_mode_t::SEARCH_FILTERS:
             filter_height = 5;
             break;
         case ln_mode_t::FILE_DETAILS:
@@ -1131,8 +1136,26 @@ eval_example(const help_text& ht, const help_example& ex)
 bool
 toggle_view(textview_curses* toggle_tc)
 {
-    textview_curses* tc = lnav_data.ld_view_stack.top().value_or(nullptr);
-    bool retval = false;
+    auto* tc = lnav_data.ld_view_stack.top().value_or(nullptr);
+    auto retval = false;
+
+    switch (lnav_data.ld_mode) {
+        case ln_mode_t::SQL:
+        case ln_mode_t::COMMAND:
+        case ln_mode_t::EXEC:
+        case ln_mode_t::USER:
+        case ln_mode_t::SEARCH:
+        case ln_mode_t::SEARCH_FILES:
+        case ln_mode_t::SEARCH_FILTERS:
+        case ln_mode_t::SEARCH_SPECTRO_DETAILS: {
+            log_debug("blocking toggle of view while in mode %s",
+                      lnav_mode_strings[lnav::enums::to_underlying(
+                          lnav_data.ld_mode)]);
+            return false;
+        }
+        default:
+            break;
+    }
 
     require(toggle_tc != nullptr);
     require(toggle_tc >= &lnav_data.ld_views[0]);
@@ -1170,7 +1193,12 @@ toggle_view(textview_curses* toggle_tc)
         } else if (toggle_tc == &lnav_data.ld_views[LNV_PRETTY]) {
             open_pretty_view();
         } else if (toggle_tc == &lnav_data.ld_views[LNV_TIMELINE]) {
-            open_timeline_view();
+            if (!open_timeline_view()) {
+                auto al = attr_line_t().append(
+                    "interrupted while opening timeline view"_warning);
+                lnav::prompt::get().p_editor.set_inactive_value(al);
+                return false;
+            }
         } else if (toggle_tc == &lnav_data.ld_views[LNV_HISTOGRAM]) {
             // Rebuild to reflect changes in marks.
             rebuild_hist();
@@ -1197,7 +1225,7 @@ bool
 ensure_view(textview_curses* expected_tc)
 {
     auto* tc = lnav_data.ld_view_stack.top().value_or(nullptr);
-    bool retval = true;
+    auto retval = true;
 
     if (tc != expected_tc) {
         toggle_view(expected_tc);
@@ -1271,7 +1299,7 @@ moveto_cluster(std::optional<vis_line_t> (bookmark_vector<vis_line_t>::*f)(
                const bookmark_type_t* bt,
                vis_line_t top)
 {
-    textview_curses* tc = get_textview_for_mode(lnav_data.ld_mode);
+    auto* tc = get_textview_for_mode(lnav_data.ld_mode);
     auto new_top = next_cluster(f, bt, top);
 
     if (!new_top) {
@@ -1363,20 +1391,20 @@ hist_index_delegate::index_line(logfile_sub_source& lss,
         case LEVEL_FATAL:
         case LEVEL_CRITICAL:
         case LEVEL_ERROR:
-            ht = hist_source2::HT_ERROR;
+            ht = hist_source2::hist_type_t::HT_ERROR;
             break;
         case LEVEL_WARNING:
-            ht = hist_source2::HT_WARNING;
+            ht = hist_source2::hist_type_t::HT_WARNING;
             break;
         default:
-            ht = hist_source2::HT_NORMAL;
+            ht = hist_source2::hist_type_t::HT_NORMAL;
             break;
     }
 
     this->hid_source.add_value(ll->get_time<std::chrono::microseconds>(), ht);
     if (ll->is_marked() || ll->is_expr_marked()) {
         this->hid_source.add_value(ll->get_time<std::chrono::microseconds>(),
-                                   hist_source2::HT_MARK);
+                                   hist_source2::hist_type_t::HT_MARK);
     }
 }
 
@@ -1454,10 +1482,11 @@ lnav_crumb_source()
 
     auto* top_view = top_view_opt.value();
     auto view_index = top_view - lnav_data.ld_views;
+    auto view_str
+        = fmt::format(FMT_STRING(" {} \u25bc "), lnav_view_titles[view_index]);
     retval.emplace_back(
         lnav_view_titles[view_index],
-        attr_line_t().append(lnav::roles::status_title(
-            fmt::format(FMT_STRING(" {} "), lnav_view_titles[view_index]))),
+        attr_line_t().append(lnav::roles::status_title(view_str)),
         view_title_poss,
         view_performer);
 
@@ -1499,6 +1528,22 @@ set_view_mode(ln_mode_t mode)
             lnav_data.ld_view_stack.set_needs_update();
             break;
         }
+        case ln_mode_t::SQL:
+        case ln_mode_t::EXEC:
+        case ln_mode_t::USER:
+        case ln_mode_t::BUSY:
+        case ln_mode_t::COMMAND:
+        case ln_mode_t::SEARCH:
+        case ln_mode_t::SEARCH_FILES:
+        case ln_mode_t::SEARCH_FILTERS:
+        case ln_mode_t::SEARCH_SPECTRO_DETAILS: {
+            if (mode != ln_mode_t::PAGING) {
+                log_debug("prompt is active, ignoring change to mode %s",
+                          lnav_mode_strings[lnav::enums::to_underlying(mode)]);
+                return;
+            }
+            break;
+        }
         case ln_mode_t::FILE_DETAILS: {
             lnav_data.ld_file_details_view.tc_cursor_role
                 = role_t::VCR_DISABLED_CURSOR_LINE;
@@ -1515,9 +1560,18 @@ set_view_mode(ln_mode_t mode)
         default:
             break;
     }
+    breadcrumb_view->vc_enabled = true;
     switch (mode) {
-        case ln_mode_t::SEARCH: {
+        case ln_mode_t::SQL:
+        case ln_mode_t::EXEC:
+        case ln_mode_t::USER:
+        case ln_mode_t::COMMAND:
+        case ln_mode_t::SEARCH:
+        case ln_mode_t::SEARCH_FILES:
+        case ln_mode_t::SEARCH_FILTERS:
+        case ln_mode_t::SEARCH_SPECTRO_DETAILS: {
             lnav_data.ld_status[LNS_DOC].set_needs_update();
+            breadcrumb_view->vc_enabled = false;
             break;
         }
         case ln_mode_t::BREADCRUMBS: {

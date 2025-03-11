@@ -57,27 +57,13 @@ thread_local _log_vtab_data log_vtab_data;
 
 const std::unordered_set<string_fragment, frag_hasher>
     log_vtab_impl::RESERVED_COLUMNS = {
-        "log_line"_frag,
-        "log_time"_frag,
-        "log_level"_frag,
-        "log_part"_frag,
-        "log_actual_time"_frag,
-        "log_idle_msecs"_frag,
-        "log_mark"_frag,
-        "log_comment"_frag,
-        "log_tags"_frag,
-        "log_annotations"_frag,
-        "log_filters"_frag,
-        "log_opid"_frag,
-        "log_user_opid"_frag,
-        "log_format"_frag,
-        "log_format_regex"_frag,
-        "log_time_msecs"_frag,
-        "log_path"_frag,
-        "log_unique_path"_frag,
-        "log_text"_frag,
-        "log_body"_frag,
-        "log_raw_text"_frag,
+        "log_line"_frag,        "log_time"_frag,        "log_level"_frag,
+        "log_part"_frag,        "log_actual_time"_frag, "log_idle_msecs"_frag,
+        "log_mark"_frag,        "log_comment"_frag,     "log_tags"_frag,
+        "log_annotations"_frag, "log_filters"_frag,     "log_opid"_frag,
+        "log_user_opid"_frag,   "log_format"_frag,      "log_format_regex"_frag,
+        "log_time_msecs"_frag,  "log_path"_frag,        "log_unique_path"_frag,
+        "log_text"_frag,        "log_body"_frag,        "log_raw_text"_frag,
         "log_line_hash"_frag,
 };
 
@@ -192,7 +178,8 @@ log_vtab_impl::get_table_statement()
 
         oss << ");\n";
 
-        log_trace("log_vtab_impl.get_table_statement() -> %s", oss.str().c_str());
+        log_trace("log_vtab_impl.get_table_statement() -> %s",
+                  oss.str().c_str());
 
         this->vi_table_statement = oss.str();
     }
@@ -256,7 +243,7 @@ log_vtab_impl::extract(logfile* lf,
                        uint64_t line_number,
                        logline_value_vector& values)
 {
-    auto format = lf->get_format();
+    auto format = lf->get_format_ptr();
 
     this->vi_attrs.clear();
     format->annotate(lf, line_number, this->vi_attrs, values, false);
@@ -325,7 +312,7 @@ log_vtab_impl::is_valid(log_cursor& lc, logfile_sub_source& lss)
         }
     }
 
-    if (lc.lc_opid && lf_iter->get_opid() != lc.lc_opid.value().value) {
+    if (lc.lc_opid && !lf_iter->match_opid_hash(lc.lc_opid.value())) {
         return false;
     }
 
@@ -817,10 +804,11 @@ vt_column(sqlite3_vtab_cursor* cur, sqlite3_context* ctx, int col)
                             struct timeval actual_tv;
                             struct exttm tm;
 
-                            if (lf->get_format()->lf_date_time.scan(
+                            if (lf->get_format_ptr()->lf_date_time.scan(
                                     time_src,
                                     time_range.length(),
-                                    lf->get_format()->get_timestamp_formats(),
+                                    lf->get_format_ptr()
+                                        ->get_timestamp_formats(),
                                     &tm,
                                     actual_tv,
                                     false))
@@ -1002,7 +990,7 @@ vt_column(sqlite3_vtab_cursor* cur, sqlite3_context* ctx, int col)
                     }
                     case log_footer_columns::format_regex: {
                         auto pat_name
-                            = lf->get_format()->get_pattern_name(line_number);
+                            = lf->get_format_ptr()->get_pattern_name(line_number);
                         sqlite3_result_text(ctx,
                                             pat_name.get(),
                                             pat_name.size(),
@@ -1506,7 +1494,7 @@ vt_filter(sqlite3_vtab_cursor* p_vtc,
     p_cur->log_cursor.lc_indexed_lines_range = msg_range::empty();
 
     std::optional<vtab_time_range> log_time_range;
-    std::optional<log_cursor::opid_hash> opid_val;
+    std::optional<uint16_t> opid_val;
     std::vector<log_cursor::string_constraint> log_path_constraints;
     std::vector<log_cursor::string_constraint> log_unique_path_constraints;
 
@@ -1671,9 +1659,7 @@ vt_filter(sqlite3_vtab_cursor* p_vtc,
                                     iter->second.otr_range.tr_end);
                             }
 
-                            opid_val = log_cursor::opid_hash{
-                                static_cast<unsigned int>(
-                                    hash_str(opid.data(), opid.length()))};
+                            opid_val = opid.hash();
                             break;
                         }
                         case log_footer_columns::path: {
@@ -2529,13 +2515,15 @@ log_vtab_manager::register_vtab(std::shared_ptr<log_vtab_impl> vi)
 {
     std::string retval;
 
-    if (this->vm_impls.find(vi->get_name()) == this->vm_impls.end()) {
+    if (this->vm_impls.find(vi->get_name().to_string_fragment())
+        == this->vm_impls.end())
+    {
         std::vector<std::string> primary_keys;
         auto_mem<char, sqlite3_free> errmsg;
         auto_mem<char, sqlite3_free> sql;
         int rc;
 
-        this->vm_impls[vi->get_name()] = vi;
+        this->vm_impls[vi->get_name().to_string_fragment()] = vi;
 
         vi->get_primary_keys(primary_keys);
 
@@ -2557,7 +2545,7 @@ log_vtab_manager::register_vtab(std::shared_ptr<log_vtab_impl> vi)
 }
 
 std::string
-log_vtab_manager::unregister_vtab(intern_string_t name)
+log_vtab_manager::unregister_vtab(string_fragment name)
 {
     std::string retval;
 
@@ -2567,7 +2555,8 @@ log_vtab_manager::unregister_vtab(intern_string_t name)
         auto_mem<char, sqlite3_free> sql;
         __attribute((unused)) int rc;
 
-        sql = sqlite3_mprintf("DROP TABLE IF EXISTS %s", name.get());
+        sql = sqlite3_mprintf(
+            "DROP TABLE IF EXISTS %.*s", name.length(), name.data());
         log_debug("unregister_vtab: %s", sql.in());
         rc = sqlite3_exec(this->vm_db, sql, nullptr, nullptr, nullptr);
 
@@ -2575,6 +2564,16 @@ log_vtab_manager::unregister_vtab(intern_string_t name)
     }
 
     return retval;
+}
+
+std::shared_ptr<log_vtab_impl>
+log_vtab_manager::lookup_impl(string_fragment name) const
+{
+    const auto iter = this->vm_impls.find(name);
+    if (iter != this->vm_impls.end()) {
+        return iter->second;
+    }
+    return nullptr;
 }
 
 bool
@@ -2593,7 +2592,7 @@ log_format_vtab_impl::next(log_cursor& lc, logfile_sub_source& lss)
         return false;
     }
 
-    auto format = lf->get_format();
+    auto format = lf->get_format_ptr();
     if (format->get_name() == this->lfvi_format.get_name()) {
         return true;
     }

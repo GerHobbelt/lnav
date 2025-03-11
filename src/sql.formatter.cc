@@ -28,6 +28,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,7 @@
 
 #include "base/attr_line.hh"
 #include "base/intern_string.hh"
+#include "base/lnav_log.hh"
 #include "sql_help.hh"
 
 static void
@@ -70,7 +72,7 @@ add_space(std::string& str, size_t indent)
 
     if (str.back() == '\n') {
         str.append(indent, ' ');
-    } else {
+    } else if (str.back() != '.') {
         str.push_back(' ');
     }
 }
@@ -115,25 +117,124 @@ format(const attr_line_t& al, int cursor_offset)
 
 namespace sql {
 
-static const std::vector CLEAR_LR = {
-    "FROM"_frag,
-    "SELECT"_frag,
-    "SET"_frag,
-    "WHERE"_frag,
+static bool
+always_close_scope(std::vector<std::string>& scope_stack)
+{
+    return true;
+}
+
+static bool
+never_close_scope(std::vector<std::string>& scope_stack)
+{
+    return false;
+}
+
+static bool
+in_case_close_scope(std::vector<std::string>& scope_stack)
+{
+    if (scope_stack.back() == "CASE"_frag) {
+        return false;
+    }
+    return true;
+}
+
+static bool
+end_close_scope(std::vector<std::string>& scope_stack)
+{
+    if (scope_stack.empty()) {
+        return false;
+    }
+
+    scope_stack.pop_back();
+    return (scope_stack.back() == "CASE"_frag);
+}
+
+struct keyword_attrs {
+    string_fragment ka_keyword;
+    bool ka_clear_left{false};
+    bool ka_clear_right{false};
+    bool (*ka_close_scope_p)(std::vector<std::string>& scope_stack)
+        = always_close_scope;
 };
 
-static void
-check_for_multi_word_clear_left(std::string& str, size_t indent)
+static constexpr std::array<keyword_attrs, 15> ATTRS_FOR_KW = {{
+    {"CASE"_frag, true, false, never_close_scope},
+    {"CREATE"_frag, true, false},
+    {"ELSE"_frag, true, false, in_case_close_scope},
+    {"END"_frag, true, false, end_close_scope},
+    {"EXCEPT"_frag, true, false},
+    {"FROM"_frag, true, true},
+    {"HAVING"_frag, true, true},
+    {"INTERSECT"_frag, true, false},
+    {"SELECT"_frag, true, true},
+    {"SET"_frag, true, true},
+    {"UNION"_frag, true, false},
+    {"VALUES"_frag, true, true},
+    {"WHEN"_frag, true, false, in_case_close_scope},
+    {"WHERE"_frag, true, true},
+    {"WITH"_frag, true, true},
+}};
+
+constexpr auto ATTRS_FOR_KW_DEFAULT
+    = keyword_attrs{""_frag, false, false, never_close_scope};
+
+static const keyword_attrs&
+get_keyword_attrs(const string_fragment& sf)
 {
-    static const auto clear_words = std::vector<const char*>{
-        "ORDER BY",
+    auto iter = std::find_if(
+        ATTRS_FOR_KW.begin(), ATTRS_FOR_KW.end(), [&sf](const auto& x) {
+            return sf.iequal(x.ka_keyword);
+        });
+    if (iter == ATTRS_FOR_KW.end()) {
+        return ATTRS_FOR_KW_DEFAULT;
+    }
+
+    return *iter;
+}
+
+static constexpr auto INDENT_SIZE = size_t{4};
+
+static void
+check_for_multi_word_clear(std::string& str,
+                           std::vector<std::string>& scope_stack)
+{
+    struct clear_rules {
+        const char* word;
+        bool do_right;
+        const char* padding{""};
     };
 
-    for (const auto& words : clear_words) {
+    static constexpr auto clear_words = std::array<clear_rules, 7>{
+        {
+            {" GROUP BY", true},
+            {"INSERT INTO", true},
+            {" ON CONFLICT", false},
+            {" ORDER BY", true},
+            {" LEFT JOIN", false},
+            {" PARTITION BY", false},
+            {"REPLACE INTO", true},
+        },
+    };
+
+    for (const auto& [words, do_right, padding] : clear_words) {
         if (endswith(str.c_str(), words)) {
             auto words_len = strlen(words);
-            str[str.length() - words_len - 1] = '\n';
-            str.insert(str.length() - words_len - 1, indent, ' ');
+            if (str[str.length() - words_len] == ' ') {
+                str[str.length() - words_len] = '\n';
+            }
+            if (scope_stack.size() > 1) {
+                if (do_right) {
+                    scope_stack.pop_back();
+                }
+                str.insert(str.length() - words_len + 1,
+                           (scope_stack.size() - 1) * INDENT_SIZE,
+                           ' ');
+                str.insert(str.length() - words_len + 1, padding);
+            }
+            if (do_right) {
+                clear_right(str);
+                scope_stack.emplace_back(words);
+            }
             break;
         }
     }
@@ -142,14 +243,13 @@ check_for_multi_word_clear_left(std::string& str, size_t indent)
 format_result
 format(const attr_line_t& al, int cursor_offset)
 {
-    static constexpr auto INDENT_SIZE = size_t{4};
-
-    auto indent = size_t{0};
     string_attrs_t funcs;
     std::string retval;
     std::optional<int> cursor_retval;
     std::vector<bool> paren_indents;
+    std::vector<std::string> scope_stack;
 
+    scope_stack.emplace_back();
     for (const auto& attr : al.al_attrs) {
         if (!cursor_retval && cursor_offset < attr.sa_range.lr_start) {
             cursor_retval = retval.size();
@@ -159,43 +259,64 @@ format(const attr_line_t& al, int cursor_offset)
         }
 
         auto sf = al.to_string_fragment(attr);
+        auto indent = (scope_stack.size() - 1) * INDENT_SIZE;
         if (attr.sa_type == &SQL_KEYWORD_ATTR) {
-            auto do_clear = std::count_if(
-                CLEAR_LR.begin(), CLEAR_LR.end(), [&sf](const auto& x) {
-                    return sf.iequal(x);
-                });
-
-            if (do_clear) {
+            const auto& ka = get_keyword_attrs(sf);
+            const auto sf_upper = sf.to_string_with_case_style(
+                string_fragment::case_style::upper);
+            if (ka.ka_clear_left) {
                 if (!paren_indents.empty()) {
                     paren_indents.back() = true;
                 }
-                if (indent > 0) {
-                    indent -= INDENT_SIZE;
+                if (ka.ka_close_scope_p(scope_stack)) {
+                    if (scope_stack.size() > 1) {
+                        scope_stack.pop_back();
+                    }
+                    indent = (scope_stack.size() - 1) * INDENT_SIZE;
                 }
                 clear_left(retval);
+                if (ka.ka_keyword != "END"_frag) {  // XXX dumb special case
+                    scope_stack.emplace_back(sf_upper);
+                }
             }
             add_space(retval, indent);
-            retval.append(sf.to_string_with_case_style(
-                string_fragment::case_style::upper));
-            if (do_clear) {
+            retval.append(sf_upper);
+            if (ka.ka_clear_right) {
                 clear_right(retval);
-                indent += INDENT_SIZE;
             } else {
-                check_for_multi_word_clear_left(retval, indent);
+                check_for_multi_word_clear(retval, scope_stack);
             }
         } else if (attr.sa_type == &SQL_COMMA_ATTR) {
+            retval.append(sf.data(), sf.length());
+            if (paren_indents.empty() || paren_indents.back()) {
+                clear_right(retval);
+            }
+        } else if (attr.sa_type == &SQL_COMMENT_ATTR) {
+            add_space(retval, indent);
             retval.append(sf.data(), sf.length());
             clear_right(retval);
         } else if (attr.sa_type == &SQL_PAREN_ATTR && sf.front() == '(') {
             paren_indents.push_back(false);
-            while (!retval.empty() && isspace(retval.back())) {
+            while (!retval.empty() && isspace(retval.back())
+                   && !endswith(retval, ",\n") && !endswith(retval, "VALUES\n"))
+            {
                 retval.pop_back();
             }
-            retval.push_back(' ');
-            indent += INDENT_SIZE;
+            if (endswith(retval, "OVER")) {
+                paren_indents.back() = true;
+            }
+            add_space(retval, indent);
             retval.append(sf.data(), sf.length());
+            if (scope_stack.back() == "CREATE") {
+                clear_right(retval);
+                paren_indents.back() = true;
+            } else {
+                scope_stack.emplace_back();
+            }
         } else if (attr.sa_type == &SQL_PAREN_ATTR && sf.front() == ')') {
-            indent -= INDENT_SIZE;
+            if (scope_stack.size() > 1) {
+                scope_stack.pop_back();
+            }
             if (!paren_indents.empty()) {
                 if (paren_indents.back()) {
                     retval.push_back('\n');
@@ -208,6 +329,11 @@ format(const attr_line_t& al, int cursor_offset)
             funcs.emplace_back(attr);
             add_space(retval, indent);
             retval.append(sf.data(), sf.length());
+        } else if (attr.sa_type == &SQL_GARBAGE_ATTR && sf.front() == '.') {
+            retval.push_back('.');
+        } else if (attr.sa_type == &SQL_GARBAGE_ATTR && sf.front() == ';') {
+            retval.push_back(';');
+            clear_right(retval);
         } else {
             if (retval.empty() || retval.back() != '(') {
                 add_space(retval, indent);
@@ -226,6 +352,8 @@ format(const attr_line_t& al, int cursor_offset)
                 cursor_retval = retval.length();
             }
         }
+
+        ensure(!scope_stack.empty());
     }
 
     return {retval, cursor_retval.value_or(retval.length())};

@@ -470,6 +470,7 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
                     log_error("sqlite3_step error code: %d", retcode);
                     auto um = sqlite3_error_to_user_message(lnav_data.ld_db)
                                   .with_context_snippets(ec.ec_source)
+                                  .remove_internal_snippets()
                                   .with_note(bound_note)
                                   .move();
 
@@ -506,6 +507,7 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
             cached_chunks);
     }
     gettimeofday(&end_tv, nullptr);
+    lnav_data.ld_mode = old_mode;
     if (retcode == SQLITE_DONE) {
         if (lnav_data.ld_log_source.is_line_meta_changed()) {
             lnav_data.ld_log_source.text_filters_changed();
@@ -523,6 +525,7 @@ execute_sql(exec_context& ec, const std::string& sql, std::string& alt_msg)
             dls.dls_generation += 1;
             if (!dls.dls_row_cursors.empty()) {
                 lnav_data.ld_views[LNV_DB].reload_data();
+                lnav_data.ld_views[LNV_DB].set_top(0_vl);
                 lnav_data.ld_views[LNV_DB].set_left(0);
                 if (lnav_data.ld_flags & LNF_HEADLESS) {
                     if (ec.ec_local_vars.size() == 1) {
@@ -700,9 +703,9 @@ execute_file(exec_context& ec, const std::string& path_and_args)
         auto split_err = split_args_res.unwrapErr();
         auto um = lnav::console::user_message::error(
                       "unable to parse script command-line")
-                      .with_reason(split_err.te_msg)
+                      .with_reason(split_err.se_error.te_msg)
                       .with_snippet(lnav::console::snippet::from(
-                          SRC, lexer.to_attr_line(split_err)))
+                          SRC, lexer.to_attr_line(split_err.se_error)))
                       .move();
 
         return Err(um);
@@ -1317,6 +1320,7 @@ exec_context::add_error_context(lnav::console::user_message& um)
 
     if (um.um_snippets.empty()) {
         um.with_snippets(this->ec_source);
+        um.remove_internal_snippets();
     }
 
     if (this->ec_current_help != nullptr && um.um_help.empty()) {

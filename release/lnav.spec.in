@@ -51,8 +51,8 @@ BuildRequires:  update-desktop-files
 %endif
 
 %description
-The Logfile Navigator, lnav for short, is a curses-based tool for viewing and
-analyzing log files. The value added by lnav over text viewers or editors is
+The Logfile Navigator, lnav for short, is a log/analyzer for the terminal.
+The value added by lnav over text viewers or editors is
 that it takes advantage of any semantic information that can be gleaned from
 the log file, such as timestamps and log levels. Using this extra semantic
 information, lnav can do things like interleaving messages from different
@@ -74,7 +74,7 @@ autoreconf -fiv
 %make_build
 
 %install
-%make_install
+make -d install DESTDIR="%{?buildroot}"
 
 %if %{defined suse_version}
 install -D -m0644 "%{SOURCE1}" "%{buildroot}%{_datadir}/applications/%{name}.desktop"

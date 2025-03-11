@@ -76,16 +76,32 @@ hier_node::child_index(const hier_node* hn) const
     return std::nullopt;
 }
 
+std::optional<section_key_t>
+hier_node::child_key(const hier_node* hn) const
+{
+    for (const auto& named_pair : this->hn_named_children) {
+        if (named_pair.second == hn) {
+            return named_pair.first;
+        }
+    }
+
+    auto index_opt = this->child_index(hn);
+    if (index_opt) {
+        return section_key_t{index_opt.value()};
+    }
+
+    return std::nullopt;
+}
+
 std::optional<hier_node::child_neighbors_result>
-hier_node::child_neighbors(const lnav::document::hier_node* hn,
-                           file_off_t offset) const
+hier_node::child_neighbors(const hier_node* hn, file_off_t offset) const
 {
     auto index_opt = this->child_index(hn);
     if (!index_opt) {
         return std::nullopt;
     }
 
-    hier_node::child_neighbors_result retval;
+    child_neighbors_result retval;
 
     if (index_opt.value() == 0) {
         if (this->hn_parent != nullptr) {
@@ -159,7 +175,7 @@ hier_node::line_neighbors(size_t ln) const
         return std::nullopt;
     }
 
-    hier_node::child_neighbors_result retval;
+    child_neighbors_result retval;
 
     for (const auto& child : this->hn_children) {
         if (child->hn_line_number > ln) {
@@ -403,7 +419,7 @@ discover_metadata(const attr_line_t& al)
 class structure_walker {
 public:
     explicit structure_walker(discover_builder& db)
-        : sw_discover_builder(db), sw_line(db.db_line), sw_range(db.db_range),
+        : sw_discover_builder(db), sw_line(db.db_line),
           sw_scanner(string_fragment::from_str_range(db.db_line.get_string(),
                                                      db.db_range.lr_start,
                                                      db.db_range.lr_end))
@@ -463,8 +479,8 @@ public:
                         section_types_t::comment);
                     this->sw_line.get_attrs().emplace_back(
                         line_range{
-                            this->sw_range.lr_start + el.e_capture.c_begin,
-                            this->sw_range.lr_start + el.e_capture.c_end,
+                            el.e_capture.c_begin,
+                            el.e_capture.c_end,
                         },
                         VC_ROLE.value(role_t::VCR_COMMENT));
                     break;
@@ -514,8 +530,8 @@ public:
                 case DT_H1: {
                     this->sw_line.get_attrs().emplace_back(
                         line_range{
-                            this->sw_range.lr_start + inner_cap.c_begin,
-                            this->sw_range.lr_start + inner_cap.c_end,
+                            inner_cap.c_begin,
+                            inner_cap.c_end,
                         },
                         VC_ROLE.value(role_t::VCR_H1));
                     this->sw_line_number += 1;
@@ -538,24 +554,22 @@ public:
                     }
                     this->sw_line.get_attrs().emplace_back(
                         line_range{
-                            this->sw_range.lr_start
-                                + tokenize_res->tr_capture.c_begin,
-                            this->sw_range.lr_start
-                                + tokenize_res->tr_capture.c_begin,
+                            tokenize_res->tr_capture.c_begin,
+                            tokenize_res->tr_capture.c_begin,
                         },
                         VC_ROLE.value(role_t::VCR_H1));
                     if (file1 == "/dev/null" || file1 == file2) {
                         this->sw_line.get_attrs().emplace_back(
                             line_range{
-                                this->sw_range.lr_start + file2.sf_begin,
-                                this->sw_range.lr_start + file2.sf_end,
+                                file2.sf_begin,
+                                file2.sf_end,
                             },
                             VC_ROLE.value(role_t::VCR_H1));
                     } else {
                         this->sw_line.get_attrs().emplace_back(
                             line_range{
-                                this->sw_range.lr_start + inner_cap.c_begin,
-                                this->sw_range.lr_start + inner_cap.c_end,
+                                inner_cap.c_begin,
+                                inner_cap.c_end,
                             },
                             VC_ROLE.value(role_t::VCR_H1));
                     }
@@ -566,16 +580,14 @@ public:
                     this->drop_open_children();
                     this->sw_line.get_attrs().emplace_back(
                         line_range{
-                            this->sw_range.lr_start
-                                + tokenize_res->tr_capture.c_begin,
-                            this->sw_range.lr_start
-                                + tokenize_res->tr_capture.c_begin,
+                            tokenize_res->tr_capture.c_begin,
+                            tokenize_res->tr_capture.c_begin,
                         },
                         VC_ROLE.value(role_t::VCR_H2));
                     this->sw_line.get_attrs().emplace_back(
                         line_range{
-                            this->sw_range.lr_start + inner_cap.c_begin,
-                            this->sw_range.lr_start + inner_cap.c_end,
+                            inner_cap.c_begin,
+                            inner_cap.c_end,
                         },
                         VC_ROLE.value(role_t::VCR_H2));
                     this->sw_line_number += 1;
@@ -700,10 +712,8 @@ public:
                                 section_types_t::multiline_string);
                             this->sw_line.get_attrs().emplace_back(
                                 line_range{
-                                    this->sw_range.lr_start
-                                        + el.e_capture.c_begin,
-                                    this->sw_range.lr_start
-                                        + el.e_capture.c_end,
+                                    el.e_capture.c_begin,
+                                    el.e_capture.c_end,
                                 },
                                 VC_ROLE.value(role_t::VCR_STRING));
                         }
@@ -886,7 +896,6 @@ private:
 
     discover_builder& sw_discover_builder;
     attr_line_t& sw_line;
-    line_range sw_range;
     data_scanner sw_scanner;
     int sw_depth{0};
     size_t sw_line_number{0};

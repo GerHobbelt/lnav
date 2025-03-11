@@ -61,9 +61,13 @@ const struct itimerval ui_periodic_timer::INTERVAL = {
     {0, std::chrono::duration_cast<std::chrono::microseconds>(350ms).count()},
 };
 
-ui_periodic_timer::ui_periodic_timer() : upt_counter(0)
+ui_periodic_timer::ui_periodic_timer()
 {
     struct sigaction sa;
+
+    if (getenv("lnav_test") != nullptr) {
+        this->upt_deadline = std::chrono::steady_clock::now() + 5s;
+    }
 
     sa.sa_handler = ui_periodic_timer::sigalrm;
     sa.sa_flags = SA_RESTART;
@@ -85,7 +89,14 @@ ui_periodic_timer::singleton()
 void
 ui_periodic_timer::sigalrm(int sig)
 {
-    singleton().upt_counter += 1;
+    auto& upt = singleton();
+
+    if (upt.upt_deadline
+        && std::chrono::steady_clock::now() > upt.upt_deadline.value())
+    {
+        abort();
+    }
+    upt.upt_counter += 1;
 }
 
 alerter&
@@ -166,6 +177,23 @@ mouse_event::is_double_click_in(mouse_button_t button, line_range lr) const
 }
 
 bool
+view_curses::do_update()
+{
+    bool retval = false;
+
+    this->vc_needs_update = false;
+
+    if (!this->vc_visible) {
+        return retval;
+    }
+
+    for (auto* child : this->vc_children) {
+        retval = child->do_update() || retval;
+    }
+    return retval;
+}
+
+bool
 view_curses::handle_mouse(mouse_event& me)
 {
     if (me.me_state != mouse_button_state_t::BUTTON_STATE_DRAGGED) {
@@ -198,7 +226,7 @@ view_curses::handle_mouse(mouse_event& me)
 std::optional<view_curses*>
 view_curses::contains(int x, int y)
 {
-    if (!this->vc_visible) {
+    if (!this->vc_visible || !this->vc_enabled) {
         return std::nullopt;
     }
 
@@ -318,10 +346,19 @@ view_curses::mvwattrline(ncplane* window,
                 break;
 
             default: {
+                if (ch <= 0x1f) {
+                    expanded_line.push_back(0xe2);
+                    expanded_line.push_back(0x90);
+                    expanded_line.push_back(0x80 + ch);
+                    char_index += 1;
+                    lpc += 1;
+                    break;
+                }
+
                 auto exp_read_start = expanded_line.size();
                 auto lpc_start = lpc;
                 auto read_res
-                    = ww898::utf::utf8::read([&line, &expanded_line, &lpc]() {
+                    = ww898::utf::utf8::read([&line, &expanded_line, &lpc] {
                           auto ch = line[lpc++];
                           expanded_line.push_back(ch);
                           return ch;
@@ -376,7 +413,17 @@ view_curses::mvwattrline(ncplane* window,
         if (lr_bytes.lr_start < (int) expanded_line.size()) {
             ncplane_putstr_yx(
                 window, y, x, &expanded_line.c_str()[lr_bytes.lr_start]);
+        } else {
+            // Need to move the cursor so the hline call below goes to the
+            // right place
+            ncplane_cursor_move_yx(window, y, x);
         }
+        nccell clear_cell;
+        nccell_init(&clear_cell);
+        nccell_prime(
+            window, &clear_cell, " ", 0, view_colors::to_channels(base_attrs));
+        ncplane_hline(
+            window, &clear_cell, lr_chars.length() - retval.mr_chars_out);
     }
 
     text_attrs resolved_line_attrs[line_width_chars + 1];
@@ -470,6 +517,8 @@ view_curses::mvwattrline(ncplane* window,
 
                 ncplane_putwc_yx(window, y, x + attr_range.lr_start, be.value);
                 attrs = vc.attrs_for_role(be.role);
+                // clear the BG color, it interferes with the cursor BG
+                attrs.ta_bg_color = styling::color_unit::make_empty();
             } else if (iter->sa_type == &VC_STYLE) {
                 attrs = iter->sa_value.get<text_attrs>();
             } else if (iter->sa_type == &SA_LEVEL) {
@@ -521,11 +570,8 @@ view_curses::mvwattrline(ncplane* window,
 
         cell_attrs.ta_fg_color = vc.ansi_to_theme_color(cell_attrs.ta_fg_color);
         cell_attrs.ta_bg_color = vc.ansi_to_theme_color(cell_attrs.ta_bg_color);
-        ncplane_set_cell_yx(window,
-                            y,
-                            x + lpc,
-                            cell_attrs.ta_attrs,
-                            view_colors::to_channels(cell_attrs));
+        auto chan = view_colors::to_channels(cell_attrs);
+        ncplane_set_cell_yx(window, y, x + lpc, cell_attrs.ta_attrs, chan);
 #if 0
         if (desired_fg == desired_bg) {
             if (desired_bg >= 0
@@ -872,6 +918,16 @@ view_colors::init_roles(const lnav_theme& lt,
              lt.lt_icon_info,
              lt.lt_icon_warning,
              lt.lt_icon_error,
+
+             lt.lt_icon_log_level_trace,
+             lt.lt_icon_log_level_debug,
+             lt.lt_icon_log_level_info,
+             lt.lt_icon_log_level_stats,
+             lt.lt_icon_log_level_notice,
+             lt.lt_icon_log_level_warning,
+             lt.lt_icon_log_level_error,
+             lt.lt_icon_log_level_critical,
+             lt.lt_icon_log_level_fatal,
          })
     {
         size_t index = 0;
@@ -896,10 +952,17 @@ view_colors::init_roles(const lnav_theme& lt,
                         icon_role = role_t::VCR_INFO;
                         break;
                     case ui_icon_t::warning:
+                    case ui_icon_t::log_level_warning:
                         icon_role = role_t::VCR_WARNING;
                         break;
                     case ui_icon_t::error:
+                    case ui_icon_t::log_level_error:
+                    case ui_icon_t::log_level_fatal:
+                    case ui_icon_t::log_level_critical:
                         icon_role = role_t::VCR_ERROR;
+                        break;
+                    default:
+                        icon_role = role_t::VCR_TEXT;
                         break;
                 }
                 this->vc_icons[icon_index]
@@ -984,6 +1047,49 @@ view_colors::init_roles(const lnav_theme& lt,
         = this->to_attrs(lt, lt.lt_style_skewed_time, reporter);
     this->get_role_attrs(role_t::VCR_OFFSET_TIME)
         = this->to_attrs(lt, lt.lt_style_offset_time, reporter);
+    this->get_role_attrs(role_t::VCR_TIME_COLUMN)
+        = this->to_attrs(lt, lt.lt_style_time_column, reporter);
+    {
+        auto& time_to_text
+            = this->get_role_attrs(role_t::VCR_TIME_COLUMN_TO_TEXT);
+        auto time_attrs = this->attrs_for_role(role_t::VCR_TIME_COLUMN);
+        auto text_attrs = this->attrs_for_role(role_t::VCR_TEXT);
+        time_to_text.ra_class_name.clear();
+
+        std::optional<lab_color> fg_as_lab_opt;
+        std::optional<lab_color> bg_as_lab_opt;
+        time_to_text.ra_normal.ta_fg_color = time_attrs.ta_bg_color;
+        if (time_attrs.ta_bg_color.cu_value.is<palette_color>()) {
+            auto pal_index
+                = time_attrs.ta_bg_color.cu_value.get<palette_color>();
+            if (pal_index < vc_active_palette->tc_palette.size()) {
+                fg_as_lab_opt
+                    = vc_active_palette->tc_palette[pal_index].xc_lab_color;
+            }
+        }
+        time_to_text.ra_normal.ta_bg_color = text_attrs.ta_bg_color;
+        if (text_attrs.ta_bg_color.cu_value.is<palette_color>()) {
+            auto pal_index
+                = text_attrs.ta_bg_color.cu_value.get<palette_color>();
+            if (pal_index < vc_active_palette->tc_palette.size()) {
+                bg_as_lab_opt
+                    = vc_active_palette->tc_palette[pal_index].xc_lab_color;
+            }
+        }
+
+        if (fg_as_lab_opt && bg_as_lab_opt) {
+            auto fg_as_lab = fg_as_lab_opt.value();
+            auto bg_as_lab = bg_as_lab_opt.value();
+            auto diff = fg_as_lab.lc_l - bg_as_lab.lc_l;
+            fg_as_lab.lc_l -= diff / 4.0;
+            bg_as_lab.lc_l += diff / 4.0;
+
+            time_to_text.ra_normal.ta_fg_color
+                = vc_active_palette->match_color(fg_as_lab);
+            time_to_text.ra_normal.ta_bg_color
+                = vc_active_palette->match_color(bg_as_lab);
+        }
+    }
     this->get_role_attrs(role_t::VCR_FILE_OFFSET)
         = this->to_attrs(lt, lt.lt_style_file_offset, reporter);
     this->get_role_attrs(role_t::VCR_INVALID_MSG)
@@ -1193,6 +1299,8 @@ view_colors::init_roles(const lnav_theme& lt,
         this->get_role_attrs(role_t::VCR_SELECTED_TEXT) = this->to_attrs(
             default_theme, default_theme.lt_style_selected_text, reporter);
     }
+    this->get_role_attrs(role_t::VCR_FUZZY_MATCH)
+        = this->to_attrs(lt, lt.lt_style_fuzzy_match, reporter);
 
     this->get_role_attrs(role_t::VCR_RE_SPECIAL)
         = this->to_attrs(lt, lt.lt_style_re_special, reporter);

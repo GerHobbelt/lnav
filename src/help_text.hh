@@ -67,21 +67,33 @@ enum class help_parameter_format_t {
     HPF_MULTILINE_TEXT,
     HPF_REGEX,
     HPF_SQL,
+    HPF_SQL_EXPR,
     HPF_INTEGER,
     HPF_NUMBER,
     HPF_DATETIME,
+    HPF_ADJUSTED_TIME,
     HPF_ENUM,
     HPF_FILENAME,
+    HPF_LOCAL_FILENAME,
     HPF_LOADED_FILE,
     HPF_FORMAT_FIELD,
     HPF_NUMERIC_FIELD,
     HPF_DIRECTORY,
     HPF_TIME_FILTER_POINT,
+    HPF_ALL_FILTERS,
+    HPF_ENABLED_FILTERS,
+    HPF_DISABLED_FILTERS,
+    HPF_HIGHLIGHTS,
     HPF_TIMEZONE,
+    HPF_FILE_WITH_ZONE,
     HPF_CONFIG_PATH,
     HPF_CONFIG_VALUE,
     HPF_TAG,
     HPF_LINE_TAG,
+    HPF_LOGLINE_TABLE,
+    HPF_SEARCH_TABLE,
+    HPF_VISIBLE_FILES,
+    HPF_HIDDEN_FILES,
 };
 
 struct help_example {
@@ -244,18 +256,7 @@ struct help_text {
         return *this;
     }
 
-    bool is_trailing_arg() const
-    {
-        switch (this->ht_format) {
-            case help_parameter_format_t::HPF_TEXT:
-            case help_parameter_format_t::HPF_TIME_FILTER_POINT:
-            case help_parameter_format_t::HPF_MULTILINE_TEXT:
-            case help_parameter_format_t::HPF_REGEX:
-                return true;
-            default:
-                return false;
-        }
-    }
+    bool is_trailing_arg() const;
 
     help_text& with_enum_values(
         const std::initializer_list<const char*>& enum_values) noexcept;

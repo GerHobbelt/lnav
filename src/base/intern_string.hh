@@ -193,7 +193,7 @@ struct string_fragment {
 
     iterator end() const { return &this->sf_string[this->sf_end]; }
 
-    bool empty() const { return !this->is_valid() || length() == 0; }
+    constexpr bool empty() const { return !this->is_valid() || length() == 0; }
 
     Result<ssize_t, const char*> codepoint_to_byte_index(
         ssize_t cp_index) const;
@@ -973,6 +973,18 @@ operator==(const intern_string_t& left, const string_fragment& sf)
 {
     return ((int) left.size() == sf.length())
         && (memcmp(left.get(), sf.data(), left.size()) == 0);
+}
+
+inline bool
+operator<(const intern_string_t& left, const string_fragment& sf)
+{
+    return left.to_string_fragment() < sf;
+}
+
+inline bool
+operator<(const string_fragment& lhs, const intern_string_t& rhs)
+{
+    return lhs < rhs.to_string_fragment();
 }
 
 inline bool

@@ -51,6 +51,10 @@ listview_curses::listview_curses() : lv_scroll(noop_func{}) {}
 std::optional<view_curses*>
 listview_curses::contains(int x, int y)
 {
+    if (!this->vc_visible) {
+        return std::nullopt;
+    }
+
     auto child = view_curses::contains(x, y);
     if (child) {
         return child;
@@ -89,9 +93,7 @@ listview_curses::update_top_from_selection()
         return;
     }
 
-    if (this->lv_sync_selection_and_top || height <= this->lv_tail_space
-        || this->lv_top > this->lv_selection)
-    {
+    if (this->lv_sync_selection_and_top || height <= this->lv_tail_space) {
         this->set_top(this->lv_selection);
         return;
     }
@@ -99,13 +101,22 @@ listview_curses::update_top_from_selection()
     auto layout = this->layout_for_row(this->lv_selection);
     auto min_top_for_sel
         = vis_line_t(this->lv_selection - layout.lr_above_line_heights.size());
-    if (this->lv_top < min_top_for_sel) {
+    if (this->lv_top > this->lv_selection) {
+        if (this->lv_head_space > 0_vl) {
+            this->set_top(this->lv_selection
+                          - vis_line_t(layout.lr_above_line_heights.size())
+                              / 2_vl);
+        } else {
+            this->lv_top = this->lv_selection;
+        }
+    } else if (this->lv_top < min_top_for_sel) {
         this->set_top(min_top_for_sel);
-    } else if (this->lv_top == this->lv_selection) {
+    } else if (this->lv_top == this->lv_selection && this->lv_head_space > 0_vl)
+    {
         if (!layout.lr_above_line_heights.empty()) {
             auto avail_height = height - layout.lr_desired_row_height;
             if (layout.lr_above_line_heights.front() < avail_height) {
-                this->lv_top -= 1_vl;
+                this->lv_top -= this->lv_head_space;
             }
         }
     }
@@ -227,12 +238,14 @@ listview_curses::handle_key(const ncinput& ch)
 
         case '\r':
         case 'j':
+        case KEY_CTRL('N'):
         case NCKEY_DOWN:
         case NCKEY_ENTER:
             this->shift_selection(shift_amount_t::down_line);
             break;
 
         case 'k':
+        case KEY_CTRL('P'):
         case NCKEY_UP:
             this->shift_selection(shift_amount_t::up_line);
             break;
@@ -302,32 +315,26 @@ listview_curses::handle_key(const ncinput& ch)
                 }
             }
 
-            auto rows_avail = this->rows_available(this->lv_top, RD_DOWN);
-            if (rows_avail == 0_vl) {
-                rows_avail = 2_vl;
-            } else if (rows_avail > 2_vl) {
-                rows_avail -= 1_vl;
-            }
-            auto top_for_last = this->get_top_for_last_row();
+            auto inner_height = this->get_inner_height();
+            if (this->lv_top + height * 2 > inner_height) {
+                // NB: getting the last row can read from the file, which can
+                // be expensive.  Use sparingly.
+                auto top_for_last = this->get_top_for_last_row();
 
-            if ((this->lv_top < top_for_last)
-                && (this->lv_top + rows_avail > top_for_last))
-            {
-                this->set_top(top_for_last);
-                if (this->lv_selection <= top_for_last) {
-                    this->set_selection(top_for_last + 1_vl);
-                }
-            } else if (this->lv_top > top_for_last) {
-                this->set_top(top_for_last);
-            } else {
-                this->shift_top(rows_avail);
-
-                auto inner_height = this->get_inner_height();
-                if (this->lv_selectable && this->lv_top >= top_for_last
-                    && inner_height > 0_vl)
-                {
+                if (this->lv_top + height > inner_height) {
                     this->set_selection(inner_height - 1_vl);
+                } else {
+                    this->set_top(top_for_last);
                 }
+            } else {
+                auto rows_avail = this->rows_available(this->lv_top, RD_DOWN);
+                if (rows_avail == 0_vl) {
+                    rows_avail = 2_vl;
+                } else if (rows_avail > 2_vl) {
+                    rows_avail -= 1_vl;
+                }
+
+                this->shift_top(rows_avail);
             }
             break;
         }

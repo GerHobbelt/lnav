@@ -290,9 +290,7 @@ std::multimap<std::string, const help_text*> sqlite_function_help;
 static int
 handle_db_list(void* ptr, int ncols, char** colvalues, char** colnames)
 {
-    struct sqlite_metadata_callbacks* smc;
-
-    smc = (struct sqlite_metadata_callbacks*) ptr;
+    auto* smc = (struct sqlite_metadata_callbacks*) ptr;
 
     smc->smc_db_list[colvalues[1]] = std::vector<std::string>();
     if (!smc->smc_database_list) {
@@ -303,14 +301,14 @@ handle_db_list(void* ptr, int ncols, char** colvalues, char** colnames)
 }
 
 struct table_list_data {
-    struct sqlite_metadata_callbacks* tld_callbacks;
+    sqlite_metadata_callbacks* tld_callbacks;
     db_table_map_t::iterator* tld_iter;
 };
 
 static int
 handle_table_list(void* ptr, int ncols, char** colvalues, char** colnames)
 {
-    struct table_list_data* tld = (struct table_list_data*) ptr;
+    auto* tld = (struct table_list_data*) ptr;
 
     (*tld->tld_iter)->second.emplace_back(colvalues[0]);
     if (!tld->tld_callbacks->smc_table_list) {
@@ -349,7 +347,7 @@ walk_sqlite_metadata(sqlite3* db, sqlite_metadata_callbacks& smc)
     for (auto iter = smc.smc_db_list.begin(); iter != smc.smc_db_list.end();
          ++iter)
     {
-        struct table_list_data tld = {&smc, &iter};
+        table_list_data tld = {&smc, &iter};
         auto_mem<char, sqlite3_free> query;
 
         query = sqlite3_mprintf(
@@ -420,8 +418,8 @@ schema_collation_list(void* ptr, int ncols, char** colvalues, char** colnames)
 static int
 schema_db_list(void* ptr, int ncols, char** colvalues, char** colnames)
 {
-    struct sqlite_metadata_callbacks* smc = (sqlite_metadata_callbacks*) ptr;
-    std::string& schema_out = *((std::string*) smc->smc_userdata);
+    auto smc = (sqlite_metadata_callbacks*) ptr;
+    auto& schema_out = *((std::string*) smc->smc_userdata);
     auto_mem<char, sqlite3_free> attach_sql;
 
     attach_sql = sqlite3_mprintf(
@@ -435,8 +433,8 @@ schema_db_list(void* ptr, int ncols, char** colvalues, char** colnames)
 static int
 schema_table_list(void* ptr, int ncols, char** colvalues, char** colnames)
 {
-    struct sqlite_metadata_callbacks* smc = (sqlite_metadata_callbacks*) ptr;
-    std::string& schema_out = *((std::string*) smc->smc_userdata);
+    auto smc = (sqlite_metadata_callbacks*) ptr;
+    auto& schema_out = *((std::string*) smc->smc_userdata);
     auto_mem<char, sqlite3_free> create_sql;
 
     create_sql = sqlite3_mprintf("%s;\n", colvalues[1]);
@@ -461,7 +459,7 @@ schema_foreign_key_list(void* ptr, int ncols, char** colvalues, char** colnames)
 void
 dump_sqlite_schema(sqlite3* db, std::string& schema_out)
 {
-    struct sqlite_metadata_callbacks schema_sql_meta_callbacks = {
+    sqlite_metadata_callbacks schema_sql_meta_callbacks = {
         schema_collation_list,
         schema_db_list,
         schema_table_list,
@@ -994,7 +992,7 @@ sql_keyword_re()
 constexpr string_attr_type<void> SQL_COMMAND_ATTR("sql_command");
 constexpr string_attr_type<void> SQL_KEYWORD_ATTR("sql_keyword");
 constexpr string_attr_type<void> SQL_IDENTIFIER_ATTR("sql_ident");
-constexpr string_attr_type<void> SQL_FUNCTION_ATTR("sql_func");
+constexpr string_attr_type<std::string> SQL_FUNCTION_ATTR("sql_func");
 constexpr string_attr_type<void> SQL_STRING_ATTR("sql_string");
 constexpr string_attr_type<void> SQL_NUMBER_ATTR("sql_number");
 constexpr string_attr_type<void> SQL_OPERATOR_ATTR("sql_oper");
@@ -1104,22 +1102,10 @@ annotate_sql_statement(attr_line_t& al)
            != sa.end())
     {
         string_attrs_t::const_iterator piter;
-        bool found_open = false;
-        ssize_t lpc;
 
         start = iter->sa_range.lr_end;
-        for (lpc = iter->sa_range.lr_end; lpc < (int) line.length(); lpc++) {
-            if (line[lpc] == '(') {
-                found_open = true;
-                break;
-            }
-            if (!isspace(line[lpc])) {
-                break;
-            }
-        }
-
-        if (found_open) {
-            ssize_t pstart = lpc + 1;
+        if (start < line.length() && line[start] == '(') {
+            ssize_t pstart = start + 1;
             int depth = 1;
 
             while (depth > 0
@@ -1140,7 +1126,10 @@ annotate_sql_statement(attr_line_t& al)
             } else {
                 func_range.lr_end = piter->sa_range.lr_end;
             }
-            sa.emplace_back(func_range, SQL_FUNCTION_ATTR.value());
+            auto func_name = al.to_string_fragment(iter);
+            sa.emplace_back(
+                func_range,
+                SQL_FUNCTION_ATTR.value(tolower(func_name.to_string())));
         }
     }
 
@@ -1209,9 +1198,8 @@ find_sql_help_for_line(const attr_line_t& al, size_t x)
             return false;
         }
 
-        const std::string& str = al.get_string();
-        const line_range& lr = sa.sa_range;
-        int lpc;
+        const auto& str = al.get_string();
+        const auto& lr = sa.sa_range;
 
         if (sa.sa_type == &SQL_FUNCTION_ATTR) {
             if (!sa.sa_range.contains(x)) {
@@ -1219,7 +1207,8 @@ find_sql_help_for_line(const attr_line_t& al, size_t x)
             }
         }
 
-        for (lpc = lr.lr_start; lpc < lr.lr_end; lpc++) {
+        auto lpc = lr.lr_start;
+        for (; lpc < lr.lr_end; lpc++) {
             if (!isalnum(str[lpc]) && str[lpc] != '_') {
                 break;
             }

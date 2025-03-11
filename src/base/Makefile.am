@@ -38,6 +38,7 @@ noinst_HEADERS = \
     file_range.hh \
     from_trait.hh \
     fs_util.hh \
+    fts_fuzzy_match.hh \
     func_util.hh \
     future_util.hh \
     guard_util.hh \
@@ -66,6 +67,7 @@ noinst_HEADERS = \
     opt_util.hh \
     paths.hh \
     piper.file.hh \
+    progress.hh \
     result.h \
     snippet_highlighters.hh \
     string_attr_type.hh \
@@ -84,6 +86,7 @@ libbase_a_SOURCES = \
     color_spaces.cc \
     date_time_scanner.cc \
     fs_util.cc \
+    fts_fuzzy_match.cc \
 	humanize.cc \
 	humanize.network.cc \
 	humanize.time.cc \
@@ -116,6 +119,7 @@ test_base_SOURCES = \
     humanize.time.tests.cc \
     intern_string.tests.cc \
     lnav.gzip.tests.cc \
+    math_util.tests.cc \
     string_util.tests.cc \
     test_base.cc
 

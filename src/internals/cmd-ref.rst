@@ -101,6 +101,17 @@
 ----
 
 
+.. _clear_adjusted_log_time:
+
+:clear-adjusted-log-time
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+  Clear the adjusted time for the focused line in the view
+
+
+----
+
+
 .. _clear_comment:
 
 :clear-comment
@@ -336,7 +347,7 @@
 :delete-filter *pattern*
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-  Delete the filter created with [1m:filter-in[0m or [1m:filter-out[0m
+  Delete the filter created with ':filter-in' or ':filter-out'
 
   **Parameters**
     * **pattern\*** --- The regular expression to match
@@ -382,10 +393,10 @@
 :delete-search-table *table-name*
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-  Create an SQL table based on a regex search
+  Delete a search table
 
   **Parameters**
-    * **table-name\*** --- The name of the table to create
+    * **table-name** --- The name of the table to delete
 
   **Examples**
     To delete the search table named 'task_durations':
@@ -1575,6 +1586,20 @@
 
   **See Also**
     :ref:`alt_msg`, :ref:`append_to`, :ref:`cd`, :ref:`create_logline_table`, :ref:`create_search_table`, :ref:`dot_dump`, :ref:`dot_read`, :ref:`echo`, :ref:`echo`, :ref:`echoln`, :ref:`eval`, :ref:`export_session_to`, :ref:`export_session_to`, :ref:`open`, :ref:`pipe_line_to`, :ref:`pipe_to`, :ref:`rebuild`, :ref:`redirect_to`, :ref:`redirect_to`, :ref:`sh`, :ref:`write_json_to`, :ref:`write_json_to`, :ref:`write_json_to`, :ref:`write_jsonlines_to`, :ref:`write_jsonlines_to`, :ref:`write_jsonlines_to`, :ref:`write_raw_to`, :ref:`write_raw_to`, :ref:`write_raw_to`, :ref:`write_screen_to`, :ref:`write_screen_to`, :ref:`write_screen_to`, :ref:`write_table_to`, :ref:`write_table_to`, :ref:`write_table_to`, :ref:`write_to`, :ref:`write_to`, :ref:`write_view_to`, :ref:`write_view_to`, :ref:`write_view_to`, :ref:`xopen`
+
+----
+
+
+.. _write_debug_log_to:
+
+:write-debug-log-to *path*
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  Write lnav's internal debug log to the given path.  This can be useful if the `-d` flag was not passed on the command line
+
+  **Parameters**
+    * **path\*** --- The destination path for the debug log
+
 
 ----
 

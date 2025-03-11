@@ -146,7 +146,8 @@ private:
 
     static void sigalrm(int sig);
 
-    volatile sig_atomic_t upt_counter;
+    volatile sig_atomic_t upt_counter{0};
+    std::optional<std::chrono::steady_clock::time_point> upt_deadline;
 };
 
 class alerter {
@@ -277,7 +278,7 @@ private:
     role_attrs vc_role_attrs[lnav::enums::to_underlying(role_t::VCR__MAX)];
     styling::color_unit vc_ansi_to_theme[8];
     short vc_highlight_colors[HI_COLOR_COUNT];
-    block_elem_t vc_icons[lnav::enums::to_underlying(ui_icon_t::error) + 1];
+    block_elem_t vc_icons[lnav::enums::to_underlying(ui_icon_t::log_level_fatal) + 1];
 };
 
 enum class mouse_button_t {
@@ -353,21 +354,7 @@ public:
     /**
      * Update the curses display.
      */
-    virtual bool do_update()
-    {
-        bool retval = false;
-
-        this->vc_needs_update = false;
-
-        if (!this->vc_visible) {
-            return retval;
-        }
-
-        for (auto* child : this->vc_children) {
-            retval = child->do_update() || retval;
-        }
-        return retval;
-    }
+    virtual bool do_update();
 
     virtual bool handle_mouse(mouse_event& me);
 

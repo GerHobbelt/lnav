@@ -30,6 +30,8 @@
  */
 
 #include <algorithm>
+#include <chrono>
+#include <memory>
 #include <utility>
 
 #include "log_format.hh"
@@ -73,13 +75,15 @@ public:
         return scan_no_match{"not a piper capture"};
     }
 
+    static constexpr int TIMESTAMP_SIZE = 28;
+
     void annotate(logfile* lf,
                   uint64_t line_number,
                   string_attrs_t& sa,
                   logline_value_vector& values,
                   bool annotate_module) const override
     {
-        auto lr = line_range{0, 0};
+        auto lr = line_range{0, TIMESTAMP_SIZE};
         sa.emplace_back(lr, L_TIMESTAMP.value());
         log_format::annotate(lf, line_number, sa, values, annotate_module);
     }
@@ -88,7 +92,7 @@ public:
                      shared_buffer_ref& sbr,
                      bool full_message) override
     {
-        this->plf_cached_line.resize(32);
+        this->plf_cached_line.resize(TIMESTAMP_SIZE);
         auto tlen = sql_strftime(this->plf_cached_line.data(),
                                  this->plf_cached_line.size(),
                                  ll.get_timeval(),
@@ -126,7 +130,7 @@ public:
         auto retval = std::make_shared<piper_log_format>(*this);
 
         retval->lf_specialized = true;
-        retval->lf_timestamp_flags |= ETF_ZONE_SET;
+        retval->lf_timestamp_flags |= ETF_ZONE_SET | ETF_MICROS_SET;
         return retval;
     }
 
@@ -192,8 +196,8 @@ public:
                        shared_buffer_ref& sbr,
                        scan_batch_context& sbc) override
     {
-        struct exttm log_time;
-        struct timeval log_tv;
+        exttm log_time;
+        timeval log_tv;
         string_fragment ts;
         std::optional<string_fragment> level;
         const char* last_pos;
@@ -220,7 +224,7 @@ public:
                                         &level))
             != nullptr)
         {
-            log_level_t level_val = log_level_t::LEVEL_UNKNOWN;
+            auto level_val = log_level_t::LEVEL_UNKNOWN;
             if (level) {
                 level_val = string2level(level->data(), level->length());
             }
@@ -257,7 +261,7 @@ public:
             }
 
             dst.emplace_back(li.li_file_range.fr_offset, log_tv, level_val);
-            return scan_match{0};
+            return scan_match{5};
         }
 
         return scan_no_match{"no patterns matched"};
@@ -301,6 +305,11 @@ public:
                     LEVEL_META, line, to_line_range(level_cap->trim()));
                 values.lvv_values.back().lv_meta.lvm_format
                     = (log_format*) this;
+
+                lr = to_line_range(level_cap->trim());
+                if (lr.lr_end != line.length()) {
+                    sa.emplace_back(lr, L_LEVEL.value());
+                }
             }
         }
 
@@ -1284,8 +1293,8 @@ public:
                     if (sbr_sf_opt) {
                         auto sbr_sf = sbr_sf_opt.value().trim();
                         date_time_scanner dts;
-                        struct exttm tm;
-                        struct timeval tv;
+                        exttm tm;
+                        timeval tv;
 
                         if (dts.scan(sbr_sf.data(),
                                      sbr_sf.length(),
@@ -1555,9 +1564,11 @@ public:
     {
         auto& sbr = values.lvv_sbr;
         ws_separated_string ss(sbr.get_data(), sbr.length());
+        std::optional<line_range> date_lr;
+        std::optional<line_range> time_lr;
 
         for (auto iter = ss.begin(); iter != ss.end(); ++iter) {
-            string_fragment sf = *iter;
+            auto sf = *iter;
 
             if (iter.index() >= this->wlf_field_defs.size()) {
                 sa.emplace_back(line_range{sf.sf_begin, -1},
@@ -1574,6 +1585,11 @@ public:
             auto lr = line_range(sf.sf_begin, sf.sf_end);
 
             if (lr.is_valid()) {
+                if (fd.fd_meta.lvm_name == F_DATE) {
+                    date_lr = lr;
+                } else if (fd.fd_meta.lvm_name == F_TIME) {
+                    time_lr = lr;
+                }
                 values.lvv_values.emplace_back(fd.fd_meta, sbr, lr);
                 if (sf.startswith("\"")) {
                     auto& meta = values.lvv_values.back().lv_meta;
@@ -1591,6 +1607,17 @@ public:
                 values.lvv_values.back().lv_meta.lvm_user_hidden
                     = fd.fd_root_meta->lvm_user_hidden;
             }
+        }
+        if (time_lr) {
+            auto ts_lr = time_lr.value();
+            if (date_lr) {
+                if (date_lr->lr_end + 1 == time_lr->lr_start) {
+                    ts_lr.lr_start = date_lr->lr_start;
+                    ts_lr.lr_end = time_lr->lr_end;
+                }
+            }
+
+            sa.emplace_back(ts_lr, L_TIMESTAMP.value());
         }
         log_format::annotate(lf, line_number, sa, values, annotate_module);
     }
@@ -2090,6 +2117,7 @@ public:
                     if (kvp.first == "time" || kvp.first == "ts") {
                         sa.emplace_back(value_lr, L_TIMESTAMP.value());
                     } else if (kvp.first == "level") {
+                        sa.emplace_back(value_lr, L_LEVEL.value());
                     } else if (kvp.first == "msg") {
                         sa.emplace_back(value_lr, SA_BODY.value());
                     } else if (kvp.second.is<logfmt::parser::quoted_value>()

@@ -58,7 +58,6 @@ noinst_LIBRARIES = \
 	libtestdummy.a
 
 libtestdummy_a_SOURCES = \
-    ../src/lnav.prompt.cc \
 	test_stubs.cc
 
 DUMMY_OBJS = \
@@ -126,6 +125,9 @@ LDADD = \
     $(top_builddir)/src/yajlpp/libyajlpp.a \
     $(top_builddir)/src/base/libbase.a \
     $(top_builddir)/src/pugixml/libpugixml.a \
+	$(top_builddir)/src/tailer/libtailerservice.a \
+	$(top_builddir)/src/tailer/libtailercommon.a \
+	$(top_builddir)/src/tailer/libtailerpp.a \
     $(top_builddir)/src/third-party/base64/lib/libbase64.a \
     $(top_builddir)/src/third-party/date/src/libdatepp.a \
 	$(top_builddir)/src/third-party/notcurses/src/lib/liblnavnotcurses.a \
@@ -410,6 +412,7 @@ dist_noinst_DATA = \
 	textfile_0.md \
 	textfile_ansi.0 \
 	textfile_ansi_expanding.0 \
+	textfile_ctrl.0 \
 	textfile_json_indented.0 \
 	textfile_json_long.0 \
 	textfile_json_one_line.0 \

@@ -29,6 +29,7 @@
  * @file logfile.cc
  */
 
+#include <filesystem>
 #include <utility>
 
 #include "logfile.hh"
@@ -483,7 +484,7 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                         best_match = std::make_pair(curr.get(), sm);
                         prev_index_size = this->lf_index.size();
                     } else {
-                        log_info(
+                        log_trace(
                             "  scan with format (%s) matched, but "
                             "is low quality (%d)",
                             curr->get_name().c_str(),
@@ -824,7 +825,7 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
         size_t begin_size = this->lf_index.size();
         bool record_rusage = this->lf_index.size() == 1;
         off_t begin_index_size = this->lf_index_size;
-        size_t rollback_size = 0;
+        size_t rollback_size = 0, rollback_index_start = 0;
 
         if (record_rusage) {
             getrusage(RUSAGE_SELF, &begin_rusage);
@@ -846,6 +847,7 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
                 rollback_size += 1;
             }
             this->lf_index.pop_back();
+            rollback_index_start = this->lf_index.size();
             rollback_size += 1;
 
             if (!this->lf_index.empty()) {
@@ -1059,8 +1061,18 @@ logfile::rebuild_index(std::optional<ui_clock::time_point> deadline)
             this->lf_index_size = li.li_file_range.next_offset();
 
             if (this->lf_logline_observer != nullptr) {
-                this->lf_logline_observer->logline_new_lines(
+                auto nl_rc = this->lf_logline_observer->logline_new_lines(
                     *this, this->begin() + old_size, this->end(), sbr);
+                if (rollback_size > 0 && old_size == rollback_index_start
+                    && nl_rc)
+                {
+                    log_debug(
+                        "%s: rollbacked line %zu matched filter, forcing "
+                        "full sort",
+                        this->lf_filename.c_str(),
+                        rollback_index_start);
+                    sort_needed = true;
+                }
             }
 
             if (this->lf_logfile_observer != nullptr) {
@@ -1294,7 +1306,7 @@ logfile::read_line(logfile::iterator ll)
 }
 
 Result<logfile::read_file_result, std::string>
-logfile::read_file()
+logfile::read_file(read_format_t format)
 {
     if (this->lf_stat.st_size > line_buffer::MAX_LINE_BUFFER_SIZE) {
         return Err(std::string("file is too large to read"));
@@ -1303,15 +1315,19 @@ logfile::read_file()
     auto retval = read_file_result{};
     retval.rfr_content.reserve(this->lf_stat.st_size);
 
-    retval.rfr_content.append(this->lf_line_buffer.get_piper_header_size(),
-                              '\x16');
+    if (format == read_format_t::with_framing) {
+        retval.rfr_content.append(this->lf_line_buffer.get_piper_header_size(),
+                                  '\x16');
+    }
     for (auto iter = this->begin(); iter != this->end(); ++iter) {
         const auto fr = this->get_file_range(iter);
         retval.rfr_range.fr_metadata |= fr.fr_metadata;
         retval.rfr_range.fr_size = fr.next_offset();
         auto sbr = TRY(this->lf_line_buffer.read_range(fr));
 
-        if (this->lf_line_buffer.is_piper()) {
+        if (format == read_format_t::with_framing
+            && this->lf_line_buffer.is_piper())
+        {
             retval.rfr_content.append(22, '\x16');
         }
         retval.rfr_content.append(sbr.get_data(), sbr.length());

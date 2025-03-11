@@ -37,6 +37,7 @@
 #include "ansi_scrubber.hh"
 #include "auto_mem.hh"
 #include "config.h"
+#include "fts_fuzzy_match.hh"
 #include "intervaltree/IntervalTree.h"
 #include "lnav_log.hh"
 #include "pcrepp/pcre2pp.hh"
@@ -140,7 +141,10 @@ attr_line_t::from_table_cell_content(const string_fragment& content,
             auto copy_len = index - copy_start;
             retval.al_string.append(&content[copy_start], copy_len);
             copy_start = index + 1;
+            auto lr = line_range{(int) retval.al_string.size(), -1};
             retval.al_string.append(replacement);
+            lr.lr_end = retval.al_string.size();
+            retval.al_attrs.emplace_back(lr, VC_ROLE.value(role_t::VCR_HIDDEN));
             replacement = ""sv;
         }
     }
@@ -164,6 +168,9 @@ attr_line_t::from_table_cell_content(const string_fragment& content,
         auto bytes_to_remove = remove_up_to_bytes - bytes_to_keep_at_front;
         retval.erase(bytes_to_keep_at_front, bytes_to_remove);
         retval.insert(bytes_to_keep_at_front, ELLIPSIS);
+        auto lr = line_range{(int) bytes_to_keep_at_front,
+                             (int) bytes_to_keep_at_front + ELLIPSIS.length()};
+        retval.al_attrs.emplace_back(lr, VC_ROLE.value(role_t::VCR_HIDDEN));
     }
 
     return retval;
@@ -622,7 +629,8 @@ attr_line_t::apply_hide()
     auto& sa = this->al_attrs;
 
     for (auto& sattr : sa) {
-        if (sattr.sa_type == &SA_HIDDEN && sattr.sa_range.length() > 1) {
+        if (sattr.sa_type == &SA_HIDDEN) {
+            auto icon = sattr.sa_value.get<ui_icon_t>();
             auto& lr = sattr.sa_range;
 
             std::for_each(sa.begin(), sa.end(), [&](string_attr& attr) {
@@ -634,8 +642,21 @@ attr_line_t::apply_hide()
             this->al_string.replace(lr.lr_start, lr.length(), "\xE2\x8B\xAE");
             shift_string_attrs(sa, lr.lr_start + 1, -(lr.length() - 3));
             sattr.sa_type = &VC_ICON;
-            sattr.sa_value = ui_icon_t::hidden;
+            sattr.sa_value = icon;
             lr.lr_end = lr.lr_start + 3;
+        } else if (sattr.sa_type == &SA_REPLACED) {
+            auto& lr = sattr.sa_range;
+
+            std::for_each(sa.begin(), sa.end(), [&](string_attr& attr) {
+                if (attr.sa_type == &VC_STYLE && lr.contains(attr.sa_range)) {
+                    attr.sa_type = &SA_REMOVED;
+                }
+            });
+
+            this->al_string.erase(lr.lr_start, lr.length());
+            shift_string_attrs(sa, lr.lr_start, -lr.length());
+            sattr.sa_type = &SA_REMOVED;
+            lr.lr_end = lr.lr_start;
         }
     }
 }
@@ -714,6 +735,37 @@ attr_line_t::column_to_byte_index(size_t column) const
 {
     return string_fragment::from_str(this->al_string)
         .column_to_byte_index(column);
+}
+
+attr_line_t&
+attr_line_t::highlight_fuzzy_matches(const std::string& pattern)
+{
+    if (pattern.empty()) {
+        return *this;
+    }
+
+    constexpr size_t MATCH_COUNT = 256;
+    uint8_t matches[MATCH_COUNT];
+    int score;
+
+    memset(matches, 0, sizeof(matches));
+    if (!fts::fuzzy_match(pattern.c_str(),
+                          this->al_string.c_str(),
+                          score,
+                          matches,
+                          MATCH_COUNT))
+    {
+        return *this;
+    }
+
+    for (auto lpc = size_t{0}; (lpc == 0 || matches[lpc]) && lpc < MATCH_COUNT;
+         lpc++)
+    {
+        auto lr = line_range{matches[lpc], matches[lpc] + 1};
+        this->al_attrs.emplace_back(lr, VC_ROLE.value(role_t::VCR_FUZZY_MATCH));
+    }
+
+    return *this;
 }
 
 line_range

@@ -52,6 +52,7 @@ breadcrumb_curses::breadcrumb_curses()
     this->bc_match_view.set_height(0_vl);
     this->bc_match_view.set_show_scrollbar(true);
     this->bc_match_view.set_default_role(role_t::VCR_POPUP);
+    this->bc_match_view.set_head_space(0_vl);
     this->add_child_view(&this->bc_match_view);
 }
 
@@ -97,16 +98,32 @@ breadcrumb_curses::do_update()
         }
 
         this->bc_displayed_crumbs.emplace_back(
-            line_range{(int) accum_width,
-                       (int) (accum_width + elem_width),
-                       line_range::unit::codepoint},
+            line_range{
+                (int) accum_width,
+                (int) (accum_width + elem_width),
+                line_range::unit::codepoint,
+            },
             crumb_index);
         crumbs_line.append(" \uff1a"_breadcrumb);
     }
 
+    if (!this->vc_enabled) {
+        for (auto& attr : crumbs_line.al_attrs) {
+            if (attr.sa_type != &VC_ROLE) {
+                continue;
+            }
+
+            auto role = attr.sa_value.get<role_t>();
+            if (role == role_t::VCR_STATUS_TITLE) {
+                attr.sa_value = role_t::VCR_STATUS_DISABLED_TITLE;
+            }
+        }
+    }
+
     line_range lr{0, static_cast<int>(width)};
-    mvwattrline(
-        this->bc_window, this->vc_y, 0, crumbs_line, lr, role_t::VCR_STATUS);
+    auto default_role = this->vc_enabled ? role_t::VCR_STATUS
+                                         : role_t::VCR_INACTIVE_STATUS;
+    mvwattrline(this->bc_window, this->vc_y, 0, crumbs_line, lr, default_role);
 
     if (this->bc_selected_crumb) {
         this->bc_match_view.set_x(sel_crumb_offset);
@@ -134,6 +151,9 @@ breadcrumb_curses::reload_data()
                                   this->bc_current_search,
                                   128)
         | lnav::itertools::sort_with(breadcrumb::possibility::sort_cmp);
+    for (auto& al : this->bc_similar_values) {
+        al.p_display_value.highlight_fuzzy_matches(this->bc_current_search);
+    }
     if (selected_crumb_ref.c_key.is<std::string>()
         && selected_crumb_ref.c_expected_input
             != breadcrumb::crumb::expected_input_t::anything)
@@ -353,8 +373,7 @@ breadcrumb_curses::handle_key(const ncinput& ch)
 }
 
 void
-breadcrumb_curses::perform_selection(
-    breadcrumb_curses::perform_behavior_t behavior)
+breadcrumb_curses::perform_selection(perform_behavior_t behavior)
 {
     if (!this->bc_selected_crumb) {
         return;
@@ -379,7 +398,9 @@ breadcrumb_curses::perform_selection(
             case perform_behavior_t::always:
                 break;
         }
-        selected_crumb_ref.c_performer(new_value);
+        if (this->bc_perform_handler) {
+            this->bc_perform_handler(selected_crumb_ref.c_performer, new_value);
+        }
     } else if (!this->bc_current_search.empty()) {
         switch (selected_crumb_ref.c_expected_input) {
             case breadcrumb::crumb::expected_input_t::exact:
@@ -395,7 +416,10 @@ breadcrumb_curses::perform_selection(
                 break;
             }
             case breadcrumb::crumb::expected_input_t::anything:
-                selected_crumb_ref.c_performer(this->bc_current_search);
+                if (this->bc_perform_handler) {
+                    this->bc_perform_handler(selected_crumb_ref.c_performer,
+                                             this->bc_current_search);
+                }
                 break;
         }
     }
