@@ -460,6 +460,7 @@ files_sub_source::text_selection_changed(textview_curses& tc)
     auto sel = files_model::from_selection(tc.get_selection());
     std::vector<attr_line_t> details;
 
+    this->fss_details_mtime = std::chrono::microseconds::zero();
     sel.match(
         [](files_model::no_selection) {},
 
@@ -486,10 +487,11 @@ files_sub_source::text_selection_changed(textview_curses& tc)
                 }
             }
         },
-        [&details](const files_model::file_selection& fs) {
+        [&details, this](const files_model::file_selection& fs) {
             static constexpr auto NAME_WIDTH = 17;
 
             auto lf = *fs.sb_iter;
+            this->fss_details_mtime = lf->get_modified_time();
             auto path = lf->get_filename();
             auto actual_path = lf->get_actual_path();
             auto format = lf->get_format();
@@ -547,18 +549,16 @@ files_sub_source::text_selection_changed(textview_curses& tc)
                     .right_justify(NAME_WIDTH)
                     .append(": ")
                     .append(fmt::to_string(lf->get_text_format())));
-            details.emplace_back(
-                attr_line_t()
-                    .append("Last Modified"_h3)
-                    .right_justify(NAME_WIDTH)
-                    .append(": ")
-                    .append(lnav::to_rfc3339_string(
-                        convert_log_time_to_local(
-                            std::chrono::duration_cast<std::chrono::seconds>(
-                                lf->get_modified_time())
-                                .count()),
-                        0,
-                        'T')));
+            details.emplace_back(attr_line_t()
+                                     .append("Last Modified"_h3)
+                                     .right_justify(NAME_WIDTH)
+                                     .append(": ")
+                                     .append(lnav::to_rfc3339_string(
+                                         convert_log_time_to_local(
+
+                                             lf->get_stat().st_mtime),
+                                         0,
+                                         'T')));
             details.emplace_back(
                 attr_line_t()
                     .append("Size"_h3)

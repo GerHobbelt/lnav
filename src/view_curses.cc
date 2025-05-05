@@ -29,13 +29,12 @@
  * @file view_curses.cc
  */
 
-#ifdef __CYGWIN__
-#    include <alloca.h>
-#endif
-
 #include <chrono>
 #include <cmath>
+#include <iterator>
 #include <string>
+
+#include "view_curses.hh"
 
 #include <curses.h>
 #include <zlib.h>
@@ -51,7 +50,6 @@
 #include "lnav_config.hh"
 #include "shlex.hh"
 #include "uniwidth.h"
-#include "view_curses.hh"
 #include "xterm_mouse.hh"
 
 using namespace std::chrono_literals;
@@ -651,17 +649,6 @@ view_colors::view_colors()
           styling::color_unit::from_palette({7}),
       }
 {
-    size_t color_index = 0;
-    for (int z = 0; z < 6; z++) {
-        for (int x = 1; x < 6; x += 2) {
-            for (int y = 1; y < 6; y += 2) {
-                short fg = 16 + x + (y * 6) + (z * 6 * 6);
-
-                this->vc_highlight_colors[color_index++] = fg;
-            }
-        }
-    }
-
     auto text_default = text_attrs{};
     text_default.ta_fg_color = styling::color_unit::from_palette(COLOR_WHITE);
     text_default.ta_bg_color = styling::color_unit::from_palette(COLOR_BLACK);
@@ -727,6 +714,36 @@ public:
         }
     }
 };
+
+std::optional<lab_color>
+view_colors::to_lab_color(const styling::color_unit& color)
+{
+    if (color.cu_value.is<palette_color>()) {
+        auto pal_index = color.cu_value.get<palette_color>();
+        if (pal_index < vc_active_palette->tc_palette.size()) {
+            if (this->vc_notcurses != nullptr && pal_index == COLOR_BLACK) {
+                // We use this as the default background, so try to get the
+                // real default from the terminal.
+                uint32_t chan = 0;
+                notcurses_default_background(this->vc_notcurses, &chan);
+
+                unsigned r = 0, g = 0, b = 0;
+
+                ncchannel_rgb8(chan, &r, &g, &b);
+                auto rgb = rgb_color{(short) r, (short) g, (short) b};
+                return lab_color{rgb};
+            }
+
+            return vc_active_palette->tc_palette[pal_index].xc_lab_color;
+        }
+    } else if (color.cu_value.is<rgb_color>()) {
+        auto rgb = color.cu_value.get<rgb_color>();
+
+        return lab_color{rgb};
+    }
+
+    return std::nullopt;
+}
 
 uint64_t
 view_colors::to_channels(const text_attrs& ta)
@@ -1055,6 +1072,17 @@ view_colors::init_roles(const lnav_theme& lt,
         = this->to_attrs(lt, lt.lt_style_offset_time, reporter);
     this->get_role_attrs(role_t::VCR_TIME_COLUMN)
         = this->to_attrs(lt, lt.lt_style_time_column, reporter);
+    this->get_role_attrs(role_t::VCR_POPUP)
+        = this->to_attrs(lt, lt.lt_style_popup, reporter);
+    this->get_role_attrs(role_t::VCR_POPUP_BORDER)
+        = this->to_attrs(lt, lt.lt_style_popup_border, reporter);
+    this->get_role_attrs(role_t::VCR_INLINE_CODE)
+        = this->to_attrs(lt, lt.lt_style_inline_code, reporter);
+    this->get_role_attrs(role_t::VCR_QUOTED_CODE)
+        = this->to_attrs(lt, lt.lt_style_quoted_code, reporter);
+    this->get_role_attrs(role_t::VCR_CODE_BORDER)
+        = this->to_attrs(lt, lt.lt_style_code_border, reporter);
+
     {
         auto& time_to_text
             = this->get_role_attrs(role_t::VCR_TIME_COLUMN_TO_TEXT);
@@ -1062,27 +1090,11 @@ view_colors::init_roles(const lnav_theme& lt,
         auto text_attrs = this->attrs_for_role(role_t::VCR_TEXT);
         time_to_text.ra_class_name.clear();
 
-        std::optional<lab_color> fg_as_lab_opt;
-        std::optional<lab_color> bg_as_lab_opt;
         time_to_text.ra_normal.ta_fg_color = time_attrs.ta_bg_color;
-        if (time_attrs.ta_bg_color.cu_value.is<palette_color>()) {
-            auto pal_index
-                = time_attrs.ta_bg_color.cu_value.get<palette_color>();
-            if (pal_index < vc_active_palette->tc_palette.size()) {
-                fg_as_lab_opt
-                    = vc_active_palette->tc_palette[pal_index].xc_lab_color;
-            }
-        }
         time_to_text.ra_normal.ta_bg_color = text_attrs.ta_bg_color;
-        if (text_attrs.ta_bg_color.cu_value.is<palette_color>()) {
-            auto pal_index
-                = text_attrs.ta_bg_color.cu_value.get<palette_color>();
-            if (pal_index < vc_active_palette->tc_palette.size()) {
-                bg_as_lab_opt
-                    = vc_active_palette->tc_palette[pal_index].xc_lab_color;
-            }
-        }
 
+        auto fg_as_lab_opt = to_lab_color(time_attrs.ta_bg_color);
+        auto bg_as_lab_opt = to_lab_color(text_attrs.ta_bg_color);
         if (fg_as_lab_opt && bg_as_lab_opt) {
             auto fg_as_lab = fg_as_lab_opt.value();
             auto bg_as_lab = bg_as_lab_opt.value();
@@ -1090,10 +1102,95 @@ view_colors::init_roles(const lnav_theme& lt,
             fg_as_lab.lc_l -= diff / 4.0;
             bg_as_lab.lc_l += diff / 4.0;
 
-            time_to_text.ra_normal.ta_fg_color
-                = vc_active_palette->match_color(fg_as_lab);
-            time_to_text.ra_normal.ta_bg_color
-                = vc_active_palette->match_color(bg_as_lab);
+            time_to_text.ra_normal.ta_fg_color = this->match_color(
+                styling::color_unit::from_rgb(fg_as_lab.to_rgb()));
+            time_to_text.ra_normal.ta_bg_color = this->match_color(
+                styling::color_unit::from_rgb(bg_as_lab.to_rgb()));
+        }
+
+        if (bg_as_lab_opt) {
+            auto bg_as_lab = bg_as_lab_opt.value();
+            std::vector<std::pair<double, size_t>> contrasting;
+            for (const auto& [index, tcolor] :
+                 lnav::itertools::enumerate(vc_active_palette->tc_palette))
+            {
+                if (index < 16) {
+                    continue;
+                }
+                if (bg_as_lab.sufficient_contrast(tcolor.xc_lab_color)) {
+                    contrasting.emplace_back(
+                        bg_as_lab.deltaE(tcolor.xc_lab_color), index);
+                }
+            }
+
+            log_info("found %zu contrasting colors for highlights",
+                     contrasting.size());
+            if (contrasting.empty()) {
+                for (auto lpc = size_t{0}; lpc < HI_COLOR_COUNT; lpc++) {
+                    this->vc_highlight_colors[lpc] = 16;
+                }
+            } else {
+                std::stable_sort(
+                    contrasting.begin(), contrasting.end(), std::greater{});
+                for (auto lpc = size_t{0}; lpc < HI_COLOR_COUNT; lpc++) {
+                    this->vc_highlight_colors[lpc]
+                        = contrasting[lpc % contrasting.size()].second;
+                }
+            }
+            if (lt.lt_style_cursor_line.pp_value.sc_background_color.empty()) {
+                auto adjusted_cursor = bg_as_lab;
+                if (adjusted_cursor.lc_l < 50) {
+                    adjusted_cursor.lc_l += 18;
+                } else {
+                    adjusted_cursor.lc_l -= 15;
+                }
+                auto new_cursor_bg = this->match_color(
+                    styling::color_unit::from_rgb(adjusted_cursor.to_rgb()));
+                this->get_role_attrs(role_t::VCR_CURSOR_LINE)
+                    .ra_normal.ta_bg_color
+                    = new_cursor_bg;
+            }
+            if (lt.lt_style_popup.pp_value.sc_background_color.empty()) {
+                auto adjusted_cursor = bg_as_lab;
+                if (adjusted_cursor.lc_l < 50) {
+                    adjusted_cursor.lc_l += 30;
+                } else {
+                    adjusted_cursor.lc_l -= 30;
+                }
+                auto new_cursor_bg = this->match_color(
+                    styling::color_unit::from_rgb(adjusted_cursor.to_rgb()));
+                this->get_role_attrs(role_t::VCR_POPUP).ra_normal.ta_bg_color
+                    = new_cursor_bg;
+            }
+            if (lt.lt_style_inline_code.pp_value.sc_background_color.empty()) {
+                auto adjusted_cursor = bg_as_lab;
+                if (adjusted_cursor.lc_l < 50) {
+                    adjusted_cursor.lc_l = 10;
+                } else {
+                    adjusted_cursor.lc_l -= 25;
+                }
+                auto new_cursor_bg = this->match_color(
+                    styling::color_unit::from_rgb(adjusted_cursor.to_rgb()));
+                this->get_role_attrs(role_t::VCR_INLINE_CODE)
+                    .ra_normal.ta_bg_color
+                    = new_cursor_bg;
+            }
+            if (lt.lt_style_quoted_code.pp_value.sc_background_color.empty()) {
+                auto adjusted_cursor = bg_as_lab;
+                if (adjusted_cursor.lc_l < 50) {
+                    adjusted_cursor.lc_l = 10;
+                } else {
+                    adjusted_cursor.lc_l -= 25;
+                }
+                auto new_cursor_bg = this->match_color(
+                    styling::color_unit::from_rgb(adjusted_cursor.to_rgb()));
+                this->get_role_attrs(role_t::VCR_QUOTED_CODE)
+                    .ra_normal.ta_bg_color
+                    = new_cursor_bg;
+                this->get_role_attrs(role_t::VCR_CODE_BORDER)
+                    .ra_normal.ta_bg_color
+                    = new_cursor_bg;
+            }
         }
     }
     this->get_role_attrs(role_t::VCR_FILE_OFFSET)
@@ -1236,10 +1333,6 @@ view_colors::init_roles(const lnav_theme& lt,
     this->get_role_attrs(role_t::VCR_INACTIVE_ALERT_STATUS)
         = this->to_attrs(lt, lt.lt_style_inactive_alert_status, reporter);
 
-    this->get_role_attrs(role_t::VCR_POPUP)
-        = this->to_attrs(lt, lt.lt_style_popup, reporter);
-    this->get_role_attrs(role_t::VCR_POPUP_BORDER)
-        = this->to_attrs(lt, lt.lt_style_popup_border, reporter);
     this->get_role_attrs(role_t::VCR_FOCUSED)
         = this->to_attrs(lt, lt.lt_style_focused, reporter);
     this->get_role_attrs(role_t::VCR_DISABLED_FOCUSED)
@@ -1265,12 +1358,6 @@ view_colors::init_roles(const lnav_theme& lt,
             = this->to_attrs(lt, bar_sc, reporter);
     }
 
-    this->get_role_attrs(role_t::VCR_INLINE_CODE)
-        = this->to_attrs(lt, lt.lt_style_inline_code, reporter);
-    this->get_role_attrs(role_t::VCR_QUOTED_CODE)
-        = this->to_attrs(lt, lt.lt_style_quoted_code, reporter);
-    this->get_role_attrs(role_t::VCR_CODE_BORDER)
-        = this->to_attrs(lt, lt.lt_style_code_border, reporter);
     this->get_role_attrs(role_t::VCR_KEYWORD)
         = this->to_attrs(lt, lt.lt_style_keyword, reporter);
     this->get_role_attrs(role_t::VCR_STRING)
@@ -1390,6 +1477,9 @@ view_colors::color_for_ident(const char* str, size_t len) const
     }
 
     const auto offset = index % HI_COLOR_COUNT;
+    if (this->vc_highlight_colors[offset] == 0) {
+        return styling::color_unit::EMPTY;
+    }
     auto retval = styling::color_unit::from_palette(
         palette_color{static_cast<uint8_t>(this->vc_highlight_colors[offset])});
 

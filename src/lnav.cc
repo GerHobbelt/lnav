@@ -32,10 +32,6 @@
  * a bit.
  */
 
-#ifdef __CYGWIN__
-#    include <alloca.h>
-#endif
-
 #include <locale.h>
 #include <signal.h>
 #include <stdio.h>
@@ -1027,7 +1023,9 @@ struct refresh_status_bars {
             prompt.p_editor.set_inactive_value(cancel_msg);
         }
 
-        lnav_data.ld_view_stack.do_update();
+        if (!lnav_data.ld_log_source.is_indexing_in_progress()) {
+            lnav_data.ld_view_stack.do_update();
+        }
         if (this->rsb_top_source->update_time(current_time)) {
             lnav_data.ld_status[LNS_TOP].set_needs_update();
         }
@@ -1182,7 +1180,8 @@ looper()
               height = (SELECT height FROM lnav_views WHERE lnav_views.name = lnav_views_echo.name),
               inner_height = (SELECT inner_height FROM lnav_views WHERE lnav_views.name = lnav_views_echo.name),
               top_time = (SELECT top_time FROM lnav_views WHERE lnav_views.name = lnav_views_echo.name),
-              search = (SELECT search FROM lnav_views WHERE lnav_views.name = lnav_views_echo.name)
+              search = (SELECT search FROM lnav_views WHERE lnav_views.name = lnav_views_echo.name),
+              selection = (SELECT selection FROM lnav_views WHERE lnav_views.name = lnav_views_echo.name)
           WHERE EXISTS (SELECT * FROM lnav_views WHERE name = lnav_views_echo.name AND
                     (
                         lnav_views.top != lnav_views_echo.top OR
@@ -1190,7 +1189,8 @@ looper()
                         lnav_views.height != lnav_views_echo.height OR
                         lnav_views.inner_height != lnav_views_echo.inner_height OR
                         lnav_views.top_time != lnav_views_echo.top_time OR
-                        lnav_views.search != lnav_views_echo.search
+                        lnav_views.search != lnav_views_echo.search OR
+                        lnav_views.selection != lnav_views_echo.selection
                     ))
         )"
 #else
@@ -1201,7 +1201,8 @@ looper()
               height = orig.height,
               inner_height = orig.inner_height,
               top_time = orig.top_time,
-              search = orig.search
+              search = orig.search,
+              selection = orig.selection
           FROM (SELECT * FROM lnav_views) AS orig
           WHERE orig.name = lnav_views_echo.name AND
                 (
@@ -1210,7 +1211,8 @@ looper()
                     orig.height != lnav_views_echo.height OR
                     orig.inner_height != lnav_views_echo.inner_height OR
                     orig.top_time != lnav_views_echo.top_time OR
-                    orig.search != lnav_views_echo.search
+                    orig.search != lnav_views_echo.search OR
+                    orig.selection != lnav_views_echo.selection
                 )
         )"
 #endif
@@ -1640,7 +1642,7 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
 
     lnav_data.ld_status[LNS_TOP].set_title("top");
     lnav_data.ld_status[LNS_TOP].set_y(0);
-    lnav_data.ld_status[LNS_TOP].set_default_role(role_t::VCR_INACTIVE_STATUS);
+    lnav_data.ld_status[LNS_TOP].set_enabled(false);
     lnav_data.ld_status[LNS_TOP].set_data_source(top_source.get());
     lnav_data.ld_status[LNS_BOTTOM].set_title("bottom");
     lnav_data.ld_status[LNS_BOTTOM].set_y(-2);
@@ -1706,12 +1708,10 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
             mouse_i.handle_mouse(nc, ch);
         };
         id.id_unhandled_handler = [](const char* keyseq) {
-            auto enc_len = lnav_config.lc_ui_keymap.size() * 2;
-            auto encoded_name = (char*) alloca(enc_len);
-
+            stack_buf allocator;
             log_info("unbound keyseq: %s", keyseq);
-            json_ptr::encode(
-                encoded_name, enc_len, lnav_config.lc_ui_keymap.c_str());
+            auto encoded_name
+                = json_ptr::encode(lnav_config.lc_ui_keymap, allocator);
             // XXX we should have a hotkey for opening a prompt that is
             // pre-filled with a suggestion that the user can complete.
             // This quick-fix key could be used for other stuff as well
@@ -2370,6 +2370,7 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
 
         if (handle_winch(&sc)) {
             got_user_input = true;
+            next_status_update_time = ui_now;
             layout_views();
         }
 
@@ -3022,7 +3023,9 @@ SELECT tbl_name FROM sqlite_master WHERE sql LIKE 'CREATE VIRTUAL TABLE%'
     lnav_data.ld_config_paths.insert(lnav_data.ld_config_paths.begin(),
                                      "/etc/lnav");
 
-    if (lnav_data.ld_debug_log_name != DEFAULT_DEBUG_LOG) {
+    if (!lnav_data.ld_debug_log_name.empty()
+        && lnav_data.ld_debug_log_name != DEFAULT_DEBUG_LOG)
+    {
         lnav_log_level = lnav_log_level_t::TRACE;
     }
 

@@ -368,6 +368,9 @@ public:
     std::optional<bookmark_metadata*> find_bookmark_metadata(
         vis_line_t vl) const
     {
+        if (vl >= this->lss_filtered_index.size()) {
+            return std::nullopt;
+        }
         return this->find_bookmark_metadata(this->at(vl));
     }
 
@@ -749,6 +752,11 @@ public:
     std::optional<json_string> text_row_details(const textview_curses& tc);
 
     void reload_config(error_reporter& reporter);
+
+    bool is_indexing_in_progress() const
+    {
+        return this->lss_indexing_in_progress;
+    }
 
 protected:
     void text_accel_display_changed() { this->clear_line_size_cache(); }

@@ -52,6 +52,7 @@
 #include "ptimec.hh"
 #include "readline_highlighters.hh"
 #include "scn/scan.h"
+#include "spookyhash/SpookyV2.h"
 #include "sql_util.hh"
 #include "sqlite-extension-func.hh"
 #include "sqlitepp.hh"
@@ -443,7 +444,9 @@ logline_value::to_string() const
                                 == value_kind_t::VALUE_W3C_QUOTED
                             ? unquote_w3c
                             : unquote;
-                        char unquoted_str[this->lv_frag.length()];
+                        stack_buf allocator;
+                        auto* unquoted_str
+                            = allocator.allocate(this->lv_frag.length());
                         size_t unquoted_len;
 
                         unquoted_len = unquote_func(unquoted_str,
@@ -517,7 +520,9 @@ logline_value::to_string_fragment(ArenaAlloc::Alloc<char>& alloc) const
                                 == value_kind_t::VALUE_W3C_QUOTED
                             ? unquote_w3c
                             : unquote;
-                        char unquoted_str[this->lv_frag.length()];
+                        stack_buf allocator;
+                        auto* unquoted_str
+                            = allocator.allocate(this->lv_frag.length());
                         size_t unquoted_len;
 
                         unquoted_len = unquote_func(unquoted_str,
@@ -928,12 +933,31 @@ struct json_log_userdata {
         yajlpp_parse_context* ypc)
     {
         const auto field_frag = ypc->get_path_as_string_fragment();
-        auto vd_iter
-            = this->jlu_format->elf_value_def_frag_map.find(field_frag);
+        auto* format = this->jlu_format;
 
-        if (vd_iter != this->jlu_format->elf_value_def_frag_map.end()) {
+        if (this->jlu_read_order_index < format->elf_value_def_read_order.size()
+            && format->elf_value_def_read_order[this->jlu_read_order_index]
+                    .first
+                == field_frag)
+        {
+            return format
+                ->elf_value_def_read_order[this->jlu_read_order_index++]
+                .second;
+        }
+
+        format->elf_value_def_read_order.resize(this->jlu_read_order_index);
+        auto vd_iter = format->elf_value_def_frag_map.find(field_frag);
+        if (vd_iter != format->elf_value_def_frag_map.end()) {
+            format->elf_value_def_read_order.emplace_back(vd_iter->first,
+                                                          vd_iter->second);
+            this->jlu_read_order_index += 1;
             return vd_iter->second;
         }
+
+        auto owned_frag = field_frag.to_owned(format->elf_allocator);
+        format->elf_value_def_frag_map[owned_frag] = nullptr;
+        format->elf_value_def_read_order.emplace_back(owned_frag, nullptr);
+        this->jlu_read_order_index += 1;
         return nullptr;
     }
 
@@ -952,6 +976,9 @@ struct json_log_userdata {
         }
         this->jlu_sub_line_count += res.vlcr_count;
         this->jlu_quality += res.vlcr_line_format_count;
+        if (res.vlcr_line_format_index) {
+            this->jlu_format_hits[res.vlcr_line_format_index.value()] = true;
+        }
     }
 
     external_log_format* jlu_format{nullptr};
@@ -965,11 +992,14 @@ struct json_log_userdata {
     size_t jlu_line_size{0};
     size_t jlu_sub_start{0};
     uint32_t jlu_quality{0};
+    uint32_t jlu_strikes{0};
+    std::vector<bool> jlu_format_hits;
     shared_buffer_ref& jlu_shared_buffer;
     scan_batch_context* jlu_batch_context;
     std::optional<string_fragment> jlu_opid_frag;
     std::optional<std::string> jlu_subid;
     exttm jlu_exttm;
+    size_t jlu_read_order_index{0};
 };
 
 static int read_json_field(yajlpp_parse_context* ypc,
@@ -1417,6 +1447,7 @@ external_log_format::scan_json(std::vector<logline>& dst,
     jlu.jlu_line_value = sbr.get_data();
     jlu.jlu_line_size = sbr.length();
     jlu.jlu_handle = handle;
+    jlu.jlu_format_hits.resize(this->jlf_line_format.size());
     if (yajl_parse(handle, line_data, sbr.length()) == yajl_status_ok
         && yajl_complete_parse(handle) == yajl_status_ok)
     {
@@ -1485,6 +1516,27 @@ external_log_format::scan_json(std::vector<logline>& dst,
             ll.set_valid_utf(jlu.jlu_valid_utf);
             dst.emplace_back(ll);
         }
+
+        if (!this->lf_specialized) {
+            static const intern_string_t ts_field
+                = intern_string::lookup("__timestamp__", -1);
+            static const intern_string_t level_field
+                = intern_string::lookup("__level__");
+            for (const auto& [index, jfe] :
+                 lnav::itertools::enumerate(this->jlf_line_format))
+            {
+                if (jfe.jfe_type != json_log_field::VARIABLE
+                    || jfe.jfe_value.pp_value == ts_field
+                    || jfe.jfe_value.pp_value == level_field
+                    || jfe.jfe_default_value != "-")
+                {
+                    continue;
+                }
+                if (!jlu.jlu_format_hits[index]) {
+                    jlu.jlu_strikes += 1;
+                }
+            }
+        }
     } else {
         unsigned char* msg;
         int line_count = 2;
@@ -1515,7 +1567,10 @@ external_log_format::scan_json(std::vector<logline>& dst,
         }
     }
 
-    return scan_match{jlu.jlu_quality};
+    if (jlu.jlu_quality > 0) {
+        jlu.jlu_quality += 3000;
+    }
+    return scan_match{jlu.jlu_quality, jlu.jlu_strikes};
 }
 
 log_format::scan_result_t
@@ -2425,6 +2480,7 @@ external_log_format::get_subline(const logline& ll,
         jlu.jlu_line = &ll;
         jlu.jlu_handle = handle;
         jlu.jlu_line_value = sbr.get_data();
+        jlu.jlu_format_hits.resize(this->jlf_line_format.size());
 
         yajl_status parse_status = yajl_parse(
             handle, (const unsigned char*) sbr.get_data(), sbr.length());
@@ -3996,7 +4052,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
             = intern_string::lookup("__timestamp__");
         static const intern_string_t level_field
             = intern_string::lookup("__level__");
-        json_format_element& jfe = *iter;
+        auto& jfe = *iter;
 
         if (startswith(jfe.jfe_value.pp_value.get(), "/")) {
             jfe.jfe_value.pp_value
@@ -4041,7 +4097,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                                     .append(" is not a defined value"))
                             .with_snippet(jfe.jfe_value.to_snippet()));
                 } else {
-                    vd_iter->second->vd_used_in_line_format = true;
+                    vd_iter->second->vd_line_format_index = format_index;
                     switch (vd_iter->second->vd_meta.lvm_kind) {
                         case value_kind_t::VALUE_INTEGER:
                         case value_kind_t::VALUE_FLOAT:
@@ -4416,14 +4472,13 @@ external_log_format::value_line_count(const value_def* vd,
         }
     }
 
-    if (vd->vd_meta.is_hidden()) {
-        retval.vlcr_count = 0;
-        return retval;
-    }
-
-    if (vd->vd_used_in_line_format) {
+    if (vd->vd_line_format_index) {
         retval.vlcr_line_format_count += 1;
         retval.vlcr_count -= 1;
+        retval.vlcr_line_format_index = vd->vd_line_format_index;
+    } else if (vd->vd_meta.is_hidden()) {
+        retval.vlcr_count = 0;
+        return retval;
     }
 
     return retval;
@@ -4638,6 +4693,9 @@ log_format::tm_for_display(logfile::iterator ll, string_fragment sf)
     auto adjusted_time = ll->get_timeval();
     exttm retval;
 
+    retval.et_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::microseconds{adjusted_time.tv_usec})
+                         .count();
     if (this->lf_timestamp_flags & ETF_NANOS_SET) {
         timeval actual_tv;
         exttm tm;
@@ -4649,12 +4707,10 @@ log_format::tm_for_display(logfile::iterator ll, string_fragment sf)
                                     false))
         {
             adjusted_time.tv_usec = actual_tv.tv_usec;
+            retval.et_nsec = tm.et_nsec;
         }
     }
     gmtime_r(&adjusted_time.tv_sec, &retval.et_tm);
-    retval.et_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                         std::chrono::microseconds{adjusted_time.tv_usec})
-                         .count();
     retval.et_flags = this->lf_timestamp_flags;
     if (this->lf_timestamp_flags & ETF_ZONE_SET
         && this->lf_date_time.dts_zoned_to_local)

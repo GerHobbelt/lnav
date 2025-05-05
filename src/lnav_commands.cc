@@ -446,9 +446,10 @@ com_set_file_timezone(exec_context& ec,
                 options_hier->foh_generation += 1;
                 auto& coll = options_hier->foh_path_to_collection["/"];
 
-                log_info("setting timezone for %s to %s",
+                log_info("setting timezone for %s to %s (%s)",
                          pattern.c_str(),
-                         args[1].c_str());
+                         args[1].c_str(),
+                         tz->name().c_str());
                 coll.foc_pattern_to_options[pattern] = lnav::file_options{
                     {intern_string_t{}, source_location{}, tz},
                 };
@@ -797,6 +798,7 @@ com_goto(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
             vis_line_t vl = tc->get_selection(), new_vl;
             bool done = false;
             auto rt = parse_res.unwrap();
+            log_info("  goto relative time: %s", rt.to_string().c_str());
 
             if (rt.is_relative()) {
                 injector::get<relative_time&, last_relative_time_tag>() = rt;
@@ -3369,6 +3371,7 @@ com_config(exec_context& ec,
                     }
 
                     if (!errors.empty()) {
+                        lnav_data.ld_winched = true;
                         lnav_config = rollback_lnav_config;
                         reload_config(errors_ignored);
                         return Err(errors.back());

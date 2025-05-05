@@ -132,8 +132,6 @@ set(TIME_FORMATS
         "%Y-%m"
         "%Y/%m/%d"
         "%Y/%m"
-        "%s.%f"
-
 )
 
 set(GEN_SRCS "")
@@ -759,6 +757,14 @@ add_library(
         third-party/tlx/container/btree_multimap.hpp
         third-party/tlx/container/btree_multiset.hpp
         third-party/tlx/container/btree_set.hpp
+
+        third-party/hat-trie/include/tsl/htrie_set.h
+        third-party/hat-trie/include/tsl/htrie_hash.h
+        third-party/hat-trie/include/tsl/htrie_map.h
+        third-party/hat-trie/include/tsl/array-hash/array_map.h
+        third-party/hat-trie/include/tsl/array-hash/array_hash.h
+        third-party/hat-trie/include/tsl/array-hash/array_growth_policy.h
+        third-party/hat-trie/include/tsl/array-hash/array_set.h
 )
 
 set(lnav_SRCS lnav.cc)
@@ -769,6 +775,7 @@ target_include_directories(diag PUBLIC . fmtlib ${CMAKE_CURRENT_BINARY_DIR}
         third-party/date/include
         third-party/prqlc-c
         third-party/rapidyaml
+        third-party/hat-trie/include
         ${CURSES_INCLUDE_DIRS}
 )
 target_compile_options(diag PRIVATE ${CURSES_CFLAGS})

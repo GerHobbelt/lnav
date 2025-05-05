@@ -96,12 +96,6 @@
                         "color": "Olive",
                         "bold": true
                     },
-                    "cursor-line": {
-                        "color": "Cyan1",
-                        "background-color": "Maroon",
-                        "bold": true,
-                        "underline": true
-                    },
                     "disabled-cursor-line": {
                         "color": "Cyan1",
                         "background-color": "#5f005f"
@@ -125,8 +119,7 @@
                         "color": "Olive"
                     },
                     "popup": {
-                        "color": "Silver",
-                        "background-color": "Grey"
+                        "color": "Silver"
                     },
                     "popup-border": {
                         "color": "Purple"
@@ -204,23 +197,19 @@
                 },
                 "syntax-styles": {
                     "inline-code": {
-                        "color": "Maroon",
-                        "background-color": "#121212"
+                        "color": "Maroon"
                     },
                     "quoted-code": {
-                        "color": "Silver",
-                        "background-color": "#121212"
+                        "color": "Silver"
                     },
                     "code-border": {
-                        "color": "#444",
-                        "background-color": "#121212"
+                        "color": "#444"
                     },
                     "keyword": {
                         "color": "Navy"
                     },
                     "string": {
-                        "color": "Green",
-                        "bold": true
+                        "color": "Green"
                     },
                     "comment": {
                         "color": "Green"
@@ -316,15 +305,15 @@
                     },
                     "info": {
                         "color": "Silver",
-                        "background-color": "Grey37"
+                        "background-color": "Grey53"
                     },
                     "inactive": {
                         "color": "Silver",
-                        "background-color": "Grey37"
+                        "background-color": "Grey53"
                     },
                     "inactive-alert": {
                         "color": "Maroon",
-                        "background-color": "Grey37"
+                        "background-color": "Grey53"
                     },
                     "title-hotkey": {
                         "color": "Teal",

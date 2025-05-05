@@ -113,6 +113,12 @@ Features:
   focused log message.  An `UPDATE` of the mutable columns will
   update the corresponding row in the `all_logs` table.
 * Add timestamp format `%9` for nanoseconds from the epoch.
+* Added the "modus-operandi" light-colored theme.
+* The colors used for highlights and identifiers are now checked
+  for high contrast against the current theme's background color.
+* Added the "pino_log" format for the Pino Node.js logger.
+* Added the "zap_console_log" format for the Go Zap logger.
+* Added the "spdlog_log" format for the C++ spdlog logger.
 
 Bug Fixes:
 * Should start up in tmux and line drawing should show up now as well.
@@ -130,6 +136,7 @@ Bug Fixes:
   cases.
 * The location of views should be restored from the session when filters
   are active.
+* Themes have been cleaned up a bit to fix issues with contrast.
 
 ## lnav v0.12.4
 

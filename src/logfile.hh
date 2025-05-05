@@ -32,6 +32,7 @@
 #ifndef logfile_hh
 #define logfile_hh
 
+#include <chrono>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -45,6 +46,8 @@
 #include <sys/types.h>
 
 #include "ArenaAlloc/arenaalloc.h"
+#include "base/auto_fd.hh"
+#include "base/auto_mem.hh"
 #include "base/lnav_log.hh"
 #include "base/progress.hh"
 #include "base/result.h"
@@ -188,10 +191,6 @@ public:
 
     void set_text_format(text_format_t tf) { this->lf_text_format = tf; }
 
-    /**
-     * @return The last modified time of the file when the file was last
-     * indexed.
-     */
     std::chrono::microseconds get_modified_time() const
     {
         return this->lf_index_time;
@@ -199,7 +198,7 @@ public:
 
     int get_time_offset_line() const { return this->lf_time_offset_line; }
 
-    const struct timeval& get_time_offset() const
+    const timeval& get_time_offset() const
     {
         return this->lf_time_offset;
     }
@@ -210,7 +209,7 @@ public:
 
     void clear_time_offset()
     {
-        struct timeval tv = {0, 0};
+        timeval tv = {0, 0};
 
         this->adjust_content_time(-1, tv);
     }
@@ -315,6 +314,7 @@ public:
 
     struct message_length_result {
         file_ssize_t mlr_length;
+        size_t mlr_line_count;
         file_range::metadata mlr_metadata;
     };
 
@@ -340,7 +340,8 @@ public:
     void read_full_message(const_iterator ll,
                            shared_buffer_ref& msg_out,
                            line_buffer::scan_direction dir
-                           = line_buffer::scan_direction::forward);
+                           = line_buffer::scan_direction::forward,
+                           read_format_t format = read_format_t::plain);
 
     Result<shared_buffer_ref, std::string> read_raw_message(const_iterator ll);
 
@@ -550,6 +551,8 @@ private:
     std::optional<std::pair<std::string, lnav::file_options>> lf_file_options;
     std::vector<lnav::console::user_message> lf_format_match_messages;
     invalid_line_info lf_invalid_lines;
+    auto_buffer lf_plain_msg_buffer = auto_buffer::alloc(256);
+    shared_buffer lf_plain_msg_shared;
 };
 
 class logline_observer {

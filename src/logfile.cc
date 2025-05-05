@@ -358,6 +358,10 @@ logfile::process_prefix(shared_buffer_ref& sbr,
             best_match;
         size_t scan_count = 0;
 
+        if (!this->lf_index.empty()) {
+            prescan_time = this->lf_index[prescan_size - 1]
+                               .get_time<std::chrono::microseconds>();
+        }
         if (this->lf_format != nullptr) {
             best_match = std::make_pair(
                 this->lf_format.get(),
@@ -452,17 +456,24 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                  &prev_index_size,
                  starting_index_size](const log_format::scan_match& sm) {
                     if (best_match && this->lf_format != nullptr
-                        && this->lf_format->lf_root_format == curr.get())
+                        && this->lf_format->lf_root_format == curr.get()
+                        && best_match->first == this->lf_format.get())
                     {
                         prev_index_size = this->lf_index.size();
                         found = best_match->second;
                     } else if (!best_match
-                               || sm.sm_quality > best_match->second.sm_quality)
+                               || (sm.sm_quality > best_match->second.sm_quality
+                                   || (sm.sm_quality
+                                           == best_match->second.sm_quality
+                                       && sm.sm_strikes
+                                           < best_match->second.sm_strikes)))
                     {
                         log_info(
-                            "  scan with format (%s) matched with quality (%d)",
+                            "  scan with format (%s) matched with quality of "
+                            "%d and %d strikes",
                             curr->get_name().c_str(),
-                            sm.sm_quality);
+                            sm.sm_quality,
+                            sm.sm_strikes);
 
                         auto match_um
                             = lnav::console::user_message::info(
@@ -475,7 +486,11 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                                   .with_note(
                                       attr_line_t("match quality is ")
                                           .append(lnav::roles::number(
-                                              fmt::to_string(sm.sm_quality))))
+                                              fmt::to_string(sm.sm_quality)))
+                                          .append(" with ")
+                                          .append(lnav::roles::number(
+                                              fmt::to_string(sm.sm_strikes)))
+                                          .append(" strikes"))
                                   .move();
                         this->lf_format_match_messages.emplace_back(match_um);
                         if (best_match) {
@@ -490,9 +505,13 @@ logfile::process_prefix(shared_buffer_ref& sbr,
                     } else {
                         log_trace(
                             "  scan with format (%s) matched, but "
-                            "is low quality (%d)",
+                            "is lower quality (%d < %d) or more strikes (%d "
+                            "vs. %d)",
                             curr->get_name().c_str(),
-                            sm.sm_quality);
+                            sm.sm_quality,
+                            best_match->second.sm_quality,
+                            sm.sm_strikes,
+                            best_match->second.sm_strikes);
                         while (this->lf_index.size() > prev_index_size) {
                             this->lf_index.pop_back();
                         }
@@ -1420,7 +1439,8 @@ logfile::read_range(const file_range& fr)
 void
 logfile::read_full_message(const_iterator ll,
                            shared_buffer_ref& msg_out,
-                           line_buffer::scan_direction dir)
+                           line_buffer::scan_direction dir,
+                           read_format_t format)
 {
     require(ll->get_sub_offset() == 0);
 
@@ -1430,25 +1450,64 @@ logfile::read_full_message(const_iterator ll,
 #endif
 
     msg_out.disown();
-    auto range_for_line = this->get_file_range(ll);
+    auto mlr = this->message_byte_length(ll);
+    auto range_for_line
+        = file_range{ll->get_offset(), mlr.mlr_length, mlr.mlr_metadata};
     try {
         if (range_for_line.fr_size > line_buffer::MAX_LINE_BUFFER_SIZE) {
             range_for_line.fr_size = line_buffer::MAX_LINE_BUFFER_SIZE;
         }
-        auto read_result = this->lf_line_buffer.read_range(range_for_line, dir);
+        if (format == read_format_t::plain && mlr.mlr_line_count > 1
+            && this->lf_line_buffer.is_piper())
+        {
+            this->lf_plain_msg_buffer.expand_to(mlr.mlr_length);
+            this->lf_plain_msg_buffer.clear();
+            auto curr_ll = ll;
+            do {
+                const auto curr_range = this->get_file_range(curr_ll, false);
+                auto read_result
+                    = this->lf_line_buffer.read_range(curr_range, dir);
 
-        if (read_result.isErr()) {
-            auto errmsg = read_result.unwrapErr();
-            log_error("%s:%d:unable to read range %d:%d -- %s",
-                      this->get_unique_path().c_str(),
-                      std::distance(this->cbegin(), ll),
-                      range_for_line.fr_offset,
-                      range_for_line.fr_size,
-                      errmsg.c_str());
-            return;
+                if (curr_ll != ll) {
+                    this->lf_plain_msg_buffer.push_back('\n');
+                }
+                if (read_result.isErr()) {
+                    auto errmsg = read_result.unwrapErr();
+                    log_error("%s:%d:unable to read range %d:%d -- %s",
+                              this->get_unique_path().c_str(),
+                              std::distance(this->cbegin(), ll),
+                              range_for_line.fr_offset,
+                              range_for_line.fr_size,
+                              errmsg.c_str());
+                    return;
+                }
+
+                auto curr_buf = read_result.unwrap();
+                this->lf_plain_msg_buffer.append(curr_buf.to_string_view());
+
+                ++curr_ll;
+            } while (curr_ll != this->end() && curr_ll->is_continued());
+            this->lf_plain_msg_shared.invalidate_refs();
+            msg_out.share(this->lf_plain_msg_shared,
+                          this->lf_plain_msg_buffer.data(),
+                          this->lf_plain_msg_buffer.size());
+        } else {
+            auto read_result
+                = this->lf_line_buffer.read_range(range_for_line, dir);
+
+            if (read_result.isErr()) {
+                auto errmsg = read_result.unwrapErr();
+                log_error("%s:%d:unable to read range %d:%d -- %s",
+                          this->get_unique_path().c_str(),
+                          std::distance(this->cbegin(), ll),
+                          range_for_line.fr_offset,
+                          range_for_line.fr_size,
+                          errmsg.c_str());
+                return;
+            }
+            msg_out = read_result.unwrap();
+            msg_out.get_metadata() = range_for_line.fr_metadata;
         }
-        msg_out = read_result.unwrap();
-        msg_out.get_metadata() = range_for_line.fr_metadata;
         if (this->lf_format.get() != nullptr) {
             this->lf_format->get_subline(*ll, msg_out, true);
         }
@@ -1513,17 +1572,20 @@ logfile::message_byte_length(logfile::const_iterator ll, bool include_continues)
     auto next_line = ll;
     file_range::metadata meta;
     file_ssize_t retval;
+    size_t line_count = 0;
 
     if (!include_continues && this->lf_next_line_cache) {
         if (ll->get_offset() == (*this->lf_next_line_cache).first) {
             return {
                 (file_ssize_t) this->lf_next_line_cache->second,
+                1,
                 {ll->is_valid_utf(), ll->has_ansi()},
             };
         }
     }
 
     do {
+        line_count += 1;
         meta.m_has_ansi = meta.m_has_ansi || next_line->has_ansi();
         meta.m_valid_utf = meta.m_valid_utf && next_line->is_valid_utf();
         ++next_line;
@@ -1547,7 +1609,7 @@ logfile::message_byte_length(logfile::const_iterator ll, bool include_continues)
         }
     }
 
-    return {retval, meta};
+    return {retval, line_count, meta};
 }
 
 Result<shared_buffer_ref, std::string>

@@ -1507,6 +1507,8 @@ com_close(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                 if (actual_path) {
                     lnav_data.ld_active_files.fc_file_names.erase(
                         actual_path.value().string());
+                    lnav_data.ld_active_files.fc_closed_files.insert(
+                        actual_path->string());
                 }
                 lnav_data.ld_active_files.fc_closed_files.insert(fn);
             }
@@ -1642,9 +1644,9 @@ com_pipe_to(exec_context& ec,
                 if (tc->get_inner_height() == 0) {
                     // Nothing to do
                 } else if (tc == &lnav_data.ld_views[LNV_LOG]) {
-                    logfile_sub_source& lss = lnav_data.ld_log_source;
-                    content_line_t cl = lss.at(tc->get_top());
-                    std::shared_ptr<logfile> lf = lss.find(cl);
+                    auto& lss = lnav_data.ld_log_source;
+                    auto cl = lss.at(tc->get_top());
+                    auto lf = lss.find(cl);
                     shared_buffer_ref sbr;
                     lf->read_full_message(lf->message_start(lf->begin() + cl),
                                           sbr);
