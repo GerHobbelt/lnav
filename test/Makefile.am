@@ -379,6 +379,7 @@ dist_noinst_DATA = \
 	logfile_rollover.0 \
 	logfile_rollover.1 \
 	logfile_shop_access_log.0 \
+	logfile_spark.0 \
 	logfile_strace_log.0 \
 	logfile_syslog.0 \
 	logfile_syslog.1 \
@@ -417,6 +418,7 @@ dist_noinst_DATA = \
 	textfile_0.md \
 	textfile_ansi.0 \
 	textfile_ansi_expanding.0 \
+	textfile_broken_gz.txt.gz \
 	textfile_ctrl.0 \
 	textfile_json_indented.0 \
 	textfile_json_long.0 \

@@ -103,7 +103,7 @@ self_mtime()
 }
 
 std::string
-escape_path(const std::filesystem::path& p)
+escape_path(const std::filesystem::path& p, path_type pt)
 {
     auto p_str = p.string();
     std::string retval;
@@ -119,11 +119,21 @@ escape_path(const std::filesystem::path& p)
             case '>':
             case '\'':
             case '"':
+                retval.push_back('\\');
+                break;
             case '*':
             case '[':
             case ']':
             case '?':
-                retval.push_back('\\');
+                switch (pt) {
+                    case path_type::normal:
+                        retval.push_back('\\');
+                        break;
+                    case path_type::pattern:
+                        break;
+                }
+                break;
+            default:
                 break;
         }
         retval.push_back(ch);
@@ -156,7 +166,8 @@ split_file_location(const std::string& file_path_str)
                  file_path_str.c_str());
     }
 
-    return std::make_pair(file_path_str, file_location_tail{});
+    return std::make_pair(file_path_str,
+                          file_location_t{mapbox::util::no_init{}});
 }
 
 Result<std::filesystem::path, std::string>

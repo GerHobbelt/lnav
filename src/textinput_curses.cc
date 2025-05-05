@@ -258,34 +258,25 @@ textinput_curses::textinput_curses()
 }
 
 void
-textinput_curses::set_content(const attr_line_t& al)
+textinput_curses::content_to_lines(std::string content, int x)
 {
-    auto al_copy = al;
+    auto al = attr_line_t(content);
 
     if (!this->tc_prefix.empty()) {
-        al_copy.insert(0, this->tc_prefix);
+        al.insert(0, this->tc_prefix);
+        x += this->tc_prefix.length();
     }
-    highlight_syntax(this->tc_text_format, al_copy, this->tc_prefix.length());
+    highlight_syntax(this->tc_text_format, al, x);
     if (!this->tc_prefix.empty()) {
         // XXX yuck
-        al_copy.erase(0, this->tc_prefix.al_string.size());
+        al.erase(0, this->tc_prefix.al_string.size());
     }
-    this->tc_doc_meta = lnav::document::discover(al_copy)
+    this->tc_doc_meta = lnav::document::discover(al)
                             .with_text_format(this->tc_text_format)
                             .save_words()
                             .perform();
-    lnav::document::hier_node::depth_first(
-        this->tc_doc_meta.m_sections_root.get(),
-        [this](lnav::document::hier_node* hn) {
-            log_debug("hier_node: %p %s",
-                      hn,
-                      fmt::format(FMT_STRING("{}"),
-                                  this->tc_doc_meta.path_for_range(
-                                      hn->hn_start, hn->hn_start))
-                          .c_str());
-        });
-    this->tc_lines = al_copy.split_lines();
-    if (endswith(al_copy.al_string, "\n")) {
+    this->tc_lines = al.split_lines();
+    if (endswith(al.al_string, "\n")) {
         this->tc_lines.emplace_back();
     }
     if (this->tc_lines.empty()) {
@@ -293,6 +284,13 @@ textinput_curses::set_content(const attr_line_t& al)
     } else {
         this->apply_highlights();
     }
+}
+
+void
+textinput_curses::set_content(std::string content)
+{
+    this->content_to_lines(std::move(content), this->tc_prefix.length());
+
     this->tc_change_log.clear();
     this->tc_marks.clear();
     this->tc_notice = std::nullopt;
@@ -684,7 +682,9 @@ textinput_curses::command_down(const ncinput& ch)
     if (this->tc_popup.is_visible()) {
         this->tc_popup.handle_key(ch);
         if (this->tc_on_popup_change) {
+            this->tc_in_popup_change = true;
             this->tc_on_popup_change(*this);
+            this->tc_in_popup_change = false;
         }
     } else {
         ssize_t inner_height = this->tc_lines.size();
@@ -714,7 +714,9 @@ textinput_curses::command_up(const ncinput& ch)
     if (this->tc_popup.is_visible()) {
         this->tc_popup.handle_key(ch);
         if (this->tc_on_popup_change) {
+            this->tc_in_popup_change = true;
             this->tc_on_popup_change(*this);
+            this->tc_in_popup_change = false;
         }
     } else if (this->tc_height == 1) {
         if (this->tc_on_history_list) {
@@ -1445,7 +1447,8 @@ textinput_curses::ensure_cursor_visible()
             this->tc_top = 0;
         }
     }
-    if (this->tc_popup.is_visible() && this->tc_complete_range
+    if (!this->tc_in_popup_change && this->tc_popup.is_visible()
+        && this->tc_complete_range
         && !this->tc_complete_range->contains(this->tc_cursor))
     {
         this->tc_popup.set_visible(false);
@@ -1497,7 +1500,8 @@ textinput_curses::replace_selection_no_change(string_fragment sf)
 
     auto range = std::exchange(this->tc_selection, std::nullopt).value();
     this->tc_cursor.y = range.sr_start.y;
-    for (auto curr_line = range.sr_start.y; curr_line <= range.sr_end.y;
+    for (auto curr_line = range.sr_start.y;
+         curr_line <= range.sr_end.y && curr_line < this->tc_lines.size();
          ++curr_line)
     {
         auto sel_range = range.range_for_line(curr_line);
@@ -1595,6 +1599,10 @@ textinput_curses::replace_selection_no_change(string_fragment sf)
 
     this->tc_drag_selection = std::nullopt;
     if (retval == sf) {
+        if (!sf.empty()) {
+            this->content_to_lines(this->get_content(),
+                                   this->get_cursor_offset());
+        }
     } else {
         this->update_lines();
     }
@@ -1707,41 +1715,22 @@ textinput_curses::move_cursor_to(input_point ip)
 void
 textinput_curses::update_lines()
 {
-    auto content = attr_line_t(this->get_content());
-    auto x = this->get_cursor_offset();
-
-    if (!this->tc_prefix.empty()) {
-        content.insert(0, this->tc_prefix);
-        x += this->tc_prefix.length();
-    }
-    highlight_syntax(this->tc_text_format, content, x);
-    if (!this->tc_prefix.empty()) {
-        // XXX yuck
-        content.erase(0, this->tc_prefix.al_string.size());
-    }
-    this->tc_doc_meta = lnav::document::discover(content)
-                            .with_text_format(this->tc_text_format)
-                            .save_words()
-                            .perform();
-    this->tc_lines = content.split_lines();
-    if (endswith(content.al_string, "\n")) {
-        this->tc_lines.emplace_back();
-    }
-    if (this->tc_lines.empty()) {
-        this->tc_lines.emplace_back();
-    } else {
-        this->apply_highlights();
-    }
+    const auto x = this->get_cursor_offset();
+    this->content_to_lines(this->get_content(), x);
     this->ensure_cursor_visible();
 
     this->tc_marks.clear();
-    this->tc_popup.set_visible(false);
-    this->tc_complete_range = std::nullopt;
-    if (this->tc_on_change) {
-        this->tc_on_change(*this);
-    }
-    if (!this->tc_popup.is_visible()) {
-        this->tc_popup_type = popup_type_t::none;
+    if (this->tc_in_popup_change) {
+        log_trace("in popup change, skipping");
+    } else {
+        this->tc_popup.set_visible(false);
+        this->tc_complete_range = std::nullopt;
+        if (this->tc_on_change) {
+            this->tc_on_change(*this);
+        }
+        if (!this->tc_popup.is_visible()) {
+            this->tc_popup_type = popup_type_t::none;
+        }
     }
 
     ensure(!this->tc_lines.empty());
@@ -1851,9 +1840,12 @@ textinput_curses::do_update()
     }
 
     auto popup_height = this->tc_popup.get_height();
-    auto rel_y = this->tc_cursor.y - this->tc_top - popup_height;
+    auto rel_y = (this->tc_popup_type == popup_type_t::history
+                      ? 0
+                      : this->tc_cursor.y - this->tc_top)
+        - popup_height;
     if (this->vc_y + rel_y < 0) {
-        rel_y = this->tc_cursor.y - this->tc_top - popup_height;
+        rel_y = this->tc_cursor.y - this->tc_top + popup_height + 1;
     }
     this->tc_popup.set_y(this->vc_y + rel_y);
 
@@ -2143,7 +2135,9 @@ textinput_curses::open_popup_for_history(std::vector<attr_line_t> possibilities)
     this->tc_popup.set_selection(new_sel);
     this->tc_popup.set_visible(true);
     if (this->tc_on_popup_change) {
+        this->tc_in_popup_change = true;
         this->tc_on_popup_change(*this);
+        this->tc_in_popup_change = false;
     }
     this->set_needs_update();
 }

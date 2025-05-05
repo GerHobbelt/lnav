@@ -594,9 +594,9 @@ com_save_to(exec_context& ec,
             size_t count = 0;
             std::string line;
 
-            for (auto iter = all_user_marks.begin();
-                 iter != all_user_marks.end();
-                 iter++, count++)
+            for (auto iter = all_user_marks.bv_tree.begin();
+                 iter != all_user_marks.bv_tree.end();
+                 ++iter, count++)
             {
                 if (ec.ec_dry_run && count > 10) {
                     break;
@@ -678,7 +678,8 @@ com_save_to(exec_context& ec,
             ov_al.clear();
             ++y;
         }
-        for (auto iter = all_user_marks.begin(); iter != all_user_marks.end();
+        for (auto iter = all_user_marks.bv_tree.begin();
+             iter != all_user_marks.bv_tree.end();
              ++iter, count++)
         {
             if (ec.ec_dry_run && count > 10) {
@@ -1593,7 +1594,9 @@ com_pipe_to(exec_context& ec,
                     log_perror(write(child_fds[0].write_end(), "\n", 1));
                 }
             } else {
-                for (iter = bv.begin(); iter != bv.end(); ++iter) {
+                for (iter = bv.bv_tree.begin(); iter != bv.bv_tree.end();
+                     ++iter)
+                {
                     tc->grep_value_for_line(*iter, line);
                     if (write(
                             child_fds[0].write_end(), line.c_str(), line.size())
@@ -1796,10 +1799,10 @@ static readline_context::command_t IO_COMMANDS[] = {
                 "of the marked messages to the file.  In the DB view, "
                 "the contents of the cells are written to the output "
                 "file.")
-            .with_parameter(help_text("--view={log,db}",
-                                      "The view to use as the source of data")
-                                .optional()
-                                .with_enum_values({"log", "db"}))
+            .with_parameter(
+                help_text("--view", "The view to use as the source of data")
+                    .optional()
+                    .with_enum_values({"log", "db"}))
             .with_parameter(
                 help_text("--anonymize", "Anonymize the lines").flag())
             .with_parameter(
