@@ -899,6 +899,14 @@ struct json_path_handler : public json_path_handler_base {
              std::enable_if_t<LastIs<std::string, Args...>::value, bool> = true>
     json_path_handler& for_field(Args... args)
     {
+        this->add_cb(null_field_cb);
+        this->jph_null_cb = [args...](yajlpp_parse_context* ypc) {
+            auto* obj = ypc->ypc_obj_stack.top();
+
+            json_path_handler::get_field(obj, args...).clear();
+
+            return 1;
+        };
         this->add_cb(str_field_cb2);
         this->jph_str_cb = [args...](yajlpp_parse_context* ypc,
                                      const string_fragment& value_str,
@@ -1674,9 +1682,6 @@ private:
 };
 
 template<typename T>
-struct typed_json_path_container;
-
-template<typename T>
 struct yajlpp_formatter {
     const T& yf_obj;
     const typed_json_path_container<T>& yf_container;
@@ -1702,7 +1707,7 @@ struct yajlpp_formatter {
 };
 
 template<typename T>
-struct typed_json_path_container : public json_path_container {
+struct typed_json_path_container : json_path_container {
     typed_json_path_container(std::initializer_list<json_path_handler> children)
         : json_path_container(children)
     {

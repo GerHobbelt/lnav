@@ -41,8 +41,8 @@
 #include <vector>
 
 #include "base/attr_line.hh"
-#include "base/lnav.console.hh"
 #include "base/line_range.hh"
+#include "base/lnav.console.hh"
 #include "document.sections.hh"
 #include "pcrepp/pcre2pp.hh"
 #include "plain_text_source.hh"
@@ -227,8 +227,22 @@ public:
 
         bool contains(const input_point& ip) const
         {
-            return this->sr_start.y <= ip.y && ip.y <= this->sr_end.y
-                && this->sr_start.x <= ip.x && ip.x <= this->sr_end.x;
+            auto lr_opt = this->range_for_line(ip.y);
+            if (!lr_opt) {
+                return false;
+            }
+
+            return lr_opt->lr_start <= ip.x && ip.x <= lr_opt->lr_end;
+        }
+
+        bool contains_exclusive(const input_point& ip) const
+        {
+            auto lr_opt = this->range_for_line(ip.y);
+            if (!lr_opt) {
+                return false;
+            }
+
+            return lr_opt->lr_start <= ip.x && ip.x < lr_opt->lr_end;
         }
 
         std::optional<line_range> range_for_line(int y) const
@@ -333,13 +347,13 @@ public:
         if (ip.y < 0) {
             ip.y = 0;
         }
-        if (ip.y >= this->tc_lines.size()) {
+        if (ip.y >= (int) this->tc_lines.size()) {
             ip.y = this->tc_lines.size() - 1;
         }
         if (ip.x < 0) {
             ip.x = 0;
         }
-        if (ip.x >= this->tc_lines[ip.y].column_width()) {
+        if (ip.x >= (ssize_t) this->tc_lines[ip.y].column_width()) {
             ip.x = this->tc_lines[ip.y].column_width();
         }
     }
@@ -357,7 +371,7 @@ public:
     bool is_cursor_at_end_of_line() const
     {
         return this->tc_cursor.x
-            == this->tc_lines[this->tc_cursor.y].column_width();
+            == (ssize_t) this->tc_lines[this->tc_cursor.y].column_width();
     }
 
     void clear_inactive_value()
@@ -473,9 +487,12 @@ public:
     std::function<void(textinput_curses&)> tc_on_blur;
     std::function<void(textinput_curses&)> tc_on_abort;
     std::function<void(textinput_curses&)> tc_on_change;
+    std::function<void(textinput_curses&)> tc_on_popup_change;
+    std::function<void(textinput_curses&)> tc_on_popup_cancel;
     std::function<void(textinput_curses&)> tc_on_completion_request;
     std::function<void(textinput_curses&)> tc_on_completion;
-    std::function<void(textinput_curses&)> tc_on_history;
+    std::function<void(textinput_curses&)> tc_on_history_list;
+    std::function<void(textinput_curses&)> tc_on_history_search;
     std::function<void(textinput_curses&)> tc_on_timeout;
     std::function<void(textinput_curses&)> tc_on_reformat;
     std::function<void(textinput_curses&)> tc_on_perform;

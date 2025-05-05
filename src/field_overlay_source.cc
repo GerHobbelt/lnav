@@ -110,10 +110,10 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
     }
 
     char old_timestamp[64], curr_timestamp[64], orig_timestamp[64];
-    struct timeval curr_tv, offset_tv, orig_tv, diff_tv = {0, 0};
+    timeval curr_tv, offset_tv, orig_tv, diff_tv = {0, 0};
     attr_line_t time_line;
     auto& time_str = time_line.get_string();
-    struct line_range time_lr;
+    line_range time_lr;
     off_t ts_len = sql_strftime(
         curr_timestamp, sizeof(curr_timestamp), ll->get_timeval(), 'T');
     {
@@ -247,6 +247,16 @@ field_overlay_source::build_field_lines(const listview_curses& lv,
 
     if (this->fos_contexts.empty() || !this->fos_contexts.top().c_show) {
         return;
+    }
+
+    auto anchor_opt = this->fos_lss.anchor_for_row(row);
+    if (anchor_opt) {
+        auto permalink
+            = attr_line_t(" Permalink: ")
+                  .append(lnav::roles::hyperlink(anchor_opt.value()));
+        this->fos_row_to_field_meta.emplace(
+            this->fos_lines.size(), row_info{std::nullopt, anchor_opt.value()});
+        this->fos_lines.emplace_back(permalink);
     }
 
     this->fos_known_key_size = LOG_BODY.length();
@@ -760,10 +770,10 @@ field_overlay_source::list_static_overlay(const listview_curses& lv,
         }
     }
 
-    if (lines != nullptr && y < lines->size()) {
+    if (lines != nullptr && y < (ssize_t) lines->size()) {
         value_out = lines->at(y);
         value_out.with_attr_for_all(VC_ROLE.value(role_t::VCR_STATUS));
-        if (y == lines->size() - 1) {
+        if (y == (ssize_t) lines->size() - 1) {
             value_out.with_attr_for_all(
                 VC_STYLE.value(text_attrs::with_underline()));
         }

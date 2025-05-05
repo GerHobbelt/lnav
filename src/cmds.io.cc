@@ -785,7 +785,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
     auto split_args = split_args_res.unwrap()
         | lnav::itertools::map([](const auto& elem) { return elem.se_value; });
 
-    std::vector<std::pair<std::string, file_location_t>> files_to_front;
+    std::vector<std::string> files_to_front;
     std::vector<std::string> closed_files;
     logfile_open_options loo;
 
@@ -798,26 +798,9 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
         auto file_loc = file_location_t{file_location_tail{}};
 
         if (access(fn.c_str(), R_OK) != 0) {
-            auto colon_index = fn.rfind(':');
-            auto hash_index = fn.rfind('#');
-            if (colon_index != std::string::npos) {
-                auto top_range = std::string_view{&fn[colon_index + 1],
-                                                  fn.size() - colon_index - 1};
-                auto scan_res = scn::scan_value<int>(top_range);
-
-                if (scan_res) {
-                    fn = fn.substr(0, colon_index);
-                    log_debug(
-                        "opening %s at line %d", fn.c_str(), scan_res->value());
-                    file_loc = vis_line_t(scan_res->value());
-                }
-            } else if (hash_index != std::string::npos) {
-                auto hash_loc = fn.substr(hash_index);
-                file_loc = hash_loc;
-                fn = fn.substr(0, hash_index);
-                log_debug(
-                    "opening %s at anchor %s", fn.c_str(), hash_loc.c_str());
-            }
+            auto pair = lnav::filesystem::split_file_location(fn);
+            fn = pair.first;
+            file_loc = pair.second;
             loo.with_init_location(file_loc);
         }
 
@@ -833,7 +816,8 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                     break;
                 }
 
-                files_to_front.emplace_back(fn, file_loc);
+                lf->set_init_location(file_loc);
+                files_to_front.emplace_back(fn);
                 retval = "";
                 break;
             }
@@ -896,7 +880,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                     lnav_data.ld_active_files.fc_files_generation += 1;
                     isc::to<curl_looper&, services::curl_streamer_t>().send(
                         [ul](auto& clooper) { clooper.add_request(ul); });
-                    lnav_data.ld_files_to_front.emplace_back(fn, file_loc);
+                    lnav_data.ld_files_to_front.emplace_back(fn);
                     closed_files.push_back(fn);
                     retval = "info: opened URL";
                 } else {
@@ -961,9 +945,10 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
 
                 retval = "info: watching -- " + fn;
             } else if (lnav::filesystem::is_glob(fn.c_str())) {
+                loo.with_init_location(file_loc);
                 fc.fc_file_names.emplace(fn, loo);
                 files_to_front.emplace_back(
-                    loo.loo_filename.empty() ? fn : loo.loo_filename, file_loc);
+                    loo.loo_filename.empty() ? fn : loo.loo_filename);
                 retval = "info: watching -- " + fn;
             } else if (stat(fn.c_str(), &st) == -1) {
                 if (fn.find(':') != std::string::npos) {
@@ -1059,13 +1044,35 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                 return Err(um);
             } else {
                 fn = abspath.in();
-                fc.fc_file_names.emplace(fn, loo);
-                retval = "info: opened -- " + fn;
-                files_to_front.emplace_back(fn, file_loc);
 
-                closed_files.push_back(fn);
-                if (!loo.loo_filename.empty()) {
-                    closed_files.push_back(loo.loo_filename);
+                file_iter = lnav_data.ld_active_files.fc_files.begin();
+                for (; file_iter != lnav_data.ld_active_files.fc_files.end();
+                     ++file_iter)
+                {
+                    auto lf = *file_iter;
+
+                    if (lf->get_filename() == fn) {
+                        if (lf->get_format() != nullptr) {
+                            retval = "info: log file already loaded";
+                            break;
+                        }
+
+                        lf->set_init_location(file_loc);
+                        files_to_front.emplace_back(fn);
+                        retval = "";
+                        break;
+                    }
+                }
+                if (file_iter == lnav_data.ld_active_files.fc_files.end()) {
+                    loo.with_init_location(file_loc);
+                    fc.fc_file_names.emplace(fn, loo);
+                    retval = "info: opened -- " + fn;
+                    files_to_front.emplace_back(fn);
+
+                    closed_files.push_back(fn);
+                    if (!loo.loo_filename.empty()) {
+                        closed_files.push_back(loo.loo_filename);
+                    }
                 }
 #if 0
                 if (lnav_data.ld_rl_view != nullptr) {
@@ -1199,7 +1206,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                         file_range range;
 
                         lb.set_fd(preview_fd);
-                        for (int lpc = 0; lpc < 24; lpc++) {
+                        for (int lpc = 0; lpc < 100; lpc++) {
                             auto load_result = lb.load_next_line(range);
 
                             if (load_result.isErr()) {
@@ -1707,7 +1714,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                           "lines in the "
                           "current view")
             .with_parameter(
-                help_text("--anonymize", "Anonymize the lines").optional())
+                help_text("--anonymize", "Anonymize the lines").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
@@ -1723,8 +1730,7 @@ static readline_context::command_t IO_COMMANDS[] = {
         help_text(":write-csv-to")
             .with_summary("Write SQL results to the given file in CSV format")
             .with_parameter(
-                help_text("--anonymize", "Anonymize the row contents")
-                    .optional())
+                help_text("--anonymize", "Anonymize the row contents").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
@@ -1739,8 +1745,7 @@ static readline_context::command_t IO_COMMANDS[] = {
         help_text(":write-json-to")
             .with_summary("Write SQL results to the given file in JSON format")
             .with_parameter(
-                help_text("--anonymize", "Anonymize the JSON values")
-                    .optional())
+                help_text("--anonymize", "Anonymize the JSON values").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
@@ -1756,8 +1761,7 @@ static readline_context::command_t IO_COMMANDS[] = {
             .with_summary("Write SQL results to the given file in "
                           "JSON Lines format")
             .with_parameter(
-                help_text("--anonymize", "Anonymize the JSON values")
-                    .optional())
+                help_text("--anonymize", "Anonymize the JSON values").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
@@ -1774,8 +1778,7 @@ static readline_context::command_t IO_COMMANDS[] = {
             .with_summary("Write SQL results to the given file in a "
                           "tabular format")
             .with_parameter(
-                help_text("--anonymize", "Anonymize the table contents")
-                    .optional())
+                help_text("--anonymize", "Anonymize the table contents").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
@@ -1795,9 +1798,10 @@ static readline_context::command_t IO_COMMANDS[] = {
                 "file.")
             .with_parameter(help_text("--view={log,db}",
                                       "The view to use as the source of data")
-                                .optional())
+                                .optional()
+                                .with_enum_values({"log", "db"}))
             .with_parameter(
-                help_text("--anonymize", "Anonymize the lines").optional())
+                help_text("--anonymize", "Anonymize the lines").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
@@ -1814,7 +1818,7 @@ static readline_context::command_t IO_COMMANDS[] = {
             .with_summary("Write the text in the top view to the given file "
                           "without any formatting")
             .with_parameter(
-                help_text("--anonymize", "Anonymize the lines").optional())
+                help_text("--anonymize", "Anonymize the lines").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))
@@ -1831,7 +1835,7 @@ static readline_context::command_t IO_COMMANDS[] = {
                 "Write the displayed text or SQL results to the given "
                 "file without any formatting")
             .with_parameter(
-                help_text("--anonymize", "Anonymize the lines").optional())
+                help_text("--anonymize", "Anonymize the lines").flag())
             .with_parameter(
                 help_text("path", "The path to the file to write")
                     .with_format(help_parameter_format_t::HPF_LOCAL_FILENAME))

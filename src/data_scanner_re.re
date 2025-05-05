@@ -153,7 +153,7 @@ loop:
        EOF = "";
        SYN = "\x16";
        IPV4SEG  = ("25"[0-5]|("2"[0-4]|"1"{0,1}[0-9]){0,1}[0-9]);
-       IPV4ADDR = (IPV4SEG"."){3,3}IPV4SEG;
+       IPV4ADDR = (IPV4SEG("."|"\\.")){3,3}IPV4SEG;
        IPV6SEG  = [0-9a-fA-F]{1,4};
        IPV6ADDR = (
                   (IPV6SEG":"){7,7}IPV6SEG|
@@ -348,7 +348,9 @@ loop:
            return tokenize_result{token_out, cap_all, cap_inner, this->ds_input.sf_string};
        }
        <init, bol> [a-zA-Z0-9]+":/""/"?[^\x00\x16\x1b\r\n\t '"[\](){}]+[/a-zA-Z0-9\-=&?%] { RET(DT_URL); }
-       <init, bol> ("/"|"./"|"../"|[A-Z]":\\"|"\\\\")("Program Files"(" (x86)")?)?[a-zA-Z0-9_\.\-\~/\\!@#$%^&*()]* { RET(DT_PATH); }
+       <init, bol> "$"("!"|"?"|"#"|[a-zA-Z0-9_]+) / [^/] { RET(DT_ID); }
+       <init, bol> "${"("!"|"?"|"#"|[a-zA-Z0-9_]+)"}" { RET(DT_ID); }
+       <init, bol> ("$"[a-zA-Z0-9_]+)?("/"|"./"|"../"|[A-Z]":\\"|"\\\\")("Program Files"(" (x86)")?)?[a-zA-Z0-9_\.\-\~/\\!@#$%^&*()]* { RET(DT_PATH); }
        <init, bol> (SPACE|NUM)NUM":"NUM{2}/[^:] { RET(DT_TIME); }
        <init, bol> (SPACE|NUM)NUM?":"NUM{2}":"NUM{2}("."NUM{3,6})?/[^:] { RET(DT_TIME); }
        <init, bol> [0-9a-fA-F][0-9a-fA-F]((":"|"-")[0-9a-fA-F][0-9a-fA-F])+ {
@@ -545,11 +547,11 @@ loop:
            RET(DT_SYMBOL);
        }
 
-       <init, bol> [a-zA-Z_][a-zA-Z0-9_]*(("::"|".")[a-zA-Z_0-9\-]+)* {
+       <init, bol> [a-zA-Z_][a-zA-Z0-9_]*(("::"|"."|"\\.")[a-zA-Z_0-9\-]+)* {
            RET(DT_SYMBOL);
        }
 
-       <init, bol> [a-zA-Z0-9_]+(("::"|"."|"-"|"@"|"/")[a-zA-Z0-9_]+)* {
+       <init, bol> [a-zA-Z0-9_]+(("::"|"."|"\\."|"-"|"@"|"/"|"$")[a-zA-Z0-9_]+)* {
            RET(DT_ID);
        }
 
@@ -559,6 +561,7 @@ loop:
        }
        <init, bol> SPACE+ { RET(DT_WHITE); }
        <init, bol> "." { RET(DT_DOT); }
+       <init, bol> "\\" / [\x00] { RET(DT_GARBAGE); }
        <init, bol> "\\". { RET(DT_ESCAPED_CHAR); }
        <init, bol> . { RET(DT_GARBAGE); }
 

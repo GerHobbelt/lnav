@@ -153,6 +153,9 @@ The columns in the log tables are made up of several builtins along with
 the values captured by the log format specification.  Use the :code:`.schema`
 command in the SQL prompt to examine a dump of the current database schema.
 
+.. note:: Unless explicitly stated, builtin columns are read-only and cannot
+   be changed by an :code:`UPDATE`.
+
 The following columns are builtin and included in a :code:`SELECT *`:
 
   :log_line: The line number for the message in the log view.
@@ -181,6 +184,9 @@ included in a :code:`SELECT *`:
   :log_opid: The OP ID as captured from the log message or as set by an
     :code:`UPDATE`.  Setting the OP ID allows operations to be visualized
     in the :ref:`timeline<timeline>` view.
+  :log_user_opid: The OP ID as set by the user.
+  :log_format: The name of the format that parsed this log message.
+  :log_format_regex: The name of the format's regex that matched this message.
   :log_time_msecs: The adjusted timestamp for the log message as the number of
     milliseconds from the epoch.  This column can be more efficient to use for
     time-related operations, like :ref:`timeslice()<timeslice>`.
@@ -190,6 +196,8 @@ included in a :code:`SELECT *`:
   :log_raw_text: The raw text of this message from the log file.  In this case
     of JSON and CSV logs, this will be the exact line of JSON-Line and CSV
     text from the file.
+  :log_line_hash: A hash of the first line of the log message.
+  :log_line_link: The permalink for the log message.
 
 Extensions
 ----------

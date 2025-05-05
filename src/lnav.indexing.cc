@@ -35,6 +35,7 @@
 #include "service_tags.hh"
 #include "session_data.hh"
 #include "sql_util.hh"
+#include "yajlpp/yajlpp_def.hh"
 
 using namespace std::chrono_literals;
 using namespace lnav::roles::literals;
@@ -48,7 +49,7 @@ public:
 
     indexing_result logfile_indexing(const logfile* lf,
                                      file_off_t off,
-                                     file_size_t total) override
+                                     file_ssize_t total) override
     {
         static sig_atomic_t index_counter = 0;
 
@@ -65,7 +66,7 @@ public:
             off = total;
         }
 
-        if ((((size_t) off == total) && (this->lo_last_offset != off))
+        if (((off == total) && (this->lo_last_offset != off))
             || ui_periodic_timer::singleton().time_to_update(index_counter))
         {
             if (off == total) {
@@ -140,8 +141,8 @@ public:
         auto& ftf = lnav_data.ld_files_to_front;
 
         ftf.remove_if([&lf](const auto& elem) {
-            return elem.first == lf->get_filename()
-                || elem.first == lf->get_open_options().loo_filename;
+            return elem == lf->get_filename()
+                || elem == lf->get_open_options().loo_filename;
         });
         if (lnav_data.ld_log_source.insert_file(lf)) {
             this->did_promotion = true;
@@ -155,6 +156,10 @@ public:
                 if (vt != nullptr) {
                     lnav_data.ld_vtab_manager->register_vtab(vt);
                 }
+            }
+            if (lf->get_open_options().loo_source == logfile_name_source::USER)
+            {
+                lf->set_include_in_session(true);
             }
 
             auto iter = session_data.sd_file_states.find(lf->get_filename());
@@ -182,11 +187,11 @@ public:
         const auto& ftf = lnav_data.ld_files_to_front;
 
         if (!ftf.empty()
-            && (ftf.front().first == lf->get_filename()
-                || ftf.front().first == lf->get_open_options().loo_filename))
+            && (ftf.front() == lf->get_filename()
+                || ftf.front() == lf->get_open_options().loo_filename))
         {
             this->front_file = lf;
-            this->front_top = lnav_data.ld_files_to_front.front().second;
+            this->front_top = lf->get_open_options().loo_init_location;
 
             lnav_data.ld_files_to_front.pop_front();
         }
@@ -269,16 +274,15 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
                                 break;
                         }
                     },
-                    [&new_top_opt](vis_line_t vl) {
-                        log_info("file open request to jump to line: %d",
-                                 (int) vl);
-                        if (vl < 0_vl) {
+                    [&new_top_opt](int vl) {
+                        log_info("file open request to jump to line: %d", vl);
+                        if (vl < 0) {
                             vl += lnav_data.ld_views[LNV_TEXT]
                                       .get_inner_height();
                         }
                         if (vl
                             < lnav_data.ld_views[LNV_TEXT].get_inner_height()) {
-                            new_top_opt = vl;
+                            new_top_opt = vis_line_t(vl);
                         }
                     },
                     [&new_top_opt](const std::string& loc) {

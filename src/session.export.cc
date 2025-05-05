@@ -279,6 +279,7 @@ SELECT content_id, format, time_offset FROM lnav_file
         const auto& open_opts = name_pair.second;
 
         if (!open_opts.loo_is_visible || !open_opts.loo_include_in_session
+            || !open_opts.loo_filename.empty()
             || open_opts.loo_source != logfile_name_source::USER)
         {
             continue;
@@ -296,6 +297,19 @@ SELECT content_id, format, time_offset FROM lnav_file
                 file_container_path);
         } else {
             raw_files.insert(file_path_str);
+        }
+    }
+    for (const auto& lf : lnav_data.ld_active_files.fc_files) {
+        if (lf->is_valid_filename()) {
+            continue;
+        }
+        if (!lf->get_open_options().loo_include_in_session) {
+            continue;
+        }
+
+        const auto& open_options = lf->get_open_options();
+        if (open_options.loo_piper) {
+            raw_files.emplace(open_options.loo_piper->get_url());
         }
     }
     for (const auto& file_path_str : raw_files) {

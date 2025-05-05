@@ -608,12 +608,15 @@ setup_highlights_int()
               .with_text_format(text_format_t::TF_MARKDOWN)
               .with_role(role_t::VCR_H4);
     hm[{highlight_source_t::INTERNAL, "md.bold"}]
-        = highlighter(xpcre_compile(R"((?:^|\s+|\pP)(\*\*[^\*\n]+\*\*)(?:$|\s+|\pP))"))
+        = highlighter(
+              xpcre_compile(R"((?:^|\s+|\pP)(\*\*[^\*\n]+\*\*)(?:$|\s+|\pP))"))
               .with_nestable(true)
               .with_text_format(text_format_t::TF_MARKDOWN)
               .with_attrs(text_attrs::with_bold());
     hm[{highlight_source_t::INTERNAL, "md.italic"}]
-        = highlighter(xpcre_compile(R"((?:^|\s+|[^\PP\*])(\*[^\*\n]+\*)(?:$|\s+|[^\PP\*]))"))
+        = highlighter(
+              xpcre_compile(
+                  R"((?:^|\s+|[^\PP\*])(\*[^\*\n]+\*)(?:$|\s+|[^\PP\*]))"))
               .with_nestable(true)
               .with_text_format(text_format_t::TF_MARKDOWN)
               .with_attrs(text_attrs::with_italic());
@@ -623,15 +626,59 @@ setup_highlights_int()
               .with_text_format(text_format_t::TF_MARKDOWN)
               .with_attrs(text_attrs::with_underline());
     hm[{highlight_source_t::INTERNAL, "md.li"}]
-        = highlighter(xpcre_compile(R"(^\s*(\*|-|\d+\.)\s+)"))
+        = highlighter(xpcre_compile(R"(^\s*(\*|\+|-|\d+\.)\s+(\[(?: |x|X)\])?)"))
               .with_nestable(true)
               .with_text_format(text_format_t::TF_MARKDOWN)
               .with_role(role_t::VCR_LIST_GLYPH);
-    hm[{highlight_source_t::INTERNAL, "md.blockquote"}]
-        = highlighter(xpcre_compile(R"(^\s*(>\s+.*))"))
+    hm[{highlight_source_t::INTERNAL, "md.link"}]
+        = highlighter(xpcre_compile(R"((\[).+(\]\()[^\)]+(\)))"))
               .with_nestable(true)
               .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_FOOTNOTE_BORDER);
+    hm[{highlight_source_t::INTERNAL, "md.link2"}]
+        = highlighter(xpcre_compile(R"((\[).+(\]\[)[^\)]+(\]))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+    .with_role(role_t::VCR_FOOTNOTE_BORDER);
+    hm[{highlight_source_t::INTERNAL, "md.linkref"}]
+        = highlighter(xpcre_compile(R"((\[\^?).+(\]:)\s+)"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_FOOTNOTE_BORDER);
+    hm[{highlight_source_t::INTERNAL, "md.directive"}]
+        = highlighter(
+              xpcre_compile(
+                  R"(^\s*>[ \t](\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+    .with_role(role_t::VCR_DOC_DIRECTIVE);
+    hm[{highlight_source_t::INTERNAL, "md.hr"}]
+        = highlighter(
+              xpcre_compile(
+                  R"((\*{3,}|-{3,}|_{3,}|={3,}))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_DOC_DIRECTIVE);
+    hm[{highlight_source_t::INTERNAL, "md.blockquote"}]
+        = highlighter(xpcre_compile(R"(^\s*(>[ \t]+.*))"))
+              .with_nestable(false)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+    .with_role(role_t::VCR_QUOTED_TEXT);
+    hm[{highlight_source_t::INTERNAL, "md.footnote"}]
+        = highlighter(xpcre_compile(R"((\[\^\d+\]))"))
+              .with_nestable(false)
+              .with_text_format(text_format_t::TF_MARKDOWN)
               .with_role(role_t::VCR_QUOTED_TEXT);
+    hm[{highlight_source_t::INTERNAL, "md.table-hr"}]
+        = highlighter(xpcre_compile(R"((\|)?(:?\s*-+:?\s*)(\|))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_DOC_DIRECTIVE);
+    hm[{highlight_source_t::INTERNAL, "md.table-row"}]
+        = highlighter(xpcre_compile(R"((\|)?(?:[^\\|]|\\.)+(\|))"))
+              .with_nestable(true)
+              .with_text_format(text_format_t::TF_MARKDOWN)
+              .with_role(role_t::VCR_DOC_DIRECTIVE);
     hm[{highlight_source_t::INTERNAL, "md.strikethrough"}]
         = highlighter(xpcre_compile(R"((?:^|\s+|\pP)(~[^~]+~)(?:$|\s+|\pP))"))
               .with_nestable(true)

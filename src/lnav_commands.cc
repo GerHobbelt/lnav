@@ -2965,8 +2965,7 @@ com_sh(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
             std::move(child),
             [](auto& fc, auto& child) {},
         });
-        lnav_data.ld_files_to_front.emplace_back(display_name,
-                                                 file_location_tail{});
+        lnav_data.ld_files_to_front.emplace_back(display_name);
 
         return Ok(fmt::format(FMT_STRING("info: executing -- {}"), carg));
     }
@@ -3226,7 +3225,7 @@ com_config(exec_context& ec,
                     errors.push_back(msg);
                 }
             });
-        ypc.ypc_active_paths.insert(option);
+        ypc.ypc_active_paths[option] = 0;
         ypc.update_callbacks();
 
         const auto* jph = ypc.ypc_current_handler;
@@ -3407,7 +3406,7 @@ com_reset_config(exec_context& ec,
     }
     lnav_config = rollback_lnav_config;
     ypc.set_path(option).with_obj(lnav_config);
-    ypc.ypc_active_paths.insert(option);
+    ypc.ypc_active_paths[option] = 0;
     ypc.update_callbacks();
 
     if (option == "*"
@@ -4142,9 +4141,8 @@ readline_context::command_t STD_COMMANDS[] = {
                           "comment will be "
                           "displayed right below the log message it is "
                           "associated with. "
-                          "The comment can be formatted using markdown and "
-                          "you can add "
-                          "new-lines with '\\n'.")
+                          "The comment can contain Markdown directives for "
+                          "styling and linking.")
             .with_parameter(
                 help_text("text", "The comment text")
                     .with_format(help_parameter_format_t::HPF_MULTILINE_TEXT))

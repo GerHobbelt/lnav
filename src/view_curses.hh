@@ -42,6 +42,7 @@
 #include <signal.h>
 #include <stdint.h>
 #include <sys/time.h>
+#include <termios.h>
 
 #include "base/attr_line.hh"
 #include "base/enum_util.hh"
@@ -96,6 +97,7 @@ public:
         return notcurses_stdplane(this->sc_notcurses);
     }
 
+    termios sc_termios;
 private:
     explicit screen_curses(notcurses* nc) : sc_notcurses(nc) {}
 
@@ -400,7 +402,7 @@ public:
 
     int get_y() const { return this->vc_y; }
 
-    void set_x(unsigned int x)
+    void set_x(int x)
     {
         if (x != this->vc_x) {
             this->vc_x = x;
@@ -408,7 +410,7 @@ public:
         }
     }
 
-    unsigned int get_x() const { return this->vc_x; }
+    int get_x() const { return this->vc_x; }
 
     void set_width(long width) { this->vc_width = width; }
 
@@ -435,7 +437,7 @@ protected:
     bool vc_visible{true};
     /** Flag to indicate if a display update is needed. */
     bool vc_needs_update{true};
-    unsigned int vc_x{0};
+    int vc_x{0};
     int vc_y{0};
     long vc_width{0};
     std::vector<view_curses*> vc_children;

@@ -80,7 +80,7 @@ public:
      */
     virtual indexing_result logfile_indexing(const logfile* lf,
                                              file_off_t off,
-                                             file_size_t total)
+                                             file_ssize_t total)
         = 0;
 };
 
@@ -220,6 +220,11 @@ public:
     void set_include_in_session(bool enabled)
     {
         this->lf_options.with_include_in_session(enabled);
+    }
+
+    void set_init_location(file_location_t loc)
+    {
+        this->lf_options.with_init_location(loc);
     }
 
     void reset_state();
@@ -477,7 +482,7 @@ protected:
                         const line_info& li,
                         scan_batch_context& sbc);
 
-    void set_format_base_time(log_format* lf);
+    void set_format_base_time(log_format* lf, const line_info& li);
 
 private:
     logfile(std::filesystem::path filename, const logfile_open_options& loo);

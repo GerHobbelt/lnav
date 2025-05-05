@@ -35,6 +35,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include <assert.h>
@@ -42,7 +43,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "base/result.h"
+#include "fmt/format.h"
 
 using free_func_t = void (*)(void*);
 
@@ -330,8 +331,7 @@ public:
         return retval;
     }
 
-    std::unique_ptr<const unsigned char[]>
-    to_unique() const
+    std::unique_ptr<const unsigned char[]> to_unique() const
     {
         auto retval = std::make_unique<unsigned char[]>(this->ab_size);
 
@@ -348,6 +348,19 @@ public:
     bool full() const { return this->ab_size == this->ab_capacity; }
 
     size_t capacity() const { return this->ab_capacity; }
+
+    template<typename T>
+    std::enable_if_t<std::is_integral_v<T>, bool> has_capacity_for(
+        T amount) const
+    {
+        if constexpr (std::is_signed_v<T>) {
+            assert(amount >= 0);
+
+            return amount <= static_cast<ssize_t>(this->ab_capacity);
+        } else {
+            return amount <= this->ab_capacity;
+        }
+    }
 
     size_t available() const { return this->ab_capacity - this->ab_size; }
 
@@ -424,6 +437,16 @@ struct text_auto_buffer {
 
 struct blob_auto_buffer {
     auto_buffer inner;
+};
+
+template<>
+struct fmt::formatter<auto_buffer> : formatter<string_view> {
+    template<typename FormatContext>
+    auto format(const auto_buffer& buf, FormatContext& ctx) const
+    {
+        return formatter<string_view>::format(
+            string_view{buf.begin(), buf.size()}, ctx);
+    }
 };
 
 #endif

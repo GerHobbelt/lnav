@@ -442,7 +442,12 @@ rl_cmd_change(textinput_curses& rc, bool is_req)
             if (generation == 0 && trim(line) == args[0]
                 && !prompt_res.pr_new_prompt.empty())
             {
-                prompt.p_editor.set_content(prompt_res.pr_new_prompt);
+                log_debug("replacing prompt with one suggested by command");
+                prompt.p_editor.tc_selection
+                    = textinput_curses::selected_range::from_key(
+                        textinput_curses::input_point::home(),
+                        prompt.p_editor.tc_cursor);
+                prompt.p_editor.replace_selection(prompt_res.pr_new_prompt);
                 prompt.p_editor.move_cursor_to({(int) args[0].length() + 1, 0});
                 generation += 1;
                 iter = lnav_commands.end();
@@ -481,11 +486,12 @@ rl_cmd_change(textinput_curses& rc, bool is_req)
 
         if (arg_res_opt) {
             auto arg_res = arg_res_opt.value();
-            log_debug("apair %s [%d:%d) -- %s",
-                      arg_res.aar_help->ht_name,
-                      arg_res.aar_element.se_origin.sf_begin,
-                      arg_res.aar_element.se_origin.sf_end,
-                      arg_res.aar_element.se_value.c_str());
+            log_debug(
+                "apair %s [%d:%d) -- %s",
+                arg_res.aar_help->ht_name,
+                arg_res.aar_element.se_origin.sf_begin,
+                arg_res.aar_element.se_origin.sf_end,
+                arg_res.aar_element.se_value.c_str());
             auto left = arg_res.aar_element.se_origin.empty()
                 ? rc.tc_cursor.x
                 : line_sf.byte_to_column_index(
@@ -508,6 +514,7 @@ rl_cmd_change(textinput_curses& rc, bool is_req)
             {
                 auto poss = prompt.get_cmd_parameter_completion(
                     *tc,
+                    &iter->second->c_help,
                     arg_res.aar_help,
                     arg_res.aar_element.se_value.empty()
                         ? arg_res.aar_element.se_origin.to_string()
@@ -736,19 +743,24 @@ rl_search_change(textinput_curses& rc, bool is_req)
                 || rc.tc_popup_type != textinput_curses::popup_type_t::none)
             {
                 auto poss = prompt.get_cmd_parameter_completion(
-                    *tc, arg_pair.aar_help, arg_pair.aar_element.se_value);
+                    *tc,
+                    &SEARCH_HELP,
+                    arg_pair.aar_help,
+                    arg_pair.aar_element.se_value);
                 auto left = arg_pair.aar_element.se_value.empty()
                     ? rc.tc_cursor.x
                     : line_sf.byte_to_column_index(
                           arg_pair.aar_element.se_origin.sf_begin);
                 rc.open_popup_for_completion(left, poss);
                 rc.tc_popup.set_title(arg_pair.aar_help->ht_name);
-            } else if (arg_pair.aar_element.se_value.empty()
+            } else if (!line.empty() && arg_pair.aar_element.se_value.empty()
                        && rc.is_cursor_at_end_of_line())
             {
                 rc.tc_suggestion = prompt.get_regex_suggestion(*tc, line);
             } else {
-                log_debug("not at end of line");
+                log_debug("not at end of line %d %d",
+                          arg_pair.aar_element.se_value.empty(),
+                          rc.is_cursor_at_end_of_line());
                 rc.tc_suggestion.clear();
             }
         } else {
@@ -854,8 +866,10 @@ rl_change(textinput_curses& rc)
         return;
     }
 
-    if (rc.tc_popup_type == textinput_curses::popup_type_t::history) {
-        rc.tc_on_history(rc);
+    if (rc.tc_popup_type == textinput_curses::popup_type_t::history
+        && !prompt.p_replace_from_history)
+    {
+        rc.tc_on_history_search(rc);
         return;
     }
 
@@ -1517,7 +1531,7 @@ rl_callback(textinput_curses& rc)
                         .with_detect_format(false)
                         .with_text_format(tf)
                         .with_init_location(0_vl);
-                    lnav_data.ld_files_to_front.emplace_back(desc, 0_vl);
+                    lnav_data.ld_files_to_front.emplace_back(desc);
 
                     rc.set_alt_value(HELP_MSG_1(X, "to close the file"));
                 }

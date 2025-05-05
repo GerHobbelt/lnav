@@ -16,7 +16,7 @@ Interface changes:
     ```
   - When editing a regular expression, like the search prompt or
     for a filter, if the current pattern matches a line in the
-    view, the following will be suggested.
+    view, the following word will be suggested.
     For example, if the view has the text "foo bar baz" and you
     type "foo ", the prompt will suggest "bar" and you can then
     press `TAB` to complete.
@@ -43,6 +43,7 @@ Features:
 * The `:comment` command will now switch the prompt to multi-line
   mode and does syntax highlighting for Markdown directives in the
   comment.
+  The rendered Markdown will also now be shown in the preview panel.
 * Scrolling right in the LOG view when at the start of a message
   can hide the timestamp/level fields in the message and insert a
   shorter timestamp column on the left side.
@@ -69,6 +70,20 @@ Features:
   set by the `:adjust-log-time` command.
 * Added a `measure_with_units` collation function that can compare
   numbers with unit suffixes, like "10KB" or "1.2ms".
+* Log messages now have permalinks that can be used to reference them
+  from other locations.
+  The permalink for a message is shown in the parser details overlay
+  (activated by pressing `p`).
+  Selecting the "Permalink:" line in the overlay and then pressing
+  `c` will copy the link to your clipboard.
+  The link is also available in the `log_line_link` column of the
+  log tables.
+  These permalinks can be used with the `:goto` command to move to
+  the log message.
+  They can also be used in log message comments as targets for
+  Markdown links, which can be clicked to jump to the message.
+* The `CTRL` + `O` shortcut is now bound to the `:prev-location`
+  command, so you can jump back to a previous location.
 * Render task marks in markdown.
 
 Bug Fixes:
@@ -79,6 +94,9 @@ Bug Fixes:
 * Improved performance for the timeline view.
 * Copying a column with a text value in the DB overlay view.
 * Generic logs read from stdin or exec'd were not working properly.
+* The `:export-session-to` command will now include `:open` commands
+  for log files that were piped in to lnav or executed with the `:sh`
+  command.
 
 ## lnav v0.12.4
 

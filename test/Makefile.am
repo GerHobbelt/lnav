@@ -291,7 +291,11 @@ dist_noinst_DATA = \
 	datafile_simple.20 \
 	datafile_simple.21 \
 	datafile_simple.22 \
+	datafile_simple.23 \
+	datafile_simple.24 \
+	datafile_simple.25 \
 	datafile_simple.26 \
+	datafile_simple.27 \
 	datafile_xml.0 \
 	dhcp.pcapng \
 	dhcp-trunc.pcapng \
@@ -363,6 +367,7 @@ dist_noinst_DATA = \
 	logfile_leveltest.0 \
 	logfile_logfmt.0 \
 	logfile_multiline.0 \
+	logfile_muxed_syslog.0 \
 	logfile_nested_json.json \
 	logfile_nextcloud.0 \
 	logfile_openam.0 \
@@ -560,6 +565,8 @@ DISTCLEANFILES = \
 	*.tmpbak \
 	*.xz \
 	exported-session.0.lnav \
+	exported-sh-session.0.lnav \
+	exported-stdin-session.0.lnav \
 	hw.txt \
 	hw2.txt \
 	reload_test.0 \

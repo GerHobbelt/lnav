@@ -198,6 +198,9 @@ private:
 
 struct json_path_container;
 
+template<typename T>
+struct typed_json_path_container;
+
 struct json_path_handler_base {
     struct enum_value_t {
         template<typename T>
@@ -519,7 +522,7 @@ public:
 
     const intern_string_t ypc_source;
     int ypc_line_number{1};
-    const struct json_path_container* ypc_handlers;
+    const json_path_container* ypc_handlers;
     std::stack<void*> ypc_obj_stack;
     void* ypc_userdata{nullptr};
     yajl_handle ypc_handle{nullptr};
@@ -534,9 +537,9 @@ public:
     std::vector<const json_path_handler_base*> ypc_handler_stack;
     size_t ypc_array_handler_count{0};
     bool ypc_ignore_unused{false};
-    const struct json_path_container* ypc_sibling_handlers{nullptr};
-    const struct json_path_handler_base* ypc_current_handler{nullptr};
-    std::set<std::string> ypc_active_paths;
+    const json_path_container* ypc_sibling_handlers{nullptr};
+    const json_path_handler_base* ypc_current_handler{nullptr};
+    std::map<std::string, size_t> ypc_active_paths;
     error_reporter_t ypc_error_reporter{nullptr};
     std::map<intern_string_t, source_location>* ypc_locations{nullptr};
 
@@ -758,6 +761,15 @@ struct json_string {
 };
 
 void dump_schema_to(const json_path_container& jpc, const char* internals_dir);
+
+struct yajl_handle_deleter {
+    void operator()(yajl_handle handle) const
+    {
+        if (handle != nullptr) {
+            yajl_free(handle);
+        }
+    }
+};
 
 namespace yajlpp {
 
