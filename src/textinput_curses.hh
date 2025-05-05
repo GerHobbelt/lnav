@@ -38,6 +38,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/attr_line.hh"
@@ -329,8 +330,15 @@ public:
 
     bool do_update() override;
 
-    void open_popup_for_completion(size_t left,
+    void open_popup_for_completion(line_range crange,
                                    std::vector<attr_line_t> possibilities);
+
+    void open_popup_for_completion(
+        int left, const std::vector<attr_line_t>& possibilities)
+    {
+        this->open_popup_for_completion(line_range{left, this->tc_cursor.x},
+                                        possibilities);
+    }
 
     void open_popup_for_history(std::vector<attr_line_t> possibilities);
 
@@ -418,7 +426,17 @@ public:
 
     void command_up(const ncinput& ch);
 
+    enum class indent_mode_t {
+        right,
+        left,
+        clear_left,
+    };
+
+    void command_indent(indent_mode_t mode);
+
     void add_mark(input_point pos, const lnav::console::user_message& msg);
+
+    void sync_to_sysclip() const;
 
     enum class mode_t {
         editing,
@@ -428,7 +446,7 @@ public:
 
     struct change_entry {
         change_entry(selected_range range, std::string content)
-            : ce_range(range), ce_content(content)
+            : ce_range(range), ce_content(std::move(content))
         {
         }
         selected_range ce_range;

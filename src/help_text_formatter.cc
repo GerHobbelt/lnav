@@ -34,6 +34,8 @@
 
 #include "base/ansi_scrubber.hh"
 #include "base/attr_line.builder.hh"
+#include "base/itertools.enumerate.hh"
+#include "base/itertools.hh"
 #include "base/string_util.hh"
 #include "config.h"
 #include "fmt/format.h"
@@ -75,6 +77,20 @@ get_related(const help_text& ht)
     }
 
     return retval;
+}
+
+static void
+add_enum_param(attr_line_t& out, const help_text& enum_param)
+{
+    out.append(" ");
+    if (enum_param.ht_nargs == help_nargs_t::HN_OPTIONAL) {
+        out.append("[");
+    }
+    out.join(
+        enum_param.ht_enum_values, VC_ROLE.value(role_t::VCR_KEYWORD), "|");
+    if (enum_param.ht_nargs == help_nargs_t::HN_OPTIONAL) {
+        out.append("]");
+    }
 }
 
 void
@@ -238,12 +254,15 @@ format_help_text_for_term(const help_text& ht,
         case help_context_t::HC_SQL_KEYWORD: {
             size_t line_start = out.get_string().length();
             bool break_all = false;
-            bool is_infix = ht.ht_context == help_context_t::HC_SQL_INFIX;
+            auto is_infix = ht.ht_context == help_context_t::HC_SQL_INFIX;
 
             if (is_infix) {
                 out.append(ht.ht_name);
             } else {
                 out.append(lnav::roles::keyword(ht.ht_name));
+            }
+            if (ht.ht_group_start) {
+                out.ensure_space().append(ht.ht_group_start);
             }
             for (const auto& param : ht.ht_parameters) {
                 if (break_all
@@ -272,33 +291,56 @@ format_help_text_for_term(const help_text& ht,
                     out.ensure_space().append(
                         lnav::roles::keyword(param.ht_group_start));
                 }
-                if (param.ht_name[0]) {
+                if (!param.ht_enum_values.empty()) {
+                    out.join(param.ht_enum_values,
+                             VC_ROLE.value(role_t::VCR_KEYWORD),
+                             "|");
+                } else if (param.ht_name[0]) {
+                    for (const auto& sub_param : param.ht_parameters) {
+                        if (sub_param.is_flag()) {
+                            out.ensure_space()
+                                .append("[")
+                                .append(sub_param.ht_name)
+                                .append("]");
+                        }
+                    }
                     out.ensure_space().append(
                         lnav::roles::variable(param.ht_name));
-                    if (!param.ht_parameters.empty()) {
+                    if (param.ht_parameters.size() == 1) {
                         if (param.ht_nargs == help_nargs_t::HN_ZERO_OR_MORE
                             || param.ht_nargs == help_nargs_t::HN_ONE_OR_MORE)
                         {
                             out.append("1"_variable);
                         }
-                        if (param.ht_parameters[0].ht_flag_name) {
-                            out.append(" ")
-                                .append(lnav::roles::keyword(
-                                    param.ht_parameters[0].ht_flag_name))
-                                .append(" ");
+                        if (param.ht_parameters[0].is_enum()) {
+                            add_enum_param(out, param.ht_parameters[0]);
+                        } else {
+                            if (param.ht_parameters[0].ht_flag_name) {
+                                out.append(" ")
+                                    .append(lnav::roles::keyword(
+                                        param.ht_parameters[0].ht_flag_name))
+                                    .append(" ");
+                            }
+                            out.append(lnav::roles::variable(
+                                param.ht_parameters[0].ht_name));
+                            out.append("1"_variable);
                         }
-                        out.append(lnav::roles::variable(
-                            param.ht_parameters[0].ht_name));
                     }
                 }
                 if (param.ht_nargs == help_nargs_t::HN_ZERO_OR_MORE
                     || param.ht_nargs == help_nargs_t::HN_ONE_OR_MORE)
                 {
-                    bool needs_comma = param.ht_parameters.empty()
+                    auto needs_comma
+                        = (param.ht_parameters
+                           | lnav::itertools::filter_out(&help_text::is_enum))
+                              .empty()
                         || !param.ht_flag_name;
 
-                    out.append("1"_variable)
-                        .append(" [")
+                    if (param.ht_parameters.empty()) {
+                        out.append("1"_variable);
+                    }
+
+                    out.append(" [")
                         .append(needs_comma ? ", " : "")
                         .append("...")
                         .append(needs_comma ? "" : " ")
@@ -310,16 +352,22 @@ format_help_text_for_term(const help_text& ht,
                         .append(lnav::roles::variable(param.ht_name))
                         .append("N"_variable);
                     if (!param.ht_parameters.empty()) {
-                        if (param.ht_parameters[0].ht_flag_name) {
-                            out.append(" ")
-                                .append(lnav::roles::keyword(
-                                    param.ht_parameters[0].ht_flag_name))
-                                .append(" ");
-                        }
+                        if (param.ht_parameters[0].is_enum()) {
+                            add_enum_param(out, param.ht_parameters[0]);
+                        } else if (param.ht_parameters[0].is_flag()) {
+                            out.append(" ");
+                        } else {
+                            if (param.ht_parameters[0].ht_flag_name) {
+                                out.append(" ")
+                                    .append(lnav::roles::keyword(
+                                        param.ht_parameters[0].ht_flag_name))
+                                    .append(" ");
+                            }
 
-                        out.append(lnav::roles::variable(
-                                       param.ht_parameters[0].ht_name))
-                            .append("N"_variable);
+                            out.append(lnav::roles::variable(
+                                           param.ht_parameters[0].ht_name))
+                                .append("N"_variable);
+                        }
                     }
                     out.append("]");
                 }
@@ -332,6 +380,9 @@ format_help_text_for_term(const help_text& ht,
                 {
                     out.append("]");
                 }
+            }
+            if (ht.ht_group_end) {
+                out.ensure_space().append(ht.ht_group_end);
             }
             out.with_attr(string_attr{
                 line_range{(int) line_start, (int) out.get_string().length()},

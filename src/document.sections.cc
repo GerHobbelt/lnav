@@ -246,25 +246,25 @@ static void
 discover_metadata_int(const attr_line_t& al, metadata_builder& mb)
 {
     const auto& orig_attrs = al.get_attrs();
-    auto headers = orig_attrs
-        | lnav::itertools::filter_in([](const string_attr& attr) {
-                       if (attr.sa_type != &VC_ROLE) {
-                           return false;
-                       }
+    auto headers
+        = orig_attrs | lnav::itertools::filter_in([](const string_attr& attr) {
+              if (attr.sa_type != &VC_ROLE || !attr.sa_range.is_valid()) {
+                  return false;
+              }
 
-                       const auto role = attr.sa_value.get<role_t>();
-                       switch (role) {
-                           case role_t::VCR_H1:
-                           case role_t::VCR_H2:
-                           case role_t::VCR_H3:
-                           case role_t::VCR_H4:
-                           case role_t::VCR_H5:
-                           case role_t::VCR_H6:
-                               return true;
-                           default:
-                               return false;
-                       }
-                   })
+              const auto role = attr.sa_value.get<role_t>();
+              switch (role) {
+                  case role_t::VCR_H1:
+                  case role_t::VCR_H2:
+                  case role_t::VCR_H3:
+                  case role_t::VCR_H4:
+                  case role_t::VCR_H5:
+                  case role_t::VCR_H6:
+                      return true;
+                  default:
+                      return false;
+              }
+          })
         | lnav::itertools::sort_by(&string_attr::sa_range);
 
     // Remove headers from quoted text
@@ -291,6 +291,7 @@ discover_metadata_int(const attr_line_t& al, metadata_builder& mb)
     };
     std::vector<open_interval_t> open_intervals;
     auto root_node = std::make_unique<hier_node>();
+    const auto sf = string_fragment::from_str(al.get_string());
 
     for (const auto& hdr_attr : headers) {
         const auto role = hdr_attr.sa_value.get<role_t>();
@@ -301,7 +302,6 @@ discover_metadata_int(const attr_line_t& al, metadata_builder& mb)
         for (auto& oi : open_intervals) {
             if (oi.oi_level >= role_num) {
                 // close out this section
-                auto sf = string_fragment::from_str(al.get_string());
                 auto left_sf = sf.find_left_boundary(
                     hdr_attr.sa_range.lr_start, string_fragment::tag1{'\n'});
                 if (left_sf.sf_begin > 0) {
@@ -326,7 +326,6 @@ discover_metadata_int(const attr_line_t& al, metadata_builder& mb)
             auto* parent_node = new_open_intervals.empty()
                 ? root_node.get()
                 : new_open_intervals.back().oi_node.get();
-            auto sf = string_fragment::from_str(al.get_string());
             auto left_sf = sf.find_left_boundary(hdr_attr.sa_range.lr_start,
                                                  string_fragment::tag1{'\n'});
             new_open_intervals.emplace_back(
@@ -448,6 +447,8 @@ public:
 
         mb.mb_text_format = this->sw_discover_builder.db_text_format;
         while (true) {
+            require(this->sw_depth == this->sw_container_tokens.size());
+
             auto tokenize_res = this->sw_scanner.tokenize2(
                 this->sw_discover_builder.db_text_format);
             if (!tokenize_res) {
@@ -514,6 +515,9 @@ public:
                                 term = std::nullopt;
                             }
                             this->sw_interval_state.pop_back();
+                            if (!found && this->sw_depth > 0) {
+                                this->sw_depth -= 1;
+                            }
                             this->sw_hier_stage
                                 = std::move(this->sw_hier_nodes.back());
                             this->sw_hier_nodes.pop_back();
@@ -729,6 +733,8 @@ public:
                     break;
                 }
             }
+
+            ensure(this->sw_depth == this->sw_container_tokens.size());
         }
         this->flush_values();
 

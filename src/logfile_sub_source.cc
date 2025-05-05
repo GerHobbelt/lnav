@@ -755,7 +755,7 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
 
     if (!this->lss_token_line->is_continued()) {
         if (this->lss_preview_filter_stmt != nullptr) {
-            auto color = styling::color_unit::make_empty();
+            auto color = styling::color_unit::EMPTY;
             auto eval_res
                 = this->eval_sql_filter(this->lss_preview_filter_stmt.in(),
                                         this->lss_token_file_data,
@@ -796,11 +796,11 @@ logfile_sub_source::text_attrs_for_line(textview_curses& lv,
                     FMT_STRING(
                         "filter expression evaluation failed with -- {}"),
                     eval_res.unwrapErr().to_attr_line().get_string());
+                auto cu = styling::color_unit::from_palette(palette_color{
+                    lnav::enums::to_underlying(ansi_color::yellow)});
                 value_out.emplace_back(line_range{0, -1}, SA_ERROR.value(msg));
-                value_out.emplace_back(
-                    line_range{0, 1},
-                    VC_BACKGROUND.value(palette_color{
-                        lnav::enums::to_underlying(ansi_color::yellow)}));
+                value_out.emplace_back(line_range{0, 1},
+                                       VC_BACKGROUND.value(cu));
             }
         }
     }
@@ -1592,13 +1592,9 @@ logfile_sub_source::list_input_handle_key(listview_curses& lv,
                             break;
                     }
                     if (!cmd.empty()) {
-                        static intern_string_t SRC
-                            = intern_string::lookup("hotkey");
-                        auto src_guard
-                            = this->lss_exec_context->enter_source(SRC, 1, cmd);
                         this->lss_exec_context
                             ->with_provenance(exec_context::mouse_input{})
-                            ->execute(cmd);
+                            ->execute(INTERNAL_SRC_LOC, cmd);
                     }
                 }
                 return true;
@@ -2057,8 +2053,27 @@ logfile_sub_source::eval_sql_filter(sqlite3_stmt* stmt,
 bool
 logfile_sub_source::check_extra_filters(iterator ld, logfile::iterator ll)
 {
-    if (this->lss_marked_only && !(ll->is_marked() || ll->is_expr_marked())) {
-        return false;
+    if (this->lss_marked_only) {
+        auto found_mark = ll->is_marked() || ll->is_expr_marked();
+        auto to_start_ll = ll;
+        while (!found_mark && to_start_ll->is_continued()) {
+            if (to_start_ll->is_marked() || to_start_ll->is_expr_marked()) {
+                found_mark = true;
+            }
+            --to_start_ll;
+        }
+        auto to_end_ll = std::next(ll);
+        while (!found_mark && to_end_ll != (*ld)->get_file_ptr()->end()
+               && to_end_ll->is_continued())
+        {
+            if (to_end_ll->is_marked() || to_end_ll->is_expr_marked()) {
+                found_mark = true;
+            }
+            ++to_end_ll;
+        }
+        if (!found_mark) {
+            return false;
+        }
     }
 
     if (ll->get_msg_level() < this->lss_min_log_level) {
@@ -2448,7 +2463,12 @@ logline_window::begin()
         return this->end();
     }
 
-    return {this->lw_source, this->lw_start_line};
+    auto retval = iterator{this->lw_source, this->lw_start_line};
+    while (!retval->is_valid() && retval != this->end()) {
+        ++retval;
+    }
+
+    return retval;
 }
 
 logline_window::iterator
@@ -2472,15 +2492,14 @@ logline_window::logmsg_info::logmsg_info(logfile_sub_source& lss, vis_line_t vl)
     if (this->li_line < vis_line_t(this->li_source.text_line_count())) {
         while (true) {
             auto pair_opt = this->li_source.find_line_with_file(vl);
-
             if (!pair_opt) {
                 break;
             }
 
-            auto line_pair = pair_opt.value();
-            if (line_pair.second->is_message()) {
-                this->li_file = line_pair.first.get();
-                this->li_logline = line_pair.second;
+            auto& [lf, ll] = pair_opt.value();
+            if (ll->is_message()) {
+                this->li_file = lf.get();
+                this->li_logline = ll;
                 this->li_line_number
                     = std::distance(this->li_file->begin(), this->li_logline);
                 break;
@@ -2488,6 +2507,12 @@ logline_window::logmsg_info::logmsg_info(logfile_sub_source& lss, vis_line_t vl)
             --vl;
         }
     }
+}
+
+bool
+logline_window::logmsg_info::is_valid() const
+{
+    return this->li_file != nullptr;
 }
 
 void
@@ -2512,9 +2537,8 @@ logline_window::logmsg_info::next_msg()
             this->li_line_number
                 = std::distance(this->li_file->begin(), this->li_logline);
             break;
-        } else {
-            ++this->li_line;
         }
+        ++this->li_line;
     }
 }
 
@@ -2706,7 +2730,6 @@ void
 logfile_sub_source::text_crumbs_for_line(int line,
                                          std::vector<breadcrumb::crumb>& crumbs)
 {
-    static const intern_string_t SRC = intern_string::lookup("__crumb");
     text_sub_source::text_crumbs_for_line(line, crumbs);
 
     if (this->lss_filtered_index.empty()) {
@@ -2747,8 +2770,7 @@ logfile_sub_source::text_crumbs_for_line(int line,
             [ec = this->lss_exec_context](const auto& part) {
                 auto cmd = fmt::format(FMT_STRING(":goto {}"),
                                        part.template get<std::string>());
-                auto src_guard = ec->enter_source(SRC, 1, cmd);
-                ec->execute(cmd);
+                ec->execute(INTERNAL_SRC_LOC, cmd);
             });
     }
 
@@ -2769,8 +2791,7 @@ logfile_sub_source::text_crumbs_for_line(int line,
                             auto cmd
                                 = fmt::format(FMT_STRING(":goto {}"),
                                               ts.template get<std::string>());
-                            auto src_guard = ec->enter_source(SRC, 1, cmd);
-                            ec->execute(cmd);
+                            ec->execute(INTERNAL_SRC_LOC, cmd);
                         });
     crumbs.back().c_expected_input
         = breadcrumb::crumb::expected_input_t::anything;
@@ -2806,8 +2827,8 @@ logfile_sub_source::text_crumbs_for_line(int line,
      WHERE name = 'log'
 )";
 
-            auto src_guard = ec->enter_source(SRC, 1, MOVE_STMT);
             ec->execute_with(
+                INTERNAL_SRC_LOC,
                 MOVE_STMT,
                 std::make_pair("format_name",
                                format_name.template get<std::string>()));
@@ -2841,13 +2862,14 @@ logfile_sub_source::text_crumbs_for_line(int line,
      WHERE name = 'log'
 )";
 
-            auto src_guard = ec->enter_source(SRC, 1, MOVE_STMT);
             ec->execute_with(
+                INTERNAL_SRC_LOC,
                 MOVE_STMT,
                 std::make_pair("uniq_path",
                                uniq_path.template get<std::string>()));
         });
 
+    shared_buffer sb;
     logline_value_vector values;
     auto& sbr = values.lvv_sbr;
 
@@ -2856,6 +2878,7 @@ logfile_sub_source::text_crumbs_for_line(int line,
     if (sbr.get_metadata().m_has_ansi) {
         // bleh
         scrub_ansi_string(al.get_string(), &al.al_attrs);
+        sbr.share(sb, al.al_string.data(), al.al_string.size());
     }
     format->annotate(lf.get(), file_line_number, al.get_attrs(), values);
 
@@ -2903,8 +2926,8 @@ logfile_sub_source::text_crumbs_for_line(int line,
                 return retval;
             },
             [ec = this->lss_exec_context](const auto& opid) {
-                auto src_guard = ec->enter_source(SRC, 1, MOVE_STMT);
                 ec->execute_with(
+                    INTERNAL_SRC_LOC,
                     MOVE_STMT,
                     std::make_pair("opid", opid.template get<std::string>()));
             });
@@ -3300,7 +3323,11 @@ logfile_sub_source::row_for(const row_info& ri)
             if (ll->get_timeval() != ri.ri_time) {
                 break;
             }
-            ++lb;
+            auto next_lb = std::next(lb);
+            if (next_lb == this->lss_filtered_index.end()) {
+                break;
+            }
+            lb = next_lb;
         }
 
         const auto dst
@@ -3477,10 +3504,18 @@ logfile_sub_source::reload_config(error_reporter& reporter)
     static const auto& cfg
         = injector::get<const logfile_sub_source_ns::config&>();
 
-    if (cfg.c_time_column
-            == logfile_sub_source_ns::time_column_feature_t::Default
-        && this->lss_line_context == line_context_t::none)
-    {
-        this->lss_line_context = line_context_t::time_column;
+    switch (cfg.c_time_column) {
+        case logfile_sub_source_ns::time_column_feature_t::Default:
+            if (this->lss_line_context == line_context_t::none) {
+                this->lss_line_context = line_context_t::time_column;
+            }
+            break;
+        case logfile_sub_source_ns::time_column_feature_t::Disabled:
+            if (this->lss_line_context == line_context_t::time_column) {
+                this->lss_line_context = line_context_t::none;
+            }
+            break;
+        case logfile_sub_source_ns::time_column_feature_t::Enabled:
+            break;
     }
 }

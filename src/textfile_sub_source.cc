@@ -171,10 +171,10 @@ textfile_sub_source::text_value_for_line(textview_curses& tc,
     const auto ll = lf->begin() + lfo->lfo_filter_state.tfs_index[line];
     auto read_result = lf->read_line(ll);
     this->tss_line_indent_size = 0;
+    this->tss_plain_line_attrs.clear();
     if (read_result.isOk()) {
         auto sbr = read_result.unwrap();
         value_out = to_string(sbr);
-        this->tss_plain_line_attrs.clear();
         if (sbr.get_metadata().m_has_ansi) {
             scrub_ansi_string(value_out, &this->tss_plain_line_attrs);
         }
@@ -763,6 +763,7 @@ textfile_sub_source::rescan_files(textfile_sub_source::scan_callback& callback,
             iter = this->tss_files.erase(iter);
             this->detach_observer(lf);
             closed_files.emplace_back(lf);
+            retval.rr_rescan_needed = true;
             continue;
         }
 
@@ -803,7 +804,7 @@ textfile_sub_source::rescan_files(textfile_sub_source::scan_callback& callback,
                     // Only invalidate the meta if the file is small, or we
                     // found some meta previously.
                     if ((st.st_mtime != iter->fvs_mtime
-                         || st.st_size != iter->fvs_file_size)
+                         || lf->get_index_size() != iter->fvs_file_size)
                         && (st.st_size < 10 * 1024 || iter->fvs_file_size == 0
                             || !iter->fvs_metadata.m_sections_tree.empty()))
                     {
@@ -969,6 +970,9 @@ textfile_sub_source::rescan_files(textfile_sub_source::scan_callback& callback,
                     md2attr_line mdal;
 
                     mdal.with_source_path(lf->get_actual_path());
+                    if (this->tss_view->tc_interactive) {
+                        mdal.add_lnav_script_icons();
+                    }
                     auto parse_res = md4cpp::parse(content_sf, mdal);
 
                     iter->fvs_mtime = st.st_mtime;
@@ -1046,8 +1050,10 @@ textfile_sub_source::rescan_files(textfile_sub_source::scan_callback& callback,
                         iter->fvs_text_source->register_view(this->tss_view);
                         iter->fvs_text_source->replace_with(pretty_al);
                     } else {
-                        log_error("unable to read file to pretty-print: %s -- file is not valid UTF-8",
-                                  lf->get_path_for_key().c_str());
+                        log_error(
+                            "unable to read file to pretty-print: %s -- file "
+                            "is not valid UTF-8",
+                            lf->get_path_for_key().c_str());
                         iter->fvs_mtime = st.st_mtime;
                         iter->fvs_file_indexed_size = lf->get_index_size();
                         iter->fvs_file_size = st.st_size;

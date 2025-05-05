@@ -191,7 +191,8 @@ prompt::insert_sql_completion(const std::string& name, const sql_item_t& item)
                               [](sql_number_t) { return false; },
                               [](sql_string_t) { return true; },
                               [](sql_var_t) { return false; },
-                              [](sql_field_var_t) { return false; });
+                              [](sql_field_var_t) { return false; },
+                              [](sql_format_column_t) { return false; });
     if (is_prql) {
         this->p_prql_completions.emplace(name, item);
     }
@@ -258,8 +259,10 @@ prompt::refresh_sql_expr_completions(textview_curses& tc)
         ":log_raw_text",
     };
 
+    this->insert_sql_completion("log_line", sql_format_column_t{});
     for (const auto& var : BUILTIN_VARS) {
         this->insert_sql_completion(var, sql_field_var_t{});
+        this->insert_sql_completion(&var[1], sql_format_column_t{});
     }
 
     tc.map_top_row([this](const auto& al) {
@@ -271,6 +274,8 @@ prompt::refresh_sql_expr_completions(textview_curses& tc)
                 auto var_name
                     = fmt::format(FMT_STRING(":{}"), lvm.lvm_name.c_str());
                 this->insert_sql_completion(var_name, sql_field_var_t{});
+                this->insert_sql_completion(lvm.lvm_name.to_string(),
+                                            sql_format_column_t{});
             }
         }
         return std::nullopt;
@@ -301,6 +306,10 @@ prompt::focus_for(textview_curses& tc,
         }
     }
 
+    for (const auto& [key, item] : this->p_sql_completions) {
+        this->p_sql_completion_terms.emplace(key);
+    }
+
     this->p_env_vars.clear();
     switch (sigil) {
         case ':':
@@ -324,7 +333,7 @@ prompt::focus_for(textview_curses& tc,
     } else if (sigil) {
         this->p_editor.tc_prefix.al_string.push_back(sigil);
     }
-    this->p_editor.tc_height = 1;
+    this->p_editor.set_height(1);
     this->p_editor.set_content(cget(args, 3).value_or(""));
     this->p_editor.move_cursor_to(textinput_curses::input_point::end());
     this->p_editor.tc_popup.set_title("");
@@ -360,12 +369,18 @@ prompt::refresh_sql_completions(textview_curses& tc)
                 this->insert_sql_completion(name, sql_keyword_t{});
                 break;
             case help_context_t::HC_SQL_FUNCTION:
-                this->insert_sql_completion(
-                    name, sql_function_t{func->ht_parameters.size()});
-                if (!func->ht_prql_path.empty()) {
-                    auto prql_name = fmt::format(
-                        FMT_STRING("{}"), fmt::join(func->ht_prql_path, "."));
-                    this->insert_sql_completion(prql_name, prql_function_t{});
+                if (name == func->ht_name) {
+                    this->insert_sql_completion(
+                        name, sql_function_t{func->ht_parameters.size()});
+                    if (!func->ht_prql_path.empty()) {
+                        auto prql_name
+                            = fmt::format(FMT_STRING("{}"),
+                                          fmt::join(func->ht_prql_path, "."));
+                        this->insert_sql_completion(prql_name,
+                                                    prql_function_t{});
+                    }
+                } else {
+                    this->insert_sql_completion(name, sql_keyword_t{});
                 }
                 break;
             case help_context_t::HC_SQL_TABLE_VALUED_FUNCTION:
@@ -425,12 +440,13 @@ prompt::rl_reformat(textinput_curses& tc)
             annotate_sql_statement(content);
             auto format_res = lnav::db::format(content, tc.get_cursor_offset());
             tc.set_content(format_res.fr_content);
-            if (tc.tc_height != 5) {
+            if (tc.tc_height == 1) {
                 tc.set_height(5);
                 lnav_data.ld_bottom_source.set_prompt(
                     "Enter an SQL query: (Press "
                     ANSI_BOLD("CTRL+X") " to perform query and "
-                    ANSI_BOLD("CTRL+]") " to abort)");
+                    ANSI_BOLD("Esc") " to abort)");
+                lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
             }
             tc.move_cursor_to(
                 tc.get_point_for_offset(format_res.fr_cursor_offset));
@@ -505,6 +521,7 @@ prompt::rl_completion(textinput_curses& tc)
         return;
     }
 
+    this->p_in_completion = true;
     const auto& al
         = tc.tc_popup_source.get_lines()[tc.tc_popup.get_selection()].tl_value;
     auto sub = get_string_attr(al.al_attrs, SUBST_TEXT)->get();
@@ -513,6 +530,7 @@ prompt::rl_completion(textinput_curses& tc)
     if (tc.tc_lines.size() > 1 && tc.tc_height == 1) {
         tc.set_height(5);
     }
+    this->p_in_completion = false;
 }
 
 void
@@ -544,6 +562,8 @@ prompt::rl_popup_change(textinput_curses& tc)
     tc.replace_selection(sub);
     if (tc.tc_lines.size() > 1 && tc.tc_height == 1) {
         tc.set_height(5);
+    } else {
+        tc.set_height(1);
     }
     tc.tc_complete_range = textinput_curses::selected_range::from_key(
         textinput_curses::input_point::home(),
@@ -737,6 +757,20 @@ sql_item_visitor::operator()(const prompt::sql_field_var_t&) const
     return retval;
 }
 
+template<>
+const prompt::sql_item_meta&
+sql_item_visitor::operator()(const prompt::sql_format_column_t&) const
+{
+    static constexpr auto retval = prompt::sql_item_meta{
+        "\U0001F132",
+        "",
+        " ",
+        role_t::VCR_IDENTIFIER,
+    };
+
+    return retval;
+}
+
 const prompt::sql_item_meta&
 prompt::sql_item_hint(const sql_item_t& item) const
 {
@@ -841,6 +875,12 @@ prompt::get_cmd_parameter_completion(textview_curses& tc,
 
     if (ht->ht_enum_values.empty()) {
         switch (ht->ht_format) {
+            case help_parameter_format_t::HPF_NONE:
+            case help_parameter_format_t::HPF_STRING:
+            case help_parameter_format_t::HPF_NUMBER:
+            case help_parameter_format_t::HPF_INTEGER:
+            case help_parameter_format_t::HPF_CONFIG_VALUE:
+                break;
             case help_parameter_format_t::HPF_SQL:
             case help_parameter_format_t::HPF_SQL_EXPR: {
                 auto poss_strs = this->p_sql_completions
@@ -1336,6 +1376,41 @@ prompt::get_cmd_parameter_completion(textview_curses& tc,
                 retval = poss_strs | lnav::itertools::similar_to(str, 10)
                     | lnav::itertools::map([](const auto& x) {
                              return attr_line_t().append(x).with_attr_for_all(
+                                 SUBST_TEXT.value(x));
+                         });
+                break;
+            }
+            case help_parameter_format_t::HPF_LOCATION: {
+                auto* ta = dynamic_cast<text_anchors*>(tc.get_sub_source());
+                auto* ttt
+                    = dynamic_cast<text_time_translator*>(tc.get_sub_source());
+
+                std::vector<std::string> poss_strs;
+
+                if (ttt != nullptr) {
+                    poss_strs.emplace_back("-1 day");
+                    poss_strs.emplace_back("-1h");
+                    poss_strs.emplace_back("-30m");
+                    poss_strs.emplace_back("-15m");
+                    poss_strs.emplace_back("-5m");
+                    poss_strs.emplace_back("-1m");
+                    poss_strs.emplace_back("+1m");
+                    poss_strs.emplace_back("+5m");
+                    poss_strs.emplace_back("+15m");
+                    poss_strs.emplace_back("+30m");
+                    poss_strs.emplace_back("+1h");
+                    poss_strs.emplace_back("+1 day");
+                }
+                if (ta != nullptr) {
+                    auto anchors = ta->get_anchors();
+
+                    poss_strs.insert(
+                        poss_strs.end(), anchors.begin(), anchors.end());
+                }
+
+                retval = poss_strs | lnav::itertools::similar_to(str, 10)
+                    | lnav::itertools::map([](const auto& x) {
+                             return attr_line_t(x).with_attr_for_all(
                                  SUBST_TEXT.value(x));
                          });
                 break;

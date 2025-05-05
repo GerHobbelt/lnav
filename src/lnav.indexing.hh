@@ -38,6 +38,7 @@ void rebuild_hist();
 struct rebuild_indexes_result_t {
     size_t rir_changes{0};
     bool rir_completed{true};
+    bool rir_rescan_needed{false};
 };
 
 rebuild_indexes_result_t rebuild_indexes(
@@ -45,6 +46,6 @@ rebuild_indexes_result_t rebuild_indexes(
 void rebuild_indexes_repeatedly();
 bool rescan_files(bool required = false);
 bool update_active_files(file_collection& new_files);
-void do_observer_update(const logfile* lf);
+lnav::progress_result_t do_observer_update(const logfile* lf);
 
 #endif

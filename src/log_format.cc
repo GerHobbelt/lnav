@@ -1376,7 +1376,7 @@ external_log_format::scan_json(std::vector<logline>& dst,
             return scan_no_match{"line is not a JSON object"};
         }
 
-        ll.set_time(dst.back().get_timeval());
+        ll.set_time(dst.back().get_time<std::chrono::microseconds>());
         ll.set_level(LEVEL_INVALID);
         dst.emplace_back(ll);
         return scan_match{0};
@@ -1390,6 +1390,9 @@ external_log_format::scan_json(std::vector<logline>& dst,
         log_debug("skipping partial line at offset %d",
                   li.li_file_range.fr_offset);
         if (this->lf_specialized) {
+            if (!dst.empty()) {
+                ll.set_time(dst.back().get_time<std::chrono::microseconds>());
+            }
             ll.set_level(LEVEL_INVALID);
             dst.emplace_back(ll);
         }
@@ -1419,6 +1422,10 @@ external_log_format::scan_json(std::vector<logline>& dst,
     {
         if (ll.get_time<std::chrono::microseconds>().count() == 0) {
             if (this->lf_specialized) {
+                if (!dst.empty()) {
+                    ll.set_time(
+                        dst.back().get_time<std::chrono::microseconds>());
+                }
                 ll.set_ignore(true);
                 dst.emplace_back(ll);
                 return scan_match{0};
@@ -4080,7 +4087,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                                         hd.hd_color.pp_path.to_string())))
                                 .with_reason(msg)
                                 .with_snippet(hd.hd_color.to_snippet()));
-                        return styling::color_unit::make_empty();
+                        return styling::color_unit::EMPTY;
                     }));
         }
 
@@ -4101,7 +4108,7 @@ external_log_format::build(std::vector<lnav::console::user_message>& errors)
                                 .with_reason(msg)
                                 .with_snippet(
                                     hd.hd_background_color.to_snippet()));
-                        return styling::color_unit::make_empty();
+                        return styling::color_unit::EMPTY;
                     }));
         }
 

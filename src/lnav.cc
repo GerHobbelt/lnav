@@ -316,19 +316,21 @@ setup_logline_table(exec_context& ec)
     bool retval = false;
 
     if (log_view.get_inner_height()) {
-        static intern_string_t logline = intern_string::lookup("logline");
+        static const intern_string_t logline = intern_string::lookup("logline");
         auto vl = log_view.get_selection();
         auto cl = lnav_data.ld_log_source.at_base(vl);
-
-        lnav_data.ld_vtab_manager->unregister_vtab(
-            logline.to_string_fragment());
-        lnav_data.ld_vtab_manager->register_vtab(
-            std::make_shared<log_data_table>(lnav_data.ld_log_source,
-                                             *lnav_data.ld_vtab_manager,
-                                             cl,
-                                             logline));
-
-        retval = true;
+        auto file_and_line_opt
+            = lnav_data.ld_log_source.find_line_with_file(cl);
+        if (file_and_line_opt && file_and_line_opt->second->is_message()) {
+            lnav_data.ld_vtab_manager->unregister_vtab(
+                logline.to_string_fragment());
+            lnav_data.ld_vtab_manager->register_vtab(
+                std::make_shared<log_data_table>(lnav_data.ld_log_source,
+                                                 *lnav_data.ld_vtab_manager,
+                                                 cl,
+                                                 logline));
+            retval = true;
+        }
     }
 
     auto& db_key_names = lnav_data.ld_db_key_names;
@@ -701,6 +703,7 @@ update_view_position(listview_curses* lv)
         lnav_data.ld_bottom_source.update_line_number(lv);
         lnav_data.ld_bottom_source.update_percent(lv);
         lnav_data.ld_bottom_source.update_marks(lv);
+        lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
     };
 }
 
@@ -967,8 +970,16 @@ struct refresh_status_bars {
     using injectable
         = refresh_status_bars(std::shared_ptr<top_status_source> top_source);
 
-    lnav::progress_result_t doit() const
+    lnav::progress_result_t doit(lnav::func::op_type ot) const
     {
+        static auto* breadcrumb_view = injector::get<breadcrumb_curses*>();
+        static auto& prompt = lnav::prompt::get();
+        static const auto cancel_msg
+            = lnav::console::user_message::info(
+                  attr_line_t("performing operation, press ")
+                      .append("CTRL+]"_hotkey)
+                      .append(" to cancel"))
+                  .to_attr_line();
         auto retval = lnav::progress_result_t::ok;
         timeval current_time{};
         ncinput ch;
@@ -989,6 +1000,7 @@ struct refresh_status_bars {
 
             if (ncinput_ctrl_p(&ch) && ch.id == ']') {
                 lnav_data.ld_bottom_source.update_loading(0, 0);
+                lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
                 retval = lnav::progress_result_t::interrupt;
             }
 
@@ -1003,10 +1015,26 @@ struct refresh_status_bars {
             }
         }
 
-        this->rsb_top_source->update_time(current_time);
+        if (ot == lnav::func::op_type::interactive) {
+        } else if (lnav_data.ld_bottom_source
+                       .get_field(bottom_status_source::BSF_LOADING)
+                       .empty())
+        {
+            prompt.p_editor.clear_inactive_value();
+        } else if (prompt.p_editor.tc_inactive_value.al_string
+                   != cancel_msg.al_string)
+        {
+            prompt.p_editor.set_inactive_value(cancel_msg);
+        }
+
+        lnav_data.ld_view_stack.do_update();
+        if (this->rsb_top_source->update_time(current_time)) {
+            lnav_data.ld_status[LNS_TOP].set_needs_update();
+        }
         for (auto& sc : lnav_data.ld_status) {
             sc.do_update();
         }
+        breadcrumb_view->do_update();
         lnav::prompt::get().p_editor.do_update();
         if (handle_winch(this->rsb_screen)) {
             layout_views();
@@ -1139,6 +1167,7 @@ looper()
                   lnav_data.ld_bottom_source.update_loading(off, size);
               }
               do_observer_update(nullptr);
+              lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
           };
 
     auto& sb = lnav_data.ld_scroll_broadcaster;
@@ -1371,6 +1400,7 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
 
     auto& prompt = lnav::prompt::get();
     {
+        prompt.p_editor.set_title("main prompt");
         prompt.p_editor.tc_window = lnav_data.ld_window;
         prompt.p_editor.tc_height = 1;
         prompt.p_editor.tc_text_format = text_format_t::TF_LNAV_SCRIPT;
@@ -1438,8 +1468,9 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
 
         if (top_view && *top_view == &tc) {
             lnav_data.ld_bottom_source.update_search_term(tc);
+            lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
         }
-        if (!lnav::prompt::get().p_editor.vc_enabled) {
+        if (!lnav::prompt::get().p_editor.is_enabled()) {
             auto search_duration = tc.consume_search_duration();
             if (search_duration) {
                 double secs = search_duration->count() / 1000.0;
@@ -1449,6 +1480,31 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
                             fmt::format(FMT_STRING("{:.3}"), secs)))
                         .append(" seconds"));
             }
+        }
+    };
+    auto click_handler = [](textview_curses& tc, const attr_line_t& al, int x) {
+        if (tc.tc_selected_text) {
+            return;
+        }
+        static auto& prompt = lnav::prompt::get();
+        static auto& ec = lnav_data.ld_exec_context;
+        auto cmd_iter
+            = find_string_attr_containing(al.get_attrs(), &VC_COMMAND, x);
+        if (cmd_iter != al.al_attrs.end()) {
+            auto cmd = cmd_iter->sa_value.get<ui_command>();
+            auto exec_res = ec.execute(cmd.uc_location, cmd.uc_command);
+            if (exec_res.isOk()) {
+                auto val = exec_res.unwrap();
+                prompt.p_editor.set_inactive_value(val);
+            }
+        }
+        auto link_iter
+            = find_string_attr_containing(al.get_attrs(), &VC_HYPERLINK, x);
+        if (link_iter != al.al_attrs.end()) {
+            ec.execute_with(
+                INTERNAL_SRC_LOC,
+                ":xopen $href",
+                std::make_pair("href", link_iter->sa_value.get<std::string>()));
         }
     };
     for (auto lpc = 0; lpc < LNV__MAX; lpc++) {
@@ -1461,6 +1517,8 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
         lnav_data.ld_views[lpc].tc_disabled_cursor_role
             = role_t::VCR_DISABLED_CURSOR_LINE;
         lnav_data.ld_views[lpc].tc_state_event_handler = event_handler;
+        lnav_data.ld_views[lpc].tc_on_click = click_handler;
+        lnav_data.ld_views[lpc].tc_interactive = true;
     }
     lnav_data.ld_views[LNV_DB].set_supports_marks(true);
     lnav_data.ld_views[LNV_HELP].set_supports_marks(true);
@@ -1470,14 +1528,18 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
     lnav_data.ld_views[LNV_SCHEMA].set_supports_marks(true);
     lnav_data.ld_views[LNV_PRETTY].set_supports_marks(true);
 
+    lnav_data.ld_doc_view.set_title("Documentation");
     lnav_data.ld_doc_view.set_window(lnav_data.ld_window);
     lnav_data.ld_doc_view.set_show_scrollbar(false);
 
+    lnav_data.ld_example_view.set_title("Examples");
     lnav_data.ld_example_view.set_window(lnav_data.ld_window);
     lnav_data.ld_example_view.set_show_scrollbar(false);
 
+    lnav_data.ld_preview_view[0].set_title("Preview #0");
     lnav_data.ld_preview_view[0].set_window(lnav_data.ld_window);
     lnav_data.ld_preview_view[0].set_show_scrollbar(false);
+    lnav_data.ld_preview_view[1].set_title("Preview #1");
     lnav_data.ld_preview_view[1].set_window(lnav_data.ld_window);
     lnav_data.ld_preview_view[1].set_show_scrollbar(false);
 
@@ -1541,6 +1603,19 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
         = injector::bind<top_status_source>::to_scoped_singleton();
     auto top_source = injector::get<std::shared_ptr<top_status_source>>();
 
+    lnav_data.ld_bottom_source.on_drag = [](mouse_event& me) {
+        static auto& prompt = lnav::prompt::get();
+
+        if (!prompt.p_editor.is_enabled() || prompt.p_editor.tc_height == 1) {
+            return;
+        }
+
+        auto full_height = (int) ncplane_dim_y(prompt.p_editor.tc_window);
+        auto max_height = full_height - 16;
+        auto new_height
+            = std::max(2, full_height - (prompt.p_editor.get_y() + me.me_y));
+        prompt.p_editor.set_height(std::min(max_height, new_height));
+    };
     lnav_data.ld_bottom_source.get_field(bottom_status_source::BSF_HELP)
         .on_click
         = [](status_field&) { ensure_view(&lnav_data.ld_views[LNV_HELP]); };
@@ -1563,19 +1638,25 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
               execute_command(lnav_data.ld_exec_context, cmd);
           };
 
+    lnav_data.ld_status[LNS_TOP].set_title("top");
     lnav_data.ld_status[LNS_TOP].set_y(0);
     lnav_data.ld_status[LNS_TOP].set_default_role(role_t::VCR_INACTIVE_STATUS);
     lnav_data.ld_status[LNS_TOP].set_data_source(top_source.get());
+    lnav_data.ld_status[LNS_BOTTOM].set_title("bottom");
     lnav_data.ld_status[LNS_BOTTOM].set_y(-2);
     for (auto& stat_bar : lnav_data.ld_status) {
         stat_bar.set_window(lnav_data.ld_window);
     }
     lnav_data.ld_status[LNS_BOTTOM].set_data_source(
         &lnav_data.ld_bottom_source);
+    lnav_data.ld_status[LNS_FILTER].set_title("filter");
     lnav_data.ld_status[LNS_FILTER].set_data_source(
         &lnav_data.ld_filter_status_source);
+    lnav_data.ld_status[LNS_FILTER_HELP].set_title("filter help");
     lnav_data.ld_status[LNS_FILTER_HELP].set_data_source(
         &lnav_data.ld_filter_help_status_source);
+
+    lnav_data.ld_status[LNS_DOC].set_title("Doc");
     lnav_data.ld_status[LNS_DOC].set_data_source(
         &lnav_data.ld_doc_status_source);
     lnav_data.ld_preview_status_source[0]
@@ -1586,8 +1667,10 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
                   lnav_data.ld_preview_hidden);
               lnav_data.ld_preview_hidden = !lnav_data.ld_preview_hidden;
           };
+    lnav_data.ld_status[LNS_PREVIEW0].set_title("preview0");
     lnav_data.ld_status[LNS_PREVIEW0].set_data_source(
         &lnav_data.ld_preview_status_source[0]);
+    lnav_data.ld_status[LNS_PREVIEW1].set_title("preview1");
     lnav_data.ld_status[LNS_PREVIEW1].set_data_source(
         &lnav_data.ld_preview_status_source[1]);
     lnav_data.ld_spectro_status_source
@@ -1652,7 +1735,7 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
     refresher->rsb_screen = &sc;
 
     auto refresh_guard = lnav_data.ld_status_refresher.install(
-        [refresher]() { refresher->doit(); });
+        [refresher](lnav::func::op_type ot) { return refresher->doit(ot); });
 
     {
         auto* tss = static_cast<timeline_source*>(
@@ -1665,7 +1748,8 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
                   } else {
                       lnav_data.ld_bottom_source.update_loading(0, 0);
                   }
-                  return refresher->doit();
+                  lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
+                  return refresher->doit(lnav::func::op_type::blocking);
               };
     }
 
@@ -1688,11 +1772,14 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
     bool initial_rescan_completed = false;
     int session_stage = 0;
 
+    auto rescan_needed = false;
     auto next_rebuild_time = ui_clock::now();
     auto next_status_update_time = next_rebuild_time;
     auto next_rescan_time = next_rebuild_time;
     auto got_user_input = true;
     sig_atomic_t render_counter = 0;
+    std::vector<view_curses*> updated_views;
+    updated_views.emplace_back(&lnav_data.ld_view_stack);
 
     while (lnav_data.ld_looping) {
         auto loop_deadline = ui_clock::now() + (session_stage == 0 ? 3s : 50ms);
@@ -1705,9 +1792,9 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
         auto ui_now = ui_clock::now();
         gettimeofday(&current_time, nullptr);
 
-        top_source->update_time(current_time);
-        lnav_data.ld_preview_view[0].set_needs_update();
-        lnav_data.ld_preview_view[1].set_needs_update();
+        if (top_source->update_time(current_time)) {
+            lnav_data.ld_status[LNS_TOP].set_needs_update();
+        }
 
         layout_views();
 
@@ -1780,7 +1867,11 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
                 log_debug("file count %d",
                           lnav_data.ld_active_files.fc_files.size());
             }
+            auto old_gen = lnav_data.ld_active_files.fc_files_generation;
             update_active_files(new_files);
+            if (old_gen != lnav_data.ld_active_files.fc_files_generation) {
+                next_rebuild_time = ui_now;
+            }
             if (!initial_rescan_completed) {
                 auto& fview = lnav_data.ld_files_view;
                 auto height = fview.get_inner_height();
@@ -1791,7 +1882,8 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
             }
 
             rescan_future = std::future<file_collection>{};
-            next_rescan_time = ui_now + 333ms;
+            next_rescan_time
+                = ui_now + (std::exchange(rescan_needed, false) ? 0ms : 333ms);
         }
 
         if (!rescan_future.valid()
@@ -1829,6 +1921,10 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
                 if (!changes && ui_clock::now() < loop_deadline) {
                     next_rebuild_time = ui_clock::now() + 333ms;
                 }
+                if (rebuild_res.rir_rescan_needed) {
+                    rescan_needed = true;
+                    next_rescan_time = loop_deadline = ui_now;
+                }
                 if (changes && text_file_count
                     && lnav_data.ld_text_source.empty()
                     && lnav_data.ld_view_stack.top().value_or(nullptr)
@@ -1850,64 +1946,132 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
             lnav_data.ld_view_stack.set_needs_update();
         }
         ncplane_resize_maximize(sc.get_std_plane());
+        if (lnav_data.ld_preview_view[0].get_needs_update()
+            || lnav_data.ld_preview_view[1].get_needs_update())
+        {
+            log_trace("preview updated, update prompt");
+            prompt.p_editor.set_needs_update();
+        }
+        if (filter_source->fss_editing
+            && filter_source->fss_editor->get_needs_update())
+        {
+            lnav_data.ld_filter_view.set_needs_update();
+        }
+        if ((lnav_data.ld_files_view.is_visible()
+             && lnav_data.ld_files_view.get_needs_update())
+            || (lnav_data.ld_filter_view.is_visible()
+                && lnav_data.ld_filter_view.get_needs_update()))
+        {
+            log_trace("config panels updated, update prompt");
+            prompt.p_editor.set_needs_update();
+            lnav_data.ld_status[LNS_FILTER].set_needs_update();
+            lnav_data.ld_status[LNS_FILTER_HELP].set_needs_update();
+        }
         if (prompt.p_editor.get_needs_update()) {
+            log_trace("prompt updated, update others");
+            if (lnav_data.ld_files_view.is_visible()) {
+                lnav_data.ld_files_view.set_needs_update();
+            }
+            if (lnav_data.ld_filter_view.is_visible()) {
+                lnav_data.ld_filter_view.set_needs_update();
+            }
             lnav_data.ld_doc_view.set_needs_update();
             lnav_data.ld_example_view.set_needs_update();
             lnav_data.ld_view_stack.set_needs_update();
+            lnav_data.ld_preview_view
+                | lnav::itertools::for_each(&view_curses::set_needs_update);
+            lnav_data.ld_preview_view[1].set_needs_update();
+            lnav_data.ld_status[LNS_FILTER].set_needs_update();
+            lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
         }
         if (lnav_data.ld_view_stack.do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_view_stack);
             breadcrumb_view->set_needs_update();
         }
-        lnav_data.ld_doc_view.do_update();
-        lnav_data.ld_example_view.do_update();
-        lnav_data.ld_preview_view[0].do_update();
-        lnav_data.ld_preview_view[1].do_update();
-        lnav_data.ld_spectro_details_view.do_update();
-        lnav_data.ld_timeline_details_view.do_update();
-        lnav_data.ld_user_message_view.do_update();
+        if (lnav_data.ld_doc_view.do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_doc_view);
+        }
+        if (lnav_data.ld_example_view.do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_example_view);
+        }
+        if (lnav_data.ld_preview_view[0].do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_preview_view[0]);
+        }
+        if (lnav_data.ld_preview_view[1].do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_preview_view[1]);
+        }
+        if (lnav_data.ld_spectro_details_view.do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_spectro_details_view);
+        }
+        if (lnav_data.ld_timeline_details_view.do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_timeline_details_view);
+        }
+        if (lnav_data.ld_user_message_view.do_update()) {
+            updated_views.emplace_back(&lnav_data.ld_user_message_view);
+        }
         if (ui_now >= next_status_update_time) {
+            if (lnav_data.ld_status[LNS_BOTTOM].get_needs_update()
+                || lnav_data.ld_status[LNS_FILTER].get_needs_update())
+            {
+                log_trace("bottom status (%d, %d) updated, update prompt",
+                          lnav_data.ld_status[LNS_BOTTOM].get_needs_update(),
+                          lnav_data.ld_status[LNS_FILTER].get_needs_update());
+                prompt.p_editor.set_needs_update();
+            }
             echo_views_stmt.execute();
-            top_source->update_user_msg();
+            if (top_source->update_user_msg()) {
+                lnav_data.ld_status[LNS_TOP].set_needs_update();
+            }
             for (auto& sc : lnav_data.ld_status) {
-                sc.do_update();
+                if (sc.do_update()) {
+                    updated_views.emplace_back(&sc);
+                }
             }
             next_status_update_time = ui_clock::now() + 100ms;
-            prompt.p_editor.tc_popup.set_needs_update();
         }
-        breadcrumb_view->do_update();
-        // These updates need to be done last so their readline views can
+        if (breadcrumb_view->do_update()) {
+            updated_views.emplace_back(breadcrumb_view);
+        }
+        // These updates need to be done last so their textinput views can
         // put the cursor in the right place.
         switch (lnav_data.ld_mode) {
             case ln_mode_t::FILTER:
             case ln_mode_t::SEARCH_FILTERS: {
-                lnav_data.ld_filter_view.set_needs_update();
-                lnav_data.ld_filter_view.do_update();
+                if (lnav_data.ld_filter_view.do_update()) {
+                    updated_views.emplace_back(&lnav_data.ld_files_view);
+                }
                 break;
             }
             case ln_mode_t::SEARCH_FILES:
             case ln_mode_t::FILES:
             case ln_mode_t::FILE_DETAILS:
-                lnav_data.ld_files_view.set_needs_update();
-                lnav_data.ld_file_details_view.set_needs_update();
-                lnav_data.ld_files_view.do_update();
-                lnav_data.ld_file_details_view.do_update();
+                if (lnav_data.ld_files_view.do_update()) {
+                    updated_views.emplace_back(&lnav_data.ld_files_view);
+                }
+                if (lnav_data.ld_file_details_view.do_update()) {
+                    updated_views.emplace_back(&lnav_data.ld_file_details_view);
+                }
                 break;
             default:
                 break;
         }
-        if (lnav_data.ld_mode != ln_mode_t::FILTER
-            && lnav_data.ld_mode != ln_mode_t::FILES)
-        {
-            prompt.p_editor.do_update();
+        if (prompt.p_editor.do_update()) {
+            updated_views.emplace_back(&prompt.p_editor);
         }
 
-        if (prompt.p_editor.vc_enabled) {
+        if (prompt.p_editor.is_enabled()) {
             prompt.p_editor.focus();
         } else if (filter_source->fss_editing) {
             filter_source->fss_editor->focus();
         }
-        if (got_user_input || timer.time_to_update(render_counter)) {
+        if (got_user_input || !updated_views.empty()) {
+            for (const auto* view_ptr : updated_views) {
+                log_trace("updated view %s %s",
+                          typeid(*view_ptr).name(),
+                          view_ptr->get_title().c_str());
+            }
             notcurses_render(sc.get_notcurses());
+            updated_views.clear();
         }
 
         if (lnav_data.ld_session_loaded) {
@@ -1956,10 +2120,7 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
 
         gettimeofday(&current_time, nullptr);
         ui_now = ui_clock::now();
-        if (lb.lb_last_view != nullptr) {
-            lb.lb_last_event.me_time = current_time;
-            lb.lb_last_view->handle_mouse(lb.lb_last_event);
-        }
+        lb.tick(current_time);
 
         got_user_input = false;
         if (rc < 0) {
@@ -2072,7 +2233,7 @@ VALUES ('org.lnav.mouse-support', -1, DATETIME('now', '+1 minute'),
             }
         }
 
-        if (prompt.p_editor.vc_enabled) {
+        if (prompt.p_editor.is_enabled()) {
             prompt.p_editor.tick(ui_now);
         }
 

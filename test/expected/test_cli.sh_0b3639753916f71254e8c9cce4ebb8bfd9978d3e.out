@@ -206,6 +206,12 @@
                     },
                     "log-level-fatal": {
                         "value": "🄵"
+                    },
+                    "play": {
+                        "value": "▶"
+                    },
+                    "edit": {
+                        "value": "✏️"
                     }
                 },
                 "styles": {
@@ -1072,6 +1078,12 @@
                     },
                     "log-level-fatal": {
 
+                    },
+                    "play": {
+
+                    },
+                    "edit": {
+
                     }
                 },
                 "styles": {
@@ -1294,17 +1306,17 @@
                     "h5": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "h6": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "hr": {
@@ -1884,6 +1896,12 @@
 
                     },
                     "log-level-fatal": {
+
+                    },
+                    "play": {
+
+                    },
+                    "edit": {
 
                     }
                 },
@@ -2697,6 +2715,12 @@
                     },
                     "log-level-fatal": {
 
+                    },
+                    "play": {
+
+                    },
+                    "edit": {
+
                     }
                 },
                 "styles": {
@@ -2888,7 +2912,7 @@
                         "color": "",
                         "background-color": "",
                         "underline": true,
-                        "bold": false,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
@@ -2919,17 +2943,17 @@
                     "h5": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "h6": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "hr": {
@@ -3509,6 +3533,12 @@
 
                     },
                     "log-level-fatal": {
+
+                    },
+                    "play": {
+
+                    },
+                    "edit": {
 
                     }
                 },
@@ -4322,6 +4352,12 @@
                     },
                     "log-level-fatal": {
 
+                    },
+                    "play": {
+
+                    },
+                    "edit": {
+
                     }
                 },
                 "styles": {
@@ -4510,15 +4546,15 @@
                         "strike": false
                     },
                     "h1": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
-                        "underline": true,
-                        "bold": false,
+                        "underline": false,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
                     "h2": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
                         "underline": true,
                         "bold": false,
@@ -4526,9 +4562,9 @@
                         "strike": false
                     },
                     "h3": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
                         "italic": false,
                         "strike": false
@@ -4544,17 +4580,17 @@
                     "h5": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "h6": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "hr": {
@@ -5143,6 +5179,12 @@
                     },
                     "log-level-fatal": {
 
+                    },
+                    "play": {
+
+                    },
+                    "edit": {
+
                     }
                 },
                 "styles": {
@@ -5331,15 +5373,15 @@
                         "strike": false
                     },
                     "h1": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
-                        "underline": true,
-                        "bold": false,
+                        "underline": false,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
                     "h2": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
                         "underline": true,
                         "bold": false,
@@ -5347,9 +5389,9 @@
                         "strike": false
                     },
                     "h3": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
                         "italic": false,
                         "strike": false
@@ -5365,17 +5407,17 @@
                     "h5": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "h6": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "hr": {
@@ -5964,6 +6006,12 @@
                     },
                     "log-level-fatal": {
 
+                    },
+                    "play": {
+
+                    },
+                    "edit": {
+
                     }
                 },
                 "styles": {
@@ -6152,15 +6200,15 @@
                         "strike": false
                     },
                     "h1": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
-                        "underline": true,
-                        "bold": false,
+                        "underline": false,
+                        "bold": true,
                         "italic": false,
                         "strike": false
                     },
                     "h2": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
                         "underline": true,
                         "bold": false,
@@ -6168,9 +6216,9 @@
                         "strike": false
                     },
                     "h3": {
-                        "color": "",
+                        "color": "$magenta",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
                         "italic": false,
                         "strike": false
@@ -6186,17 +6234,17 @@
                     "h5": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "h6": {
                         "color": "",
                         "background-color": "",
-                        "underline": true,
+                        "underline": false,
                         "bold": false,
-                        "italic": false,
+                        "italic": true,
                         "strike": false
                     },
                     "hr": {
@@ -6936,6 +6984,11 @@
                 "x40": {
                     "id": "",
                     "command": ":goto last 20 minutes after the hour",
+                    "alt-msg": ""
+                },
+                "x42": {
+                    "id": "",
+                    "command": ";UPDATE lnav_top_view SET selection = CASE WHEN name = 'log' AND log_msg_line() != selection THEN log_msg_line() ELSE max(0, selection - inner_height / 10) END",
                     "alt-msg": ""
                 },
                 "x45": {

@@ -71,9 +71,8 @@ enum class help_parameter_format_t {
     HPF_SQL_EXPR,
     HPF_INTEGER,
     HPF_NUMBER,
-    HPF_DATETIME,
     HPF_ADJUSTED_TIME,
-    HPF_ENUM,
+    HPF_LOCATION,
     HPF_FILENAME,
     HPF_LOCAL_FILENAME,
     HPF_LOADED_FILE,
@@ -232,6 +231,14 @@ struct help_text {
         this->ht_default_value = defval;
         return *this;
     }
+
+    bool is_flag() const
+    {
+        return this->ht_nargs == help_nargs_t::HN_OPTIONAL
+            && this->ht_format == help_parameter_format_t::HPF_NONE;
+    }
+
+    bool is_enum() const { return !this->ht_enum_values.empty(); }
 
     help_text& flag() noexcept
     {

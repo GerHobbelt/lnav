@@ -36,6 +36,7 @@
 #include "base/lnav_log.hh"
 #include "base/string_util.hh"
 #include "config.h"
+#include "help_text.hh"
 #include "sql_help.hh"
 
 extern "C"
@@ -129,6 +130,31 @@ register_help(prql_hier& phier, const help_text& ht)
                               fmt::join(func_args, ", "));
         } else {
             curr_hier = &curr_hier->ph_modules[prql_name];
+        }
+    }
+}
+
+static void
+insert_sql_help(help_text& root, const help_text& curr)
+{
+    if (curr.ht_flag_name) {
+        sqlite_function_help.insert(
+            std::make_pair(toupper(curr.ht_flag_name), &root));
+    } else if (isupper(curr.ht_name[0])) {
+        sqlite_function_help.insert(
+            std::make_pair(toupper(curr.ht_name), &root));
+    }
+    for (const auto& param : curr.ht_parameters) {
+        if (param.ht_flag_name) {
+            insert_sql_help(root, param);
+        }
+        if (param.ht_format == help_parameter_format_t::HPF_NONE
+            && param.ht_nargs == help_nargs_t::HN_OPTIONAL)
+        {
+            insert_sql_help(root, param);
+        }
+        for (const auto& eval : param.ht_enum_values) {
+            sqlite_function_help.emplace(eval, &root);
         }
     }
 }
@@ -258,6 +284,27 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
             .with_example(
                 {"To get the first non-null value from three parameters",
                  "SELECT coalesce(null, 0, null)"}),
+
+        help_text("concat",
+                  "Returns a string that is the concatenation of all non-NULL "
+                  "arguments")
+            .sql_function()
+            .with_parameter(help_text("X", "The values to concatenate together")
+                                .one_or_more())
+            .with_tags({"string"})
+            .with_example({"To concatenate a label and number",
+                           "SELECT concat('Size: ', 1234)"}),
+
+        help_text("concat_ws",
+                  "Returns a string that is the concatenation of all non-NULL "
+                  "arguments separated by the first argument")
+            .sql_function()
+            .with_parameter(help_text("sep", "The separator"))
+            .with_parameter(help_text("X", "The values to concatenate together")
+                                .one_or_more())
+            .with_tags({"string"})
+            .with_example({"To separate numbers with a comma",
+                           "SELECT concat_ws(',', 1, 2, 3, 4)"}),
 
         help_text("glob", "Match a string against Unix glob pattern")
             .sql_function()
@@ -424,6 +471,20 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
                 {"To test if 1 is different from 1", "SELECT nullif(1, 1)"})
             .with_example(
                 {"To test if 1 is different from 2", "SELECT nullif(1, 2)"}),
+
+        help_text("octet_length",
+                  "Returns the number of bytes in the given string as encoded "
+                  "in the database")
+            .sql_function()
+            .with_parameter({"X", "The value to examine"})
+            .with_example({
+                "To get the number of bytes for a string",
+                "SELECT octet_length('Hello, World!')",
+            })
+            .with_example({
+                "To get the number of bytes for a number",
+                "SELECT octet_length(42)",
+            }),
 
         help_text("printf",
                   "Returns a string with this functions arguments substituted "
@@ -618,6 +679,17 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
                 {"To get the type of the number 1", "SELECT typeof(1)"})
             .with_example({"To get the type of the string 'abc'",
                            "SELECT typeof('abc')"}),
+
+        help_text("unhex")
+            .with_summary("Returns a blob value that is a decoding of the "
+                          "given hex string")
+            .sql_function()
+            .with_tags({"string"})
+            .with_parameter({"X", "The hex string to decode"})
+            .with_example({
+                "To decode the string 'Hello' encoded in hex",
+                "SELECT unhex('48656c6c6f')",
+            }),
 
         help_text("unicode",
                   "Returns the numeric unicode code point corresponding to the "
@@ -1305,12 +1377,12 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
 
         help_text("CREATE", "Assign a name to a SELECT statement")
             .sql_keyword()
-            .with_parameter(help_text("TEMP").optional())
+            .with_parameter(help_text("TEMP").flag())
             .with_parameter(help_text("").with_flag_name("VIEW"))
             .with_parameter(
                 help_text("IF NOT EXISTS",
                           "Do not create the view if it already exists")
-                    .optional())
+                    .flag())
             .with_parameter(
                 help_text("schema-name.", "The database to create the view in")
                     .optional())
@@ -1322,9 +1394,9 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
 
         help_text("CREATE", "Create a table")
             .sql_keyword()
-            .with_parameter(help_text("TEMP").optional())
+            .with_parameter(help_text("TEMP").flag())
             .with_parameter(help_text("").with_flag_name("TABLE"))
-            .with_parameter(help_text("IF NOT EXISTS").optional())
+            .with_parameter(help_text("IF NOT EXISTS").flag())
             .with_parameter(help_text("schema-name.").optional())
             .with_parameter(help_text("table-name"))
             .with_parameter(help_text("select-stmt").with_flag_name("AS")),
@@ -1341,28 +1413,28 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
         help_text("DROP", "Drop an index")
             .sql_keyword()
             .with_parameter(help_text("").with_flag_name("INDEX"))
-            .with_parameter(help_text("IF EXISTS").optional())
+            .with_parameter(help_text("IF EXISTS").flag())
             .with_parameter(help_text("schema-name.").optional())
             .with_parameter(help_text("index-name")),
 
         help_text("DROP", "Drop a table")
             .sql_keyword()
             .with_parameter(help_text("").with_flag_name("TABLE"))
-            .with_parameter(help_text("IF EXISTS").optional())
+            .with_parameter(help_text("IF EXISTS").flag())
             .with_parameter(help_text("schema-name.").optional())
             .with_parameter(help_text("table-name")),
 
         help_text("DROP", "Drop a view")
             .sql_keyword()
             .with_parameter(help_text("").with_flag_name("VIEW"))
-            .with_parameter(help_text("IF EXISTS").optional())
+            .with_parameter(help_text("IF EXISTS").flag())
             .with_parameter(help_text("schema-name.").optional())
             .with_parameter(help_text("view-name")),
 
         help_text("DROP", "Drop a trigger")
             .sql_keyword()
             .with_parameter(help_text("").with_flag_name("TRIGGER"))
-            .with_parameter(help_text("IF EXISTS").optional())
+            .with_parameter(help_text("IF EXISTS").flag())
             .with_parameter(help_text("schema-name.").optional())
             .with_parameter(help_text("trigger-name")),
 
@@ -1385,6 +1457,9 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
         help_text("SELECT",
                   "Query the database and return zero or more rows of data.")
             .sql_keyword()
+            .with_parameter(help_text("filter", "Additional processing of rows")
+                                .optional()
+                                .with_enum_values({"DISTINCT", "ALL"}))
             .with_parameter(
                 help_text(
                     "result-column",
@@ -1412,9 +1487,9 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
                 help_text("limit-expr", "The maximum number of rows to return.")
                     .with_flag_name("LIMIT")
                     .zero_or_more())
-            .with_example(
-                {"To select all of the columns from the table 'lnav_example_log'",
-                 "SELECT * FROM lnav_example_log"}),
+            .with_example({"To select all of the columns from the table "
+                           "'lnav_example_log'",
+                           "SELECT * FROM lnav_example_log"}),
 
         help_text("WITH",
                   "Create a temporary view that exists only for the duration "
@@ -1496,7 +1571,7 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
 
         help_text("expr", "Match an expression against a glob pattern.")
             .sql_infix()
-            .with_parameter(help_text("NOT").optional())
+            .with_parameter(help_text("NOT").flag())
             .with_parameter(
                 help_text("pattern", "The glob pattern to match against.")
                     .with_flag_name("GLOB"))
@@ -1507,10 +1582,15 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
 
         help_text("expr", "Match an expression against a text pattern.")
             .sql_infix()
-            .with_parameter(help_text("NOT").optional())
+            .with_parameter(help_text("NOT").flag())
             .with_parameter(
                 help_text("pattern", "The pattern to match against.")
                     .with_flag_name("LIKE"))
+            .with_parameter(
+                help_text("escape",
+                          "Character used to escape a % or _ in the pattern")
+                    .with_flag_name("ESCAPE")
+                    .optional())
             .with_example({
                 "To check if a value matches the pattern 'Hello, %!'",
                 "SELECT 'Hello, World!' LIKE 'Hello, %!'",
@@ -1518,13 +1598,24 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
 
         help_text("expr", "Match an expression against a regular expression.")
             .sql_infix()
-            .with_parameter(help_text("NOT").optional())
+            .with_parameter(help_text("NOT").flag())
             .with_parameter(
                 help_text("pattern", "The regular expression to match against.")
                     .with_flag_name("REGEXP"))
             .with_example({
                 "To check if a value matches the pattern 'file-\\d+'",
                 "SELECT 'file-23' REGEXP 'file-\\d+'",
+            }),
+
+        help_text("expr", "Check an expression against NULL")
+            .sql_infix()
+            .with_parameter(
+                help_text("nullness")
+                    .with_enum_values({"ISNULL", "NOTNULL", "NOT NULL"})
+                    .optional())
+            .with_example({
+                "To check if a value is not NULL",
+                "SELECT 'abc' NOT NULL",
             }),
 
         help_text("expr", "Assign a collating sequence to the expression.")
@@ -1540,7 +1631,7 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
 
         help_text("expr", "Test if an expression is between two values.")
             .sql_infix()
-            .with_parameter(help_text("NOT").optional())
+            .with_parameter(help_text("NOT").flag())
             .with_parameter(
                 help_text("low", "The low point").with_flag_name("BETWEEN"))
             .with_parameter(
@@ -1553,6 +1644,53 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
                 "To check if 10 is between 5 and 10",
                 "SELECT 10 BETWEEN 5 AND 10",
             }),
+
+        help_text("expr", "Test the distinctness of an expression")
+            .sql_infix()
+            .with_parameter(
+                help_text("expr")
+                    .with_flag_name("IS")
+                    .with_parameter(help_text("NOT").flag())
+                    .with_parameter(help_text("DISTINCT FROM").flag()))
+            .with_example({
+                "To check if 10 is between 5 and 10",
+                "SELECT 10 BETWEEN 5 AND 10",
+            }),
+
+        help_text("ordering-term")
+            .sql_infix()
+            .with_summary("The values to use in ordering result rows")
+            .with_parameter(help_text("collation-name")
+                                .with_flag_name("COLLATE")
+                                .optional())
+            .with_parameter(
+                help_text("direction", "The direction, ASCending or DESCending")
+                    .optional()
+                    .with_enum_values({"ASC", "DESC"}))
+            .with_parameter(
+                help_text("null-handling")
+                    .optional()
+                    .with_enum_values({"NULLS FIRST", "NULLS LAST"})),
+
+        help_text("select-stmt")
+            .with_summary(
+                "Execute a query and return 0 if no rows match or 1 otherwise")
+            .sql_infix()
+            .with_grouping("(", ")")
+            .with_flag_name("EXISTS"),
+
+        help_text("select-stmt")
+            .with_summary(
+                "Execute a query and return 1 if no rows match or 0 otherwise")
+            .sql_infix()
+            .with_grouping("(", ")")
+            .with_flag_name("NOT EXISTS"),
+
+        help_text("FILTER")
+            .with_summary("Condition for rows to include in the aggregate")
+            .sql_infix()
+            .with_grouping("(", ")")
+            .with_parameter(help_text("expr").with_flag_name("WHERE")),
 
         help_text("OVER", "Executes the preceding function over a window")
             .sql_keyword()
@@ -1584,14 +1722,7 @@ register_sqlite_funcs(sqlite3* db, sqlite_registration_func_t* reg_funcs)
 
     if (!help_registration_done) {
         for (auto& ht : idents) {
-            sqlite_function_help.insert(make_pair(toupper(ht.ht_name), &ht));
-            for (const auto& param : ht.ht_parameters) {
-                if (!param.ht_flag_name) {
-                    continue;
-                }
-                sqlite_function_help.insert(
-                    make_pair(toupper(param.ht_flag_name), &ht));
-            }
+            insert_sql_help(ht, ht);
         }
     }
 

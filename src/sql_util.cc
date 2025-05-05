@@ -366,11 +366,11 @@ walk_sqlite_metadata(sqlite3* db, sqlite_metadata_callbacks& smc)
              ++table_iter)
         {
             auto_mem<char, sqlite3_free> table_query;
-            std::string& table_name = *table_iter;
+            smc.smc_table_name = *table_iter;
 
             table_query = sqlite3_mprintf("pragma %Q.table_xinfo(%Q)",
                                           iter->first.c_str(),
-                                          table_name.c_str());
+                                          smc.smc_table_name.c_str());
             if (table_query == nullptr) {
                 return SQLITE_NOMEM;
             }
@@ -386,7 +386,7 @@ walk_sqlite_metadata(sqlite3* db, sqlite_metadata_callbacks& smc)
 
             table_query = sqlite3_mprintf("pragma %Q.foreign_key_list(%Q)",
                                           iter->first.c_str(),
-                                          table_name.c_str());
+                                          smc.smc_table_name.c_str());
             if (table_query == nullptr) {
                 return SQLITE_NOMEM;
             }
@@ -1008,6 +1008,7 @@ constexpr string_attr_type<void> SQL_KEYWORD_ATTR("sql_keyword");
 constexpr string_attr_type<void> SQL_IDENTIFIER_ATTR("sql_ident");
 constexpr string_attr_type<std::string> SQL_FUNCTION_ATTR("sql_func");
 constexpr string_attr_type<void> SQL_STRING_ATTR("sql_string");
+constexpr string_attr_type<void> SQL_HEX_LIT_ATTR("sql_hex_lit");
 constexpr string_attr_type<void> SQL_NUMBER_ATTR("sql_number");
 constexpr string_attr_type<void> SQL_OPERATOR_ATTR("sql_oper");
 constexpr string_attr_type<void> SQL_PAREN_ATTR("sql_paren");
@@ -1037,6 +1038,11 @@ annotate_sql_statement(attr_line_t& al)
             &SQL_KEYWORD_ATTR,
         },
         {
+            lnav::pcre2pp::code::from_const(
+                R"(\A(?:x|X)'(?:(?:[0-9a-fA-F]{2})+'|[0-9a-fA-F]*$))"),
+            &SQL_HEX_LIT_ATTR,
+        },
+        {
             lnav::pcre2pp::code::from_const(R"(\A'[^']*('(?:'[^']*')*|$))"),
             &SQL_STRING_ATTR,
         },
@@ -1046,7 +1052,7 @@ annotate_sql_statement(attr_line_t& al)
         },
         {
             lnav::pcre2pp::code::from_const(
-                R"(\A-?\d+(?:\.\d+)?(?:[eE][\-\+]?\d+)?)"),
+                R"(\A-?\d+(?:\.\d+)?(?:[eE][\-\+]?\d+)?\b)"),
             &SQL_NUMBER_ATTR,
         },
         {
@@ -1063,6 +1069,10 @@ annotate_sql_statement(attr_line_t& al)
             lnav::pcre2pp::code::from_const(
                 R"(\A(\*|\->{1,2}|<|>|=|!|\-|\+|\|\|))"),
             &SQL_OPERATOR_ATTR,
+        },
+        {
+            lnav::pcre2pp::code::from_const(R"(\A[0-9][a-zA-Z0-9\-\._]+)"),
+            &SQL_GARBAGE_ATTR,
         },
         {
             lnav::pcre2pp::code::from_const(R"(\A.)"),

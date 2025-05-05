@@ -47,18 +47,18 @@ class loading_observer : public logfile_observer {
 public:
     loading_observer() : lo_last_offset(0) {}
 
-    indexing_result logfile_indexing(const logfile* lf,
-                                     file_off_t off,
-                                     file_ssize_t total) override
+    lnav::progress_result_t logfile_indexing(const logfile* lf,
+                                             file_off_t off,
+                                             file_ssize_t total) override
     {
         static sig_atomic_t index_counter = 0;
 
         if (lnav_data.ld_window == nullptr) {
-            return indexing_result::CONTINUE;
+            return lnav::progress_result_t::ok;
         }
 
         if (lnav_data.ld_sigint_count.load() > 0) {
-            return indexing_result::BREAK;
+            return lnav::progress_result_t::interrupt;
         }
 
         /* XXX require(off <= total); */
@@ -66,6 +66,7 @@ public:
             off = total;
         }
 
+        auto retval = lnav::progress_result_t::ok;
         if (((off == total) && (this->lo_last_offset != off))
             || ui_periodic_timer::singleton().time_to_update(index_counter))
         {
@@ -74,26 +75,29 @@ public:
             } else {
                 lnav_data.ld_bottom_source.update_loading(off, total);
             }
-            do_observer_update(lf);
+            lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
+            if (do_observer_update(lf) == lnav::progress_result_t::interrupt) {
+                retval = lnav::progress_result_t::interrupt;
+            }
             this->lo_last_offset = off;
         }
 
         if (!lnav_data.ld_looping) {
-            return indexing_result::BREAK;
+            retval = lnav::progress_result_t::interrupt;
         }
-        return indexing_result::CONTINUE;
+        return retval;
     }
 
     off_t lo_last_offset;
 };
 
-void
+lnav::progress_result_t
 do_observer_update(const logfile* lf)
 {
     if (lf != nullptr && lnav_data.ld_mode == ln_mode_t::FILES
         && lnav_data.ld_exec_phase < lnav_exec_phase::INTERACTIVE)
     {
-        auto& fc = lnav_data.ld_active_files;
+        const auto& fc = lnav_data.ld_active_files;
         size_t index = 0;
 
         for (const auto& curr_file : fc.fc_files) {
@@ -107,11 +111,7 @@ do_observer_update(const logfile* lf)
             lnav_data.ld_files_view.do_update();
         }
     }
-    if (handle_winch(nullptr)) {
-        layout_views();
-        lnav_data.ld_view_stack.do_update();
-    }
-    lnav_data.ld_status_refresher();
+    return lnav_data.ld_status_refresher(lnav::func::op_type::interactive);
 }
 
 void
@@ -319,10 +319,13 @@ rebuild_indexes(std::optional<ui_clock::time_point> deadline)
     std::vector<std::shared_ptr<logfile>> closed_files;
     for (auto& lf : lnav_data.ld_active_files.fc_files) {
         if (!lf->exists() || lf->is_closed()) {
-            log_info("closed log file: %s", lf->get_filename().c_str());
+            log_info("%s file: %s",
+                     !lf->exists() ? "deleted" : "closed",
+                     lf->get_filename().c_str());
             lnav_data.ld_text_source.remove(lf);
             lnav_data.ld_log_source.remove_file(lf);
             closed_files.emplace_back(lf);
+            retval.rir_rescan_needed = true;
         }
     }
     if (!closed_files.empty()) {
@@ -541,7 +544,7 @@ rescan_files(bool req)
         if (!done && !(lnav_data.ld_flags & LNF_HEADLESS)) {
             lnav_data.ld_files_view.set_needs_update();
             lnav_data.ld_files_view.do_update();
-            lnav_data.ld_status_refresher();
+            lnav_data.ld_status_refresher(lnav::func::op_type::interactive);
         }
     } while (!done && lnav_data.ld_looping);
     return true;

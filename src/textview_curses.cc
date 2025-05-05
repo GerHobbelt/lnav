@@ -35,6 +35,7 @@
 #include "base/ansi_scrubber.hh"
 #include "base/humanize.time.hh"
 #include "base/injector.hh"
+#include "base/lnav_log.hh"
 #include "base/time_util.hh"
 #include "config.h"
 #include "data_scanner.hh"
@@ -249,7 +250,7 @@ textview_curses::reload_config(error_reporter& reporter)
                                          .append_quoted(sc.sc_color))
                                      .with_reason(msg));
                         invalid = true;
-                        return styling::color_unit::make_empty();
+                        return styling::color_unit::EMPTY;
                     }));
             attrs.ta_bg_color = vc.match_color(
                 styling::color_unit::from_str(bg_color).unwrapOrElse(
@@ -260,7 +261,7 @@ textview_curses::reload_config(error_reporter& reporter)
                                          .append_quoted(sc.sc_background_color))
                                      .with_reason(msg));
                         invalid = true;
-                        return styling::color_unit::make_empty();
+                        return styling::color_unit::EMPTY;
                     }));
             if (invalid) {
                 continue;
@@ -727,6 +728,9 @@ textview_curses::handle_mouse(mouse_event& me)
                         };
                     }
                 }
+                if (this->tc_on_click) {
+                    this->tc_on_click(*this, al, cursor_sf.sf_begin);
+                }
             }
             if (mouse_line.is<overlay_content>()) {
                 const auto& oc = mouse_line.get<overlay_content>();
@@ -758,6 +762,9 @@ textview_curses::handle_mouse(mouse_event& me)
                             this->set_selection(row_opt.value());
                         }
                     }
+                }
+                if (this->tc_on_click) {
+                    this->tc_on_click(*this, al, cursor_sf.sf_begin);
                 }
             }
             if (this->tc_delegate != nullptr) {
@@ -864,7 +871,7 @@ textview_curses::textview_value_for_row(vis_line_t row, attr_line_t& value_out)
         }
 
         if (sel_start <= row && row <= sel_end) {
-            auto role = this->get_overlay_selection()
+            auto role = (this->get_overlay_selection() || !this->vc_enabled)
                 ? this->tc_disabled_cursor_role.value()
                 : this->tc_cursor_role.value();
 

@@ -37,11 +37,13 @@
 
 #include <stdint.h>
 
+#include "base/file_range.hh"
 #include "base/intern_string.hh"
 #include "base/string_util.hh"
 #include "color_spaces.hh"
 #include "enum_util.hh"
 #include "mapbox/variant.hpp"
+#include "text_format_enum.hh"
 
 class logfile;
 struct bookmark_metadata;
@@ -62,7 +64,12 @@ enum class ui_icon_t : int32_t {
     log_level_error,
     log_level_critical,
     log_level_fatal,
+
+    play,
+    edit,
 };
+
+constexpr auto ui_icon_count = lnav::enums::to_underlying(ui_icon_t::edit) + 1;
 
 /** Roles that can be mapped to curses attributes using attrs_for_role() */
 enum class role_t : int32_t {
@@ -296,8 +303,8 @@ struct text_attrs {
     }
 
     uint32_t ta_attrs{0};
-    styling::color_unit ta_fg_color{styling::color_unit::make_empty()};
-    styling::color_unit ta_bg_color{styling::color_unit::make_empty()};
+    styling::color_unit ta_fg_color{styling::color_unit::EMPTY};
+    styling::color_unit ta_bg_color{styling::color_unit::EMPTY};
     std::optional<text_align_t> ta_align;
 };
 
@@ -308,6 +315,17 @@ struct block_elem_t {
     bool operator==(const block_elem_t& rhs) const
     {
         return this->value == rhs.value && this->role == rhs.role;
+    }
+};
+
+struct ui_command {
+    source_location uc_location;
+    std::string uc_command;
+
+    bool operator==(const ui_command& rhs) const
+    {
+        return this->uc_location == rhs.uc_location
+            && this->uc_command == rhs.uc_command;
     }
 };
 
@@ -322,7 +340,9 @@ using string_attr_value = mapbox::util::variant<int64_t,
                                                 block_elem_t,
                                                 styling::color_unit,
                                                 ui_icon_t,
-                                                const char*>;
+                                                const char*,
+                                                ui_command,
+                                                text_format_t>;
 
 class string_attr_type_base {
 public:
@@ -362,8 +382,10 @@ public:
     }
 
     template<typename U = T>
-    constexpr std::enable_if_t<!std::is_void_v<U>, string_attr_pair> value(
-        U&& val) const
+    constexpr std::enable_if_t<!std::is_void_v<U>
+                                   && std::is_convertible_v<U, T>,
+                               string_attr_pair>
+    value(U&& val) const
     {
         if constexpr (std::is_same_v<const char*, U>
                       && std::is_same_v<std::string, T>)
@@ -385,6 +407,7 @@ extern const string_attr_type<std::string> SA_INVALID;
 extern const string_attr_type<std::string> SA_ERROR;
 extern const string_attr_type<int64_t> SA_LEVEL;
 extern const string_attr_type<int64_t> SA_ORIGIN_OFFSET;
+extern const string_attr_type<text_format_t> SA_QUOTED_TEXT;
 
 extern const string_attr_type<role_t> VC_ROLE;
 extern const string_attr_type<role_t> VC_ROLE_FG;
@@ -395,6 +418,7 @@ extern const string_attr_type<styling::color_unit> VC_FOREGROUND;
 extern const string_attr_type<styling::color_unit> VC_BACKGROUND;
 extern const string_attr_type<std::string> VC_HYPERLINK;
 extern const string_attr_type<ui_icon_t> VC_ICON;
+extern const string_attr_type<ui_command> VC_COMMAND;
 
 namespace lnav {
 

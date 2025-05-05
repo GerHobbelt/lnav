@@ -105,6 +105,20 @@ yajl_writer(void* context, const char* str, size_t len)
     fwrite(str, len, 1, file);
 }
 
+static lnav::progress_result_t
+write_progress(size_t row, size_t total)
+{
+    static const auto& ui_timer = ui_periodic_timer::singleton();
+    static sig_atomic_t write_counter = 0;
+
+    if (!ui_timer.time_to_update(write_counter)) {
+        return lnav::progress_result_t::ok;
+    }
+    lnav_data.ld_bottom_source.update_loading(row, total, "Writing");
+    lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
+    return lnav_data.ld_status_refresher(lnav::func::op_type::blocking);
+}
+
 static void
 json_write_row(yajl_gen handle,
                int row,
@@ -331,11 +345,12 @@ com_save_to(exec_context& ec,
         fprintf(outfile, "\n");
 
         ArenaAlloc::Alloc<char> cell_alloc{1024};
-        for (const auto& row_cursor : dls.dls_row_cursors) {
+        for (auto row = size_t{0}; row < dls.dls_row_cursors.size(); row++) {
             if (ec.ec_dry_run && line_count > 10) {
                 break;
             }
 
+            auto& row_cursor = dls.dls_row_cursors[row];
             first = true;
             auto cursor = row_cursor.sync();
             for (size_t lpc = 0; lpc < dls.dls_headers.size();
@@ -353,6 +368,14 @@ com_save_to(exec_context& ec,
                 cell_alloc.reset();
             }
             fprintf(outfile, "\n");
+
+            if (row > 0 && row % 1000 == 0) {
+                if (write_progress(row, dls.dls_row_cursors.size())
+                    == lnav::progress_result_t::interrupt)
+                {
+                    break;
+                }
+            }
 
             line_count += 1;
         }
@@ -452,6 +475,14 @@ com_save_to(exec_context& ec,
             fprintf(outfile,
                     tf == text_format_t::TF_MARKDOWN ? "|\n" : "\u2502\n");
 
+            if (row > 0 && row % 1000 == 0) {
+                if (write_progress(row, dls.dls_row_cursors.size())
+                    == lnav::progress_result_t::interrupt)
+                {
+                    break;
+                }
+            }
+
             line_count += 1;
         }
 
@@ -484,6 +515,13 @@ com_save_to(exec_context& ec,
                 }
 
                 json_write_row(gen, row, ta, anonymize);
+                if (row > 0 && row % 1000 == 0) {
+                    if (write_progress(row, dls.dls_row_cursors.size())
+                        == lnav::progress_result_t::interrupt)
+                    {
+                        break;
+                    }
+                }
                 line_count += 1;
             }
         }
@@ -500,17 +538,24 @@ com_save_to(exec_context& ec,
 
             json_write_row(gen, row, ta, anonymize);
             yajl_gen_reset(gen, "\n");
+            if (row > 0 && row % 1000 == 0) {
+                if (write_progress(row, dls.dls_row_cursors.size())
+                    == lnav::progress_result_t::interrupt)
+                {
+                    break;
+                }
+            }
             line_count += 1;
         }
     } else if (args[0] == "write-screen-to") {
         bool wrapped = tc->get_word_wrap();
-        vis_line_t orig_top = tc->get_top();
+        auto orig_top = tc->get_top();
         auto inner_height = tc->get_inner_height();
 
         tc->set_word_wrap(to_term);
 
-        vis_line_t top = tc->get_top();
-        vis_line_t bottom = tc->get_bottom();
+        auto top = tc->get_top();
+        auto bottom = tc->get_bottom();
         if (lnav_data.ld_flags & LNF_HEADLESS && inner_height > 0_vl) {
             bottom = inner_height - 1_vl;
         }
@@ -532,12 +577,12 @@ com_save_to(exec_context& ec,
         }
         tc->listview_value_for_rows(*tc, top, rows);
         for (auto& al : rows) {
-            wrapped_count += vis_line_t((al.length() - 1) / (dim.second - 2));
             if (anonymize) {
                 al.al_attrs.clear();
                 al.al_string = ta.next(al.al_string);
             }
-            write_line_to(outfile, al);
+            auto cols_out = write_line_to(outfile, al);
+            wrapped_count += vis_line_t(cols_out / (dim.second - 2));
 
             ++y;
             if (los != nullptr) {
@@ -565,11 +610,13 @@ com_save_to(exec_context& ec,
     } else if (args[0] == "write-raw-to") {
         if (tc == &lnav_data.ld_views[LNV_DB]) {
             ArenaAlloc::Alloc<char> cell_alloc{1024};
-            for (const auto& row_cursor : dls.dls_row_cursors) {
+            for (auto row = size_t{0}; row < dls.dls_row_cursors.size(); row++)
+            {
                 if (ec.ec_dry_run && line_count > 10) {
                     break;
                 }
 
+                const auto& row_cursor = dls.dls_row_cursors[row];
                 auto cursor = row_cursor.sync();
                 for (size_t lpc = 0; lpc < dls.dls_headers.size();
                      lpc++, cursor = cursor->next())
@@ -584,6 +631,14 @@ com_save_to(exec_context& ec,
                 }
                 fprintf(outfile, "\n");
 
+                if (row > 0 && row % 1000 == 0) {
+                    if (write_progress(row, dls.dls_row_cursors.size())
+                        == lnav::progress_result_t::interrupt)
+                    {
+                        break;
+                    }
+                }
+
                 line_count += 1;
             }
         } else if (tc == &lnav_data.ld_views[LNV_LOG]) {
@@ -591,14 +646,13 @@ com_save_to(exec_context& ec,
             bookmark_vector<vis_line_t> visited;
             auto& lss = lnav_data.ld_log_source;
             std::vector<attr_line_t> rows(1);
-            size_t count = 0;
             std::string line;
 
             for (auto iter = all_user_marks.bv_tree.begin();
                  iter != all_user_marks.bv_tree.end();
-                 ++iter, count++)
+                 ++iter)
             {
-                if (ec.ec_dry_run && count > 10) {
+                if (ec.ec_dry_run && line_count > 10) {
                     break;
                 }
                 auto cl = lss.at(*iter);
@@ -631,6 +685,13 @@ com_save_to(exec_context& ec,
                         outfile, "%.*s\n", (int) sbr.length(), sbr.get_data());
                 }
 
+                if (line_count > 0 && line_count % 1000 == 0) {
+                    if (write_progress(line_count, all_user_marks.size())
+                        == lnav::progress_result_t::interrupt)
+                    {
+                        break;
+                    }
+                }
                 line_count += 1;
             }
         }
@@ -662,7 +723,6 @@ com_save_to(exec_context& ec,
         auto* fos = dynamic_cast<field_overlay_source*>(los);
         std::vector<attr_line_t> rows(1);
         attr_line_t ov_al;
-        size_t count = 0;
 
         if (fos != nullptr) {
             fos->fos_contexts.push(
@@ -680,9 +740,9 @@ com_save_to(exec_context& ec,
         }
         for (auto iter = all_user_marks.bv_tree.begin();
              iter != all_user_marks.bv_tree.end();
-             ++iter, count++)
+             ++iter)
         {
-            if (ec.ec_dry_run && count > 10) {
+            if (ec.ec_dry_run && line_count > 10) {
                 break;
             }
             tc->listview_value_for_rows(*tc, *iter, rows);
@@ -700,6 +760,13 @@ com_save_to(exec_context& ec,
                     write_line_to(outfile, ov_row);
                     line_count += 1;
                     ++y;
+                }
+            }
+            if (line_count > 0 && line_count % 1000 == 0) {
+                if (write_progress(line_count, all_user_marks.size())
+                    == lnav::progress_result_t::interrupt)
+                {
+                    break;
                 }
             }
             line_count += 1;
@@ -736,6 +803,7 @@ com_save_to(exec_context& ec,
             .truncate_to(10);
         lnav_data.ld_preview_status_source[0].get_description().set_value(
             "First lines of file: %s", split_args[0].c_str());
+        lnav_data.ld_status[LNS_PREVIEW0].set_needs_update();
     } else {
         retval = fmt::format(FMT_STRING("info: Wrote {:L} rows to {}"),
                              line_count,
@@ -745,6 +813,10 @@ com_save_to(exec_context& ec,
         closer(toclose);
     }
     outfile = nullptr;
+
+    lnav_data.ld_bottom_source.update_loading(0, 0);
+    lnav_data.ld_status[LNS_BOTTOM].set_needs_update();
+    lnav_data.ld_status_refresher(lnav::func::op_type::blocking);
 
     return Ok(retval);
 }
@@ -1099,6 +1171,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                     .get_description()
                     .set_cylon(true)
                     .set_value("Loading %s...", fn_str.c_str());
+                lnav_data.ld_status[LNS_PREVIEW0].set_needs_update();
                 lnav_data.ld_preview_view[0].set_sub_source(
                     &lnav_data.ld_preview_source[0]);
                 lnav_data.ld_preview_source[0].clear();
@@ -1132,6 +1205,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                     lnav_data.ld_preview_status_source[0]
                         .get_description()
                         .set_value("The following files will be loaded:");
+                    lnav_data.ld_status[LNS_PREVIEW0].set_needs_update();
                     lnav_data.ld_preview_view[0].set_sub_source(
                         &lnav_data.ld_preview_source[0]);
                     lnav_data.ld_preview_source[0].replace_with(al);
@@ -1262,6 +1336,7 @@ com_open(exec_context& ec, std::string cmdline, std::vector<std::string>& args)
                 lnav_data.ld_preview_status_source[0]
                     .get_description()
                     .set_value("For file: %s", fn.c_str());
+                lnav_data.ld_status[LNS_PREVIEW0].set_needs_update();
             }
         }
     } else {

@@ -518,7 +518,7 @@ view_curses::mvwattrline(ncplane* window,
                 ncplane_putwc_yx(window, y, x + attr_range.lr_start, be.value);
                 attrs = vc.attrs_for_role(be.role);
                 // clear the BG color, it interferes with the cursor BG
-                attrs.ta_bg_color = styling::color_unit::make_empty();
+                attrs.ta_bg_color = styling::color_unit::EMPTY;
             } else if (iter->sa_type == &VC_STYLE) {
                 attrs = iter->sa_value.get<text_attrs>();
             } else if (iter->sa_type == &SA_LEVEL) {
@@ -866,7 +866,7 @@ view_colors::to_attrs(const lnav_theme& lt,
                 lnav::console::user_message::error(
                     attr_line_t("invalid color -- ").append_quoted(sc.sc_color))
                     .with_reason(msg));
-            return styling::color_unit::make_empty();
+            return styling::color_unit::EMPTY;
         });
     auto bg = styling::color_unit::from_str(bg_color).unwrapOrElse(
         [&](const auto& msg) {
@@ -875,7 +875,7 @@ view_colors::to_attrs(const lnav_theme& lt,
                          attr_line_t("invalid background color -- ")
                              .append_quoted(sc.sc_background_color))
                          .with_reason(msg));
-            return styling::color_unit::make_empty();
+            return styling::color_unit::EMPTY;
         });
 
     fg = this->match_color(fg);
@@ -928,6 +928,9 @@ view_colors::init_roles(const lnav_theme& lt,
              lt.lt_icon_log_level_error,
              lt.lt_icon_log_level_critical,
              lt.lt_icon_log_level_fatal,
+
+             lt.lt_icon_play,
+             lt.lt_icon_edit,
          })
     {
         size_t index = 0;
@@ -960,6 +963,9 @@ view_colors::init_roles(const lnav_theme& lt,
                     case ui_icon_t::log_level_fatal:
                     case ui_icon_t::log_level_critical:
                         icon_role = role_t::VCR_ERROR;
+                        break;
+                    case ui_icon_t::play:
+                        icon_role = role_t::VCR_OK;
                         break;
                     default:
                         icon_role = role_t::VCR_TEXT;
@@ -1337,6 +1343,7 @@ view_colors::init_roles(const lnav_theme& lt,
                 = this->to_attrs(lt, level_iter->second, reporter);
         }
     }
+    this->vc_level_attrs[LEVEL_UNKNOWN] = this->vc_level_attrs[LEVEL_INFO];
 
     for (int32_t role_index = 0;
          role_index < lnav::enums::to_underlying(role_t::VCR__MAX);

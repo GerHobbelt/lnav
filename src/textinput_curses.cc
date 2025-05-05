@@ -83,11 +83,15 @@ textinput_curses::get_help_text()
               .append("\u2022"_list_glyph)
               .append(" ")
               .append("CTRL-N"_hotkey)
-              .append("    - Move down one line\n ")
+              .append(
+                  "    - Move down one line.  If a popup is open, move the "
+                  "selection down.\n ")
               .append("\u2022"_list_glyph)
               .append(" ")
               .append("CTRL-P"_hotkey)
-              .append("    - Move up one line\n ")
+              .append(
+                  "    - Move up one line.  If a popup is open, move the "
+                  "selection up.\n ")
               .append("\u2022"_list_glyph)
               .append(" ")
               .append("ALT  \u2190"_hotkey)
@@ -112,6 +116,10 @@ textinput_curses::get_help_text()
               .append(
                   "    - Cut from the beginning of the previous word into "
                   "the clipboard\n ")
+              .append("\u2022"_list_glyph)
+              .append(" ")
+              .append("Rt-click"_hotkey)
+              .append("  - Copy selection to the system clipboard\n ")
               .append("\u2022"_list_glyph)
               .append(" ")
               .append("CTRL-Y"_hotkey)
@@ -361,6 +369,7 @@ textinput_curses::handle_mouse(mouse_event& me)
             } else {
                 this->ensure_cursor_visible();
             }
+            this->set_needs_update();
         }
     } else if (me.me_button == mouse_button_t::BUTTON_SCROLL_DOWN) {
         auto dim = this->get_visible_dimensions();
@@ -371,6 +380,38 @@ textinput_curses::handle_mouse(mouse_event& me)
             } else {
                 this->ensure_cursor_visible();
             }
+            this->set_needs_update();
+        }
+    } else if (me.me_button == mouse_button_t::BUTTON_RIGHT) {
+        if (this->tc_selection) {
+            std::string content;
+            auto range = this->tc_selection;
+            auto add_nl = false;
+            for (auto y = range->sr_start.y;
+                 y <= range->sr_end.y && y < this->tc_lines.size();
+                 ++y)
+            {
+                if (add_nl) {
+                    content.push_back('\n');
+                }
+                auto sel_range = range->range_for_line(y);
+                if (!sel_range) {
+                    continue;
+                }
+
+                const auto& al = this->tc_lines[y];
+                auto byte_start = al.column_to_byte_index(sel_range->lr_start);
+                auto byte_end = al.column_to_byte_index(sel_range->lr_end);
+                auto al_sf = string_fragment::from_str_range(
+                    al.al_string, byte_start, byte_end);
+                content.append(al_sf.data(), al_sf.length());
+                add_nl = true;
+            }
+
+            this->tc_clipboard.clear();
+            this->tc_cut_location = this->tc_cursor;
+            this->tc_clipboard.emplace_back(content);
+            this->sync_to_sysclip();
         }
     } else if (me.me_button == mouse_button_t::BUTTON_LEFT) {
         this->tc_mode = mode_t::editing;
@@ -522,14 +563,18 @@ textinput_curses::handle_search_key(const ncinput& ch)
             }
             case 's':
             case 'S': {
-                this->tc_search_start_point = this->tc_cursor;
-                this->move_cursor_to_next_search_hit();
+                if (!this->tc_search.empty()) {
+                    this->tc_search_start_point = this->tc_cursor;
+                    this->move_cursor_to_next_search_hit();
+                }
                 return true;
             }
             case 'r':
             case 'R': {
-                this->tc_search_start_point = this->tc_cursor;
-                this->move_cursor_to_prev_search_hit();
+                if (!this->tc_search.empty()) {
+                    this->tc_search_start_point = this->tc_cursor;
+                    this->move_cursor_to_prev_search_hit();
+                }
                 return true;
             }
         }
@@ -606,6 +651,10 @@ textinput_curses::handle_search_key(const ncinput& ch)
 void
 textinput_curses::move_cursor_to_next_search_hit()
 {
+    if (this->tc_search_code == nullptr) {
+        return;
+    }
+
     auto x = this->tc_search_start_point.x;
     if (this->tc_search_found && !this->tc_search_found.value()) {
         this->tc_search_start_point.y = 0;
@@ -677,6 +726,61 @@ textinput_curses::move_cursor_to_prev_search_hit()
 }
 
 void
+textinput_curses::command_indent(indent_mode_t mode)
+{
+    log_debug("indenting line: %d", this->tc_cursor.y);
+
+    if (this->tc_cursor.y == 0 && !this->tc_prefix.empty()) {
+        return;
+    }
+
+    int indent_amount;
+    switch (mode) {
+        case indent_mode_t::left:
+        case indent_mode_t::clear_left:
+            indent_amount = 0;
+            break;
+        case indent_mode_t::right:
+            indent_amount = 4;
+            break;
+    }
+    auto& al = this->tc_lines[this->tc_cursor.y];
+    auto line_sf = al.to_string_fragment();
+    const auto [before, after]
+        = line_sf.split_when([](auto ch) { return !isspace(ch); });
+    auto indent_iter = std::lower_bound(this->tc_doc_meta.m_indents.begin(),
+                                        this->tc_doc_meta.m_indents.end(),
+                                        before.length());
+    if (indent_iter != this->tc_doc_meta.m_indents.end()) {
+        if (mode == indent_mode_t::left || mode == indent_mode_t::clear_left) {
+            if (indent_iter == this->tc_doc_meta.m_indents.begin()) {
+                indent_amount = 0;
+            } else {
+                indent_amount = *std::prev(indent_iter);
+            }
+        } else if (before.empty()) {
+            indent_amount = *indent_iter;
+        } else {
+            auto next_indent_iter = std::next(indent_iter);
+            if (next_indent_iter == this->tc_doc_meta.m_indents.end()) {
+                indent_amount += *indent_iter;
+            } else {
+                indent_amount = *next_indent_iter;
+            }
+        }
+    }
+    auto sel_len = (before.empty() && mode == indent_mode_t::clear_left)
+        ? line_sf.column_width()
+        : before.length();
+    this->tc_selection = selected_range::from_key(
+        this->tc_cursor.copy_with_x(0), this->tc_cursor.copy_with_x(sel_len));
+    auto indent = std::string(indent_amount, ' ');
+    auto old_cursor = this->tc_cursor;
+    this->replace_selection(indent);
+    this->tc_cursor.x = indent.length() - sel_len + old_cursor.x;
+}
+
+void
 textinput_curses::command_down(const ncinput& ch)
 {
     if (this->tc_popup.is_visible()) {
@@ -745,7 +849,9 @@ bool
 textinput_curses::handle_key(const ncinput& ch)
 {
     static const auto PREFIX_RE = lnav::pcre2pp::code::from_const(
-        R"(^\s*((?:-|\*|1\.|>)\s+(?:\[( |x|X)\]\s+)?)?)");
+        R"(^\s*((?:-|\*|1\.|>)(?:\s+\[( |x|X)\])?\s*))");
+    static const auto PREFIX_OR_WS_RE = lnav::pcre2pp::code::from_const(
+        R"(^\s*(>\s*|(?:-|\*|1\.)?(?:\s+\[( |x|X)\])?\s+))");
     thread_local auto md = lnav::pcre2pp::match_data::unitialized();
 
     if (this->tc_notice) {
@@ -883,7 +989,6 @@ textinput_curses::handle_key(const ncinput& ch)
                         log_debug("  cursor moved, clearing clipboard");
                         this->tc_clipboard.clear();
                     }
-                    this->tc_cut_location = this->tc_cursor;
                     auto& al = this->tc_lines[this->tc_cursor.y];
                     auto byte_index
                         = al.column_to_byte_index(this->tc_cursor.x);
@@ -902,22 +1007,9 @@ textinput_curses::handle_key(const ncinput& ch)
                             input_point{0, this->tc_cursor.y + 1});
                     }
                     this->replace_selection(string_fragment{});
+                    this->tc_cut_location = this->tc_cursor;
                 }
-                {
-                    auto clip_open_res
-                        = sysclip::open(sysclip::type_t::GENERAL);
-
-                    if (clip_open_res.isOk()) {
-                        auto clip_file = clip_open_res.unwrap();
-                        fprintf(clip_file.in(),
-                                "%s",
-                                this->tc_clipboard.back().c_str());
-                    } else {
-                        auto err_msg = clip_open_res.unwrapErr();
-                        log_error("unable to open clipboard: %s",
-                                  err_msg.c_str());
-                    }
-                }
+                this->sync_to_sysclip();
                 this->tc_drag_selection = std::nullopt;
                 this->update_lines();
                 return true;
@@ -971,11 +1063,17 @@ textinput_curses::handle_key(const ncinput& ch)
                 log_debug("cutting to beginning of line");
                 auto& al = this->tc_lines[this->tc_cursor.y];
                 auto byte_index = al.column_to_byte_index(this->tc_cursor.x);
+                if (this->tc_cursor != this->tc_cut_location) {
+                    log_debug("  cursor moved, clearing clipboard");
+                    this->tc_clipboard.clear();
+                }
                 this->tc_clipboard.emplace_back(
                     al.subline(0, byte_index).al_string);
+                this->sync_to_sysclip();
                 this->tc_selection = selected_range::from_key(
                     this->tc_cursor.copy_with_x(0), this->tc_cursor);
                 this->replace_selection(string_fragment{});
+                this->tc_cut_location = this->tc_cursor;
                 this->tc_selection = std::nullopt;
                 this->tc_drag_selection = std::nullopt;
                 this->update_lines();
@@ -1000,6 +1098,7 @@ textinput_curses::handle_key(const ncinput& ch)
                     auto prev_word = al_sf.sub_cell_range(
                         prev_word_start_opt.value(), this->tc_cursor.x);
                     this->tc_clipboard.emplace_front(prev_word.to_string());
+                    this->sync_to_sysclip();
                     this->tc_selection = selected_range::from_key(
                         this->tc_cursor.copy_with_x(
                             prev_word_start_opt.value()),
@@ -1119,21 +1218,53 @@ textinput_curses::handle_key(const ncinput& ch)
                     this->tc_on_perform(*this);
                 }
             } else {
-                if (!this->tc_selection) {
-                    this->tc_selection
-                        = selected_range::from_point(this->tc_cursor);
-                }
-                auto indent = std::string("\n");
                 const auto& al = this->tc_lines[this->tc_cursor.y];
-                auto match_opt = PREFIX_RE.capture_from(al.to_string_fragment())
-                                     .into(md)
-                                     .matches()
-                                     .ignore_error();
-                if (match_opt) {
-                    indent.append(match_opt->f_all.data(),
-                                  match_opt->f_all.length());
-                    if (md[2] && md[2]->front() != ' ') {
-                        indent[1 + md[2]->sf_begin] = ' ';
+                auto al_sf = al.to_string_fragment();
+                auto prefix_sf = al_sf.rtrim(" ");
+                auto indent = std::string("\n");
+                if (!this->tc_selection) {
+                    log_debug("checking for prefix");
+                    auto match_opt = PREFIX_OR_WS_RE.capture_from(al_sf)
+                                         .into(md)
+                                         .matches()
+                                         .ignore_error();
+                    if (match_opt) {
+                        log_debug("has prefix");
+                        this->tc_selection = selected_range::from_key(
+                            this->tc_cursor.copy_with_x(
+                                prefix_sf.column_width()),
+                            this->tc_cursor.copy_with_x(al_sf.column_width()));
+                        auto is_comment
+                            = al.al_attrs
+                            | lnav::itertools::find_if(
+                                  [](const string_attr& sa) {
+                                      return (sa.sa_type == &VC_ROLE)
+                                          && sa.sa_value.get<role_t>()
+                                          == role_t::VCR_COMMENT;
+                                  });
+                        if (!is_comment && !al.empty()
+                            && !md[1]->startswith(">")
+                            && match_opt->f_all.length() == al.length())
+                        {
+                            log_debug("clear left");
+                            this->command_indent(indent_mode_t::clear_left);
+                        } else if (this->is_cursor_at_end_of_line()) {
+                            indent.append(match_opt->f_all.data(),
+                                          match_opt->f_all.length());
+                            if (md[2] && md[2]->front() != ' ') {
+                                indent[1 + md[2]->sf_begin] = ' ';
+                            }
+                        } else {
+                            indent.append(match_opt->f_all.length(), ' ');
+                            this->tc_selection
+                                = selected_range::from_point(this->tc_cursor);
+                        }
+                    } else {
+                        this->tc_selection
+                            = selected_range::from_point(this->tc_cursor);
+                        log_debug("no prefix, replace point: [%d:%d]",
+                                  this->tc_selection->sr_start.x,
+                                  this->tc_selection->sr_start.y);
                     }
                 }
                 this->replace_selection(indent);
@@ -1163,45 +1294,24 @@ textinput_curses::handle_key(const ncinput& ch)
                     this->tc_on_completion_request(*this);
                 }
             } else if (!this->tc_selection) {
-                log_debug("indenting line");
-                auto indent_amount = 4;
-                auto line_sf
-                    = this->tc_lines[this->tc_cursor.y].to_string_fragment();
-                const auto [before, after]
-                    = line_sf.split_when([](auto ch) { return !isspace(ch); });
-                auto indent_iter
-                    = std::lower_bound(this->tc_doc_meta.m_indents.begin(),
-                                       this->tc_doc_meta.m_indents.end(),
-                                       before.length());
-                if (indent_iter != this->tc_doc_meta.m_indents.end()) {
-                    if (ncinput_shift_p(&ch)) {
-                        if (indent_iter == this->tc_doc_meta.m_indents.begin())
-                        {
-                            indent_amount = 0;
-                        } else {
-                            indent_amount = *std::prev(indent_iter);
-                        }
-                    } else if (before.empty()) {
-                        indent_amount = *indent_iter;
-                    } else {
-                        auto next_indent_iter = std::next(indent_iter);
-                        if (next_indent_iter
-                            == this->tc_doc_meta.m_indents.end())
-                        {
-                            indent_amount += *indent_iter;
-                        } else {
-                            indent_amount = *next_indent_iter;
-                        }
+                if (!ncinput_shift_p(&ch)
+                    && (this->tc_cursor.x > 0
+                        && this->tc_lines[this->tc_cursor.y].al_string.back()
+                            != ' '))
+                {
+                    log_debug("requesting completion at %d", this->tc_cursor.x);
+                    if (this->tc_on_completion_request) {
+                        this->tc_on_completion_request(*this);
                     }
+                    if (!this->tc_popup.is_visible()) {
+                        this->command_indent(indent_mode_t::right);
+                    }
+                    return true;
                 }
-                this->tc_selection = selected_range::from_key(
-                    this->tc_cursor.copy_with_x(0),
-                    this->tc_cursor.copy_with_x(before.length()));
-                auto indent = std::string(indent_amount, ' ');
-                auto old_cursor = this->tc_cursor;
-                this->replace_selection(indent);
-                this->tc_cursor.x
-                    = indent.length() - before.length() + old_cursor.x;
+
+                this->command_indent(ncinput_shift_p(&ch)
+                                         ? indent_mode_t::left
+                                         : indent_mode_t::right);
             }
             return true;
         }
@@ -1237,8 +1347,8 @@ textinput_curses::handle_key(const ncinput& ch)
             if (this->tc_lines.size() == 1 && this->tc_lines.front().empty()) {
                 this->abort();
             } else if (!this->tc_selection) {
-                auto line_sf
-                    = this->tc_lines[this->tc_cursor.y].to_string_fragment();
+                const auto& al = this->tc_lines[this->tc_cursor.y];
+                auto line_sf = al.to_string_fragment();
                 const auto [before, after]
                     = line_sf
                           .split_n(
@@ -1252,26 +1362,30 @@ textinput_curses::handle_key(const ncinput& ch)
                 if (match_opt && !match_opt->f_all.empty()
                     && match_opt->f_all.sf_end == this->tc_cursor.x)
                 {
-                    if (md[1]) {
+                    auto is_comment = al.al_attrs
+                        | lnav::itertools::find_if([](const string_attr& sa) {
+                                          return (sa.sa_type == &VC_ROLE)
+                                              && sa.sa_value.get<role_t>()
+                                              == role_t::VCR_COMMENT;
+                                      });
+                    if (!is_comment && md[1]) {
                         this->tc_selection = selected_range::from_key(
                             this->tc_cursor.copy_with_x(md[1]->sf_begin),
                             this->tc_cursor);
-                        auto indent = std::string(md[1]->length(), ' ');
+                        auto indent = std::string(
+                            md[1]->startswith(">") ? 0 : md[1]->length(), ' ');
 
                         this->replace_selection(indent);
                         return true;
                     }
+                } else {
                     auto indent_iter
                         = std::lower_bound(this->tc_doc_meta.m_indents.begin(),
                                            this->tc_doc_meta.m_indents.end(),
                                            this->tc_cursor.x);
                     if (indent_iter != this->tc_doc_meta.m_indents.end()) {
-                        if (indent_iter == this->tc_doc_meta.m_indents.begin())
+                        if (indent_iter != this->tc_doc_meta.m_indents.begin())
                         {
-                            this->tc_selection = selected_range::from_key(
-                                this->tc_cursor.copy_with_x(0),
-                                this->tc_cursor);
-                        } else {
                             auto prev_indent_iter = std::prev(indent_iter);
                             this->tc_selection = selected_range::from_key(
                                 this->tc_cursor.copy_with_x(*prev_indent_iter),
@@ -1399,7 +1513,15 @@ textinput_curses::handle_key(const ncinput& ch)
 void
 textinput_curses::ensure_cursor_visible()
 {
+    if (!this->vc_enabled) {
+        return;
+    }
+
     auto dim = this->get_visible_dimensions();
+    auto orig_top = this->tc_top;
+    auto orig_left = this->tc_left;
+    auto orig_cursor = this->tc_cursor;
+    auto orig_max_cursor_x = this->tc_max_cursor_x;
 
     this->clamp_point(this->tc_cursor);
     if (this->tc_cursor.y < 0) {
@@ -1465,7 +1587,12 @@ textinput_curses::ensure_cursor_visible()
         this->tc_max_cursor_x = this->tc_cursor.x;
     }
 
-    this->set_needs_update();
+    if (orig_top != this->tc_top || orig_left != this->tc_left
+        || orig_cursor != this->tc_cursor
+        || orig_max_cursor_x != this->tc_max_cursor_x)
+    {
+        this->set_needs_update();
+    }
 }
 
 void
@@ -1695,6 +1822,7 @@ textinput_curses::move_cursor_by(movement move)
         if (this->tc_cursor.y + 1 < (ssize_t) this->tc_lines.size()) {
             this->tc_cursor.x = 0;
             this->tc_cursor.y += 1;
+            this->tc_max_cursor_x = 0;
         }
     }
     this->clamp_point(this->tc_cursor);
@@ -1717,6 +1845,7 @@ textinput_curses::update_lines()
 {
     const auto x = this->get_cursor_offset();
     this->content_to_lines(this->get_content(), x);
+    this->set_needs_update();
     this->ensure_cursor_visible();
 
     this->tc_marks.clear();
@@ -1829,6 +1958,22 @@ textinput_curses::abort()
     }
 }
 
+void
+textinput_curses::sync_to_sysclip() const
+{
+    auto clip_open_res = sysclip::open(sysclip::type_t::GENERAL);
+
+    if (clip_open_res.isOk()) {
+        auto clip_file = clip_open_res.unwrap();
+        fmt::print(clip_file.in(),
+                   FMT_STRING("{}"),
+                   fmt::join(this->tc_clipboard, ""));
+    } else {
+        auto err_msg = clip_open_res.unwrapErr();
+        log_error("unable to open clipboard: %s", err_msg.c_str());
+    }
+}
+
 bool
 textinput_curses::do_update()
 {
@@ -1875,6 +2020,7 @@ textinput_curses::do_update()
                 this->tc_window, this->vc_y, alt_x, this->tc_alt_value, lr);
         }
 
+        this->vc_needs_update = false;
         return true;
     }
 
@@ -1938,8 +2084,7 @@ textinput_curses::do_update()
         }
         if (!this->tc_suggestion.empty() && !this->tc_popup.is_visible()
             && curr_line == this->tc_cursor.y
-            && this->tc_cursor.x == (ssize_t) al.column_width()
-            && (al.empty() || al.al_string.back() == ' '))
+            && this->tc_cursor.x == (ssize_t) al.column_width())
         {
             al.append(this->tc_suggestion,
                       VC_ROLE.value(role_t::VCR_SUGGESTION));
@@ -2049,7 +2194,7 @@ textinput_curses::do_update()
 
 void
 textinput_curses::open_popup_for_completion(
-    size_t left, std::vector<attr_line_t> possibilities)
+    line_range crange, std::vector<attr_line_t> possibilities)
 {
     if (possibilities.empty()) {
         this->tc_popup_type = popup_type_t::none;
@@ -2066,7 +2211,7 @@ textinput_curses::open_popup_for_completion(
     auto new_sel = 0_vl;
     auto popup_height = vis_line_t(
         std::min(this->tc_max_popup_height, possibilities.size() + 1));
-    ssize_t rel_x = left;
+    ssize_t rel_x = crange.lr_start;
     if (this->tc_cursor.y == 0) {
         rel_x += this->tc_prefix.column_width();
     }
@@ -2084,8 +2229,9 @@ textinput_curses::open_popup_for_completion(
         new_sel = vis_line_t(possibilities.size() - 1);
     }
 
-    this->tc_complete_range = selected_range::from_key(
-        this->tc_cursor.copy_with_x(left), this->tc_cursor);
+    this->tc_complete_range
+        = selected_range::from_key(this->tc_cursor.copy_with_x(crange.lr_start),
+                                   this->tc_cursor.copy_with_x(crange.lr_end));
     this->tc_popup_source.replace_with(possibilities);
     this->tc_popup.set_window(this->tc_window);
     this->tc_popup.set_x(this->vc_x + rel_x);
